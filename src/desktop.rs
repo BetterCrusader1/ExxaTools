@@ -13,7 +13,9 @@ fn port_answers(port: u16) -> bool {
 }
 
 fn spawn_open(url: &str) -> Result<(), String> {
-    Command::new("xdg-open")
+    let mut command = Command::new("xdg-open");
+    crate::steamctl::apply_session_env(&mut command);
+    command
         .arg(url)
         .stdout(Stdio::null())
         .stderr(Stdio::null())

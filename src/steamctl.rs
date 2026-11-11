@@ -113,6 +113,30 @@ pub fn shutdown(timeout: std::time::Duration) -> Result<bool, String> {
     Ok(!is_running())
 }
 
+/// Steam is a GUI app: when we spawn it from a bare shell there is no DISPLAY.
+pub fn apply_session_env(command: &mut Command) {
+    let has_display = std::env::var("DISPLAY").map(|value| !value.is_empty()).unwrap_or(false);
+    if !has_display {
+        let socket = std::path::Path::new("/tmp/.X11-unix/X0");
+        if socket.exists() {
+            command.env("DISPLAY", ":0");
+        }
+    }
+    if std::env::var("XAUTHORITY").is_err() {
+        let authority = crate::paths::home().join(".Xauthority");
+        if authority.is_file() {
+            command.env("XAUTHORITY", authority);
+        }
+    }
+    if std::env::var("DBUS_SESSION_BUS_ADDRESS").is_err() {
+        let runtime = std::env::var("XDG_RUNTIME_DIR").unwrap_or_else(|_| "/run/user/1000".into());
+        let bus = format!("unix:path={runtime}/bus");
+        if std::path::Path::new(&format!("{runtime}/bus")).exists() {
+            command.env("DBUS_SESSION_BUS_ADDRESS", bus);
+        }
+    }
+}
+
 pub fn start(extra_args: &[String]) -> Result<serde_json::Value, String> {
     let binary = steam_binary().ok_or("steam executable not found in PATH")?;
     let libs = audit_libs();
@@ -120,6 +144,7 @@ pub fn start(extra_args: &[String]) -> Result<serde_json::Value, String> {
     for arg in extra_args {
         command.arg(arg);
     }
+    apply_session_env(&mut command);
     let existing = std::env::var("LD_AUDIT").unwrap_or_default();
     if !libs.is_empty() && !existing.contains("vapor_forge") {
         let merged = if existing.is_empty() { libs.clone() } else { format!("{libs}:{existing}") };
@@ -277,6 +302,17 @@ pub fn set_launch_options(appid: u64, options: &str) -> Result<serde_json::Value
         "options": options,
         "backup": backup.display().to_string(),
     }))
+}
+
+pub fn add_launch_option(appid: u64, flag: &str) -> Result<serde_json::Value, String> {
+    let current = read_launch_options(appid);
+    let merged = crate::verify::merge_launch_option(current.as_deref(), flag);
+    if current.as_deref().map(str::trim) == Some(merged.trim()) {
+        return Ok(serde_json::json!({ "options": merged, "changed": false }));
+    }
+    let mut result = set_launch_options(appid, &merged)?;
+    result["changed"] = serde_json::json!(true);
+    Ok(result)
 }
 
 #[cfg(test)]

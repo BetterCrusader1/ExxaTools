@@ -352,7 +352,9 @@ fn main() {
             let Some(appid) = rest.first().and_then(|value| value.parse::<u64>().ok()) else {
                 fail("launchoptions needs a numeric app id");
             };
-            if let Some(options) = rest.get(1) {
+            if let Some(flag) = arg_value(rest, "--add") {
+                print_json(&steamctl::add_launch_option(appid, &flag).unwrap_or_else(|error| fail(error)));
+            } else if let Some(options) = rest.get(1).filter(|value| !value.starts_with("--")) {
                 print_json(&steamctl::set_launch_options(appid, options).unwrap_or_else(|error| fail(error)));
             } else {
                 print_json(&json!({

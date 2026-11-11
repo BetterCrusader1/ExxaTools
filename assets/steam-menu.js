@@ -1,5 +1,27 @@
-
 window.__vdGlyphs = __GLYPHS__;
+window.__vdToast = (text) => {
+  const node = document.createElement("div");
+  Object.assign(node.style, {
+    position: "fixed", right: "18px", bottom: "18px", zIndex: 2147483001,
+    padding: "10px 14px", borderRadius: "10px",
+    background: "#151A21", border: "1px solid #2E3A49", color: "#E9EDF2",
+    font: "500 12.5px Montserrat, 'Motiva Sans', Arial, sans-serif",
+    boxShadow: "0 18px 40px rgba(0,0,0,.55)", opacity: "0",
+    transition: "opacity 160ms ease, transform 160ms ease",
+    transform: "translateY(6px)",
+  });
+  node.textContent = text;
+  document.body.appendChild(node);
+  requestAnimationFrame(() => {
+    node.style.opacity = "1";
+    node.style.transform = "translateY(0)";
+  });
+  setTimeout(() => {
+    node.style.opacity = "0";
+    setTimeout(() => node.remove(), 200);
+  }, 2600);
+};
+
 window.__vdInject = () => {
   const API = "__API__";
   const ROOT = "__ROOT__";
@@ -29,7 +51,7 @@ window.__vdInject = () => {
   item.style.display = "flex";
   item.style.alignItems = "center";
   item.style.justifyContent = "center";
-  item.title = "ExxaTools";
+  item.title = "ExxaTools (Ctrl+Shift+E)";
   const icon = document.createElement("span");
   icon.id = ICON;
   icon.style.display = "flex";
@@ -43,7 +65,7 @@ window.__vdInject = () => {
   style.id = ROOT + "-style";
   style.textContent = `
     #${PANEL} {
-      position: fixed; z-index: 2147483000; width: 264px; padding: 6px;
+      position: fixed; z-index: 2147483000; width: 272px; padding: 6px;
       background: #151A21; border: 1px solid #2E3A49; border-radius: 14px;
       box-shadow: 0 24px 60px rgba(0,0,0,.62);
       font-family: Montserrat, "Motiva Sans", Arial, sans-serif;
@@ -62,12 +84,22 @@ window.__vdInject = () => {
     #${PANEL} .vd-state.warn .vd-dot { background: #D9A15A; }
     #${PANEL} .vd-state.bad .vd-dot { background: #D9655C; }
     #${PANEL} .vd-sep { height: 1px; margin: 6px 4px; background: #222A35; }
-    #${PANEL} .vd-item { display: flex; align-items: center; width: 100%; min-height: 34px;
-      padding: 7px 10px; gap: 9px; background: transparent; border: 1px solid transparent;
+    #${PANEL} .vd-item { display: flex; align-items: center; width: 100%; min-height: 32px;
+      padding: 6px 10px; gap: 9px; background: transparent; border: 1px solid transparent;
       border-radius: 9px; color: #9DA8B7; font: 500 12.5px Montserrat, "Motiva Sans", Arial, sans-serif;
       text-align: left; cursor: pointer; }
-    #${PANEL} .vd-item:hover { background: #1A212B; color: #E9EDF2; border-color: transparent; }
+    #${PANEL} .vd-item:hover { background: #1A212B; color: #E9EDF2; }
     #${PANEL} .vd-item svg { width: 15px; height: 15px; flex: none; opacity: .9; }
+    #${PANEL} .vd-plans { padding: 2px 4px 4px; }
+    #${PANEL} .vd-plan { display: flex; align-items: center; gap: 8px; padding: 5px 6px;
+      border-radius: 8px; font-size: 12px; color: #9DA8B7; }
+    #${PANEL} .vd-plan b { font-weight: 600; color: #E9EDF2; overflow: hidden;
+      text-overflow: ellipsis; white-space: nowrap; }
+    #${PANEL} .vd-flag { margin-left: auto; font: 600 10px Montserrat, Arial, sans-serif;
+      padding: 2px 6px; border-radius: 999px; border: 1px solid #2E3A49; color: #6B7686; }
+    #${PANEL} .vd-flag.ok { color: #7FCFA2; border-color: #2F5B45; }
+    #${PANEL} .vd-flag.warn { color: #D9A15A; border-color: #5B4A2F; }
+    #${PANEL} .vd-empty { padding: 6px 10px; font-size: 11.5px; color: #6B7686; }
     #${PANEL} .vd-msg { padding: 6px 10px 2px; font-size: 11.5px; color: #9DA8B7; min-height: 16px; }
   `;
   document.head.appendChild(style);
@@ -79,6 +111,8 @@ window.__vdInject = () => {
       <div class="vd-title">ExxaTools <span class="vd-ver" id="vd-ver">—</span></div>
       <div class="vd-state" id="vd-state"><span class="vd-dot"></span><span id="vd-state-text">checking engine</span></div>
     </div>
+    <div class="vd-sep"></div>
+    <div class="vd-plans" id="vd-plans"><div class="vd-empty">no plans yet</div></div>
     <div class="vd-sep"></div>
     <button class="vd-item" data-act="open">ICON_GLYPH_APP Open ExxaTools</button>
     <button class="vd-item" data-act="restart">ICON_GLYPH_RESTART Restart Steam</button>
@@ -103,7 +137,11 @@ window.__vdInject = () => {
     const state = panel.querySelector("#vd-state");
     const text = panel.querySelector("#vd-state-text");
     const version = panel.querySelector("#vd-ver");
-    if (!engine) { text.textContent = "ExxaTools is not answering"; state.className = "vd-state bad"; return; }
+    if (!engine) {
+      text.textContent = "ExxaTools is not answering";
+      state.className = "vd-state bad";
+      return;
+    }
     version.textContent = engine.version || "—";
     let label = "engine not installed";
     let kind = "bad";
@@ -116,10 +154,38 @@ window.__vdInject = () => {
     state.className = "vd-state " + kind;
   };
 
+  const planRow = (plan) => {
+    const missing = (plan.missing_keys || []).length;
+    const flag = plan.installed
+      ? (missing ? { text: "keys", kind: "warn" } : { text: "ready", kind: "ok" })
+      : { text: "plan", kind: "" };
+    const row = document.createElement("div");
+    row.className = "vd-plan";
+    const name = document.createElement("b");
+    name.textContent = plan.name || String(plan.appid);
+    const chip = document.createElement("span");
+    chip.className = "vd-flag " + flag.kind;
+    chip.textContent = flag.text;
+    row.append(name, chip);
+    return row;
+  };
+
+  const renderPlans = (status) => {
+    const box = panel.querySelector("#vd-plans");
+    const plans = (status && status.apps) || [];
+    if (!plans.length) {
+      box.innerHTML = '<div class="vd-empty">no plans yet</div>';
+      return;
+    }
+    box.replaceChildren(...plans.slice(0, 4).map(planRow));
+  };
+
   const refresh = async () => {
     try {
-      const response = await fetch(API + "/api/engine", { cache: "no-store" });
-      setState(await response.json());
+      const response = await fetch(API + "/api/status", { cache: "no-store" });
+      const status = await response.json();
+      setState(status.engine);
+      renderPlans(status);
     } catch (error) {
       setState(null);
     }
@@ -127,7 +193,7 @@ window.__vdInject = () => {
 
   const place = () => {
     const rect = item.getBoundingClientRect();
-    const width = 264;
+    const width = 272;
     let left = Math.min(Math.max(8, rect.left - width + rect.width), window.innerWidth - width - 8);
     panel.style.left = left + "px";
     panel.style.top = Math.round(rect.bottom + 10) + "px";
@@ -139,16 +205,21 @@ window.__vdInject = () => {
     panel.classList.add("open");
     refresh();
   };
+  const toggle = () => (panel.classList.contains("open") ? close() : open());
 
   item.addEventListener("click", (event) => {
     event.stopPropagation();
-    if (panel.classList.contains("open")) close(); else open();
+    toggle();
   });
   document.addEventListener("click", (event) => {
     if (!panel.contains(event.target) && !item.contains(event.target)) close();
   });
   document.addEventListener("keydown", (event) => {
     if (event.key === "Escape") close();
+    if (event.ctrlKey && event.shiftKey && (event.key === "E" || event.key === "e")) {
+      event.preventDefault();
+      toggle();
+    }
   });
   window.addEventListener("resize", () => { if (panel.classList.contains("open")) place(); });
 
@@ -169,7 +240,9 @@ window.__vdInject = () => {
       } else if (action === "provider") {
         const response = await fetch(API + "/api/provider", { method: "POST", headers: {"Content-Type": "application/json"}, body: "{}" });
         const data = await response.json();
-        msg(data.error ? data.error : "provider script written");
+        const text = data.error ? data.error : "provider script written";
+        msg(text);
+        window.__vdToast(text);
       } else if (action === "about") {
         msg("ExxaTools — depots, manifests and keys for Vapor Forge");
       }

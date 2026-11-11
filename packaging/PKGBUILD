@@ -1,0 +1,28 @@
+# Maintainer: BetterCrusader <bettercrusader@users.noreply.github.com>
+pkgname=exxatools
+pkgver=0.2.0
+pkgrel=1
+pkgdesc="Steam depots and manifests for the Linux client, on Vapor Forge"
+arch=('x86_64')
+url="https://github.com/BetterCrusader1/ExxaTools"
+license=('MIT')
+depends=('gcc-libs')
+makedepends=('cargo')
+source=("$pkgname-$pkgver.tar.gz::$url/archive/refs/tags/v$pkgver.tar.gz")
+sha256sums=('SKIP')
+install="$pkgname.install"
+
+build() {
+  cd "ExxaTools-$pkgver"
+  cargo build --release --locked
+}
+
+package() {
+  cd "ExxaTools-$pkgver"
+  install -Dm755 target/release/exxa "$pkgdir/usr/bin/exxa"
+  install -Dm644 web/logo.png "$pkgdir/usr/share/icons/hicolor/512x512/apps/exxatools.png"
+  install -Dm644 packaging/exxatools.desktop "$pkgdir/usr/share/applications/exxatools.desktop"
+  install -d "$pkgdir/usr/share/exxatools"
+  cp -r web "$pkgdir/usr/share/exxatools/web"
+  cp -r assets "$pkgdir/usr/share/exxatools/assets"
+}

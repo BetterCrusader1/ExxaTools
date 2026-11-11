@@ -91,17 +91,16 @@ game without opening a terminal.
 
 ## Phase 4 — Steam integration (2 days)
 
-- [ ] Steam menu panel: recent games, quick Install, download status.
-- [ ] Toasts inside the client through the Vapor Forge bridge (`[toast]`).
-- [ ] Hotkey for the panel (Ctrl+Shift+E).
+- [x] Steam menu panel: saved plans with state, dashboard, restart, provider.
+- [x] Toasts inside the client (injected, not the bridge).
+- [x] Hotkey for the panel (Ctrl+Shift+E).
 - [ ] Launch options: an `-onlinefix` toggle per game.
-- [ ] Post-update check: if the menu is gone after a Steam update, say so and
-      re-inject.
+- [x] Post-update check: a watcher re-injects the menu every 45 seconds.
 
 ## Phase 5 — product (2 days)
 
 - [x] Autostart entry (`exxa autostart`); tray icon still open.
-- [ ] Packaging: AUR `PKGBUILD`, refreshed `.desktop`, screenshots in the README.
+- [x] Packaging: `packaging/PKGBUILD`, `.desktop`, icon, screenshot in the README.
 - [ ] `diagnostics.json`: last app errors, an export button.
 
 ## Risks and countermeasures

@@ -41,6 +41,12 @@ pub fn project_dir() -> PathBuf {
             dir = current.parent().map(Path::to_path_buf);
         }
     }
+    for installed in ["/usr/share/exxatools", "/usr/local/share/exxatools"] {
+        let candidate = PathBuf::from(installed);
+        if candidate.join("web/index.html").is_file() {
+            return candidate;
+        }
+    }
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
 }
 
@@ -81,22 +87,6 @@ pub fn engine_cache() -> PathBuf {
 
 pub fn engine_meta() -> PathBuf {
     vf_data().join("exxatools-engine.json")
-}
-
-pub fn steam_root() -> Option<PathBuf> {
-    let home = home();
-    let candidates = [
-        home.join(".steam/steam"),
-        home.join(".local/share/Steam"),
-        home.join(".steam/root"),
-        home.join("Steam"),
-    ];
-    for candidate in &candidates {
-        if candidate.join("config/loginusers.vdf").is_file() {
-            return Some(candidate.clone());
-        }
-    }
-    candidates.into_iter().find(|path| path.join("steam.sh").is_file())
 }
 
 pub fn steam_log() -> PathBuf {

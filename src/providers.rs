@@ -42,13 +42,6 @@ fn builtin(name: &str) -> Option<Spec> {
     })
 }
 
-pub fn default_order() -> Vec<Value> {
-    ["steamrun", "20770407", "wudrm", "manifestdex", "opensteamtool"]
-        .iter()
-        .map(|name| Value::String((*name).to_string()))
-        .collect()
-}
-
 pub fn resolve(entry: &Value) -> Option<Spec> {
     match entry {
         Value::String(name) => builtin(name),

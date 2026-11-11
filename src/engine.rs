@@ -15,10 +15,8 @@ use crate::paths;
 use crate::steamctl;
 
 pub const REPO: &str = "Hintay/vapor-forge";
-const RELEASES_API: &str = "https://api.github.com/repos/Hintay/vapor-forge/releases";
 pub const ARCHES: &[&str] = &["i686", "x86_64"];
 pub const LIBS: &[&str] = &["libvapor_forge.so", "libvapor_forge_proton_inject.so"];
-pub const INSTALL_TIMEOUT: u64 = 180;
 pub const LOG_TAG: &str = "[vapor-forge]";
 pub const NOISE_TAG: &str = "feat: sharing unlocked app_id=";
 
@@ -41,7 +39,7 @@ fn linux_asset(release: &Value) -> Option<Value> {
 }
 
 pub fn releases(limit: usize) -> Result<Vec<Value>, String> {
-    let url = format!("{RELEASES_API}?per_page={}", limit.clamp(1, 20));
+    let url = format!("https://api.github.com/repos/{REPO}/releases?per_page={}", limit.clamp(1, 20));
     let payload = http::get_json(&url).map_err(|error| format!("cannot reach the GitHub release API: {error}"))?;
     let mut out = Vec::new();
     for release in payload.as_array().cloned().unwrap_or_default() {
@@ -102,10 +100,6 @@ pub fn libs() -> Value {
         out.insert((*arch).to_string(), Value::Array(entries));
     }
     Value::Object(out)
-}
-
-pub fn installed() -> bool {
-    libs().as_object().map(|map| map.values().any(|value| value.as_array().map(|list| !list.is_empty()).unwrap_or(false))).unwrap_or(false)
 }
 
 pub fn luac() -> Option<String> {

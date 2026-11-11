@@ -21,6 +21,13 @@ pub struct Config {
     pub port: u16,
 }
 
+static PORT: std::sync::OnceLock<u16> = std::sync::OnceLock::new();
+
+/// The port the API is actually listening on, so injected scripts agree.
+pub fn port() -> u16 {
+    *PORT.get().unwrap_or(&8765)
+}
+
 fn mime_for(path: &Path) -> &'static str {
     match path.extension().and_then(|value| value.to_str()).unwrap_or("") {
         "html" => "text/html; charset=utf-8",
@@ -91,17 +98,6 @@ fn body_u64(body: &Value, key: &str) -> Result<u64, (u16, String)> {
         .ok_or((400, format!("{key} must be an integer")))
 }
 
-fn sources_catalog(st: &state::State) -> Value {
-    let providers: Vec<Value> = st
-        .settings
-        .manifest_providers
-        .iter()
-        .filter(|name| crate::providers::resolve(&json!(name)).is_some())
-        .map(|name| json!(name))
-        .collect();
-    json!([{ "name": "auto", "providers": providers }])
-}
-
 fn render_record(record: &Value, st: &state::State) -> String {
     let appid = record.get("appid").and_then(Value::as_u64).unwrap_or(0);
     let name = record.get("name").and_then(Value::as_str).unwrap_or("");
@@ -162,7 +158,7 @@ fn app_view(appid: u64, branch: &str) -> Result<Value, (u16, String)> {
         "plan": st.apps.get(&appid.to_string()).cloned(),
         "installed": vfsys::script_path(appid).exists(),
         "source": st.settings.default_source,
-        "sources": sources_catalog(&st),
+        "sources": crate::sources::catalog(&st.settings),
         "launch_options": Value::Null,
     }))
 }
@@ -765,9 +761,11 @@ fn handle(mut stream: TcpStream) {
 }
 
 pub fn serve(config: Config) -> Result<(), String> {
+    let _ = PORT.set(config.port);
     let listener = TcpListener::bind(("127.0.0.1", config.port))
         .map_err(|error| format!("cannot bind 127.0.0.1:{}: {error}", config.port))?;
     eprintln!("exxa {} on http://127.0.0.1:{}/", env!("CARGO_PKG_VERSION"), config.port);
+    std::thread::spawn(crate::steamui::watch_loop);
     let listener = Arc::new(listener);
     for incoming in listener.incoming() {
         match incoming {

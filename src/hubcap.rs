@@ -153,7 +153,6 @@ fn from_zip(raw: &[u8], appid: u64) -> Result<Fetched, HubcapError> {
 
 pub struct Parsed {
     pub appid: Option<u64>,
-    pub apps: Vec<u64>,
     pub dlc: Vec<u64>,
     pub depots: Vec<Value>,
 }
@@ -247,7 +246,6 @@ pub fn parse_lua(text: &str, appid: Option<u64>) -> Parsed {
     let dlc: Vec<u64> = apps.iter().copied().filter(|value| Some(*value) != root).collect();
     Parsed {
         appid: root,
-        apps,
         dlc,
         depots: depots.into_values().collect(),
     }

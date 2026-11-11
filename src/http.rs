@@ -11,18 +11,20 @@ const TIMEOUT: Duration = Duration::from_secs(20);
 pub struct HttpError {
     pub message: String,
     pub status: Option<u16>,
-    pub body: String,
 }
 
 impl HttpError {
     fn new(message: impl Into<String>) -> Self {
-        Self { message: message.into(), status: None, body: String::new() }
+        Self { message: message.into(), status: None }
     }
 }
 
 impl std::fmt::Display for HttpError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(&self.message)
+        match self.status {
+            Some(status) => write!(f, "{} (HTTP {status})", self.message),
+            None => f.write_str(&self.message),
+        }
     }
 }
 
@@ -31,11 +33,7 @@ impl std::error::Error for HttpError {}
 impl From<ureq::Error> for HttpError {
     fn from(error: ureq::Error) -> Self {
         match error {
-            ureq::Error::StatusCode(code) => Self {
-                message: format!("HTTP {code}"),
-                status: Some(code),
-                body: String::new(),
-            },
+            ureq::Error::StatusCode(code) => Self { message: format!("HTTP {code}"), status: Some(code) },
             other => Self::new(other.to_string()),
         }
     }
@@ -67,17 +65,9 @@ pub fn get_with(url: &str, user_agent: Option<&str>, timeout: Option<Duration>) 
     Ok(body)
 }
 
-pub fn get(url: &str) -> Result<Vec<u8>, HttpError> {
-    get_with(url, None, None)
-}
-
 pub fn get_text_with(url: &str, user_agent: Option<&str>, timeout: Option<Duration>) -> Result<String, HttpError> {
     let body = get_with(url, user_agent, timeout)?;
     Ok(String::from_utf8_lossy(&body).into_owned())
-}
-
-pub fn get_text(url: &str) -> Result<String, HttpError> {
-    get_text_with(url, None, None)
 }
 
 pub fn get_json(url: &str) -> Result<serde_json::Value, HttpError> {
@@ -89,7 +79,6 @@ pub fn get_json_with(url: &str, user_agent: Option<&str>) -> Result<serde_json::
     serde_json::from_str(&text).map_err(|error| HttpError {
         message: format!("{url} returned non-JSON payload: {error}"),
         status: None,
-        body: text.chars().take(400).collect(),
     })
 }
 

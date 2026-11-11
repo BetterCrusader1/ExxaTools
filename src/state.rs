@@ -59,10 +59,6 @@ impl Default for State {
     }
 }
 
-pub fn state_dir() -> PathBuf {
-    crate::paths::state_dir()
-}
-
 pub fn state_path() -> PathBuf {
     crate::paths::state_path()
 }
@@ -111,10 +107,6 @@ pub fn valid_key(value: &str) -> Option<String> {
     } else {
         None
     }
-}
-
-pub fn key_for(state: &State, depot_id: u64) -> Option<&String> {
-    state.depot_keys.get(&depot_id.to_string())
 }
 
 pub fn set_key(state: &mut State, depot_id: u64, key: Option<&str>) {

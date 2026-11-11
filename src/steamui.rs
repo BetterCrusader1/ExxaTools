@@ -19,7 +19,9 @@ const MAIN_TARGET_PREFIX: &str = "about:blank?createflags=18";
 pub const ROOT_ID: &str = "vd-menu-root";
 const PANEL_ID: &str = "vd-menu-panel";
 const ICON_ID: &str = "vd-menu-icon";
-const API_BASE: &str = "http://127.0.0.1:8765";
+fn api_base() -> String {
+    format!("http://127.0.0.1:{}", crate::server::port())
+}
 const MENU_SCRIPT: &str = include_str!("../assets/steam-menu.js");
 
 const GLYPHS: &[(&str, &str)] = &[
@@ -60,7 +62,7 @@ fn script() -> String {
     .unwrap_or_else(|_| "{}".into());
     MENU_SCRIPT
         .replace("__GLYPHS__", &glyphs)
-        .replace("__API__", API_BASE)
+        .replace("__API__", &api_base())
         .replace("__ROOT__", ROOT_ID)
         .replace("__PANEL__", PANEL_ID)
         .replace("__ICON__", ICON_ID)
@@ -196,13 +198,20 @@ pub fn enable_debug() -> Result<Value, String> {
     Ok(json!({ "patched": patched, "restarted": restarted, "flag": FLAG }))
 }
 
-pub fn ensure_running() -> Value {
-    let info = status();
-    if !info.get("debug_ready").and_then(Value::as_bool).unwrap_or(false) {
-        return info;
+/// Puts the menu back after Steam re-renders or updates itself.
+pub fn watch_loop() {
+    loop {
+        std::thread::sleep(std::time::Duration::from_secs(45));
+        if !steamctl::is_running() || !debug_ready() {
+            continue;
+        }
+        let injected = status().get("injected").and_then(Value::as_bool).unwrap_or(false);
+        if injected {
+            continue;
+        }
+        match inject() {
+            Ok(_) => eprintln!("steamui: menu re-injected"),
+            Err(error) => eprintln!("steamui: re-inject failed: {error}"),
+        }
     }
-    if info.get("injected").and_then(Value::as_bool).unwrap_or(false) {
-        return info;
-    }
-    inject().unwrap_or(info)
 }

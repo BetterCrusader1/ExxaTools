@@ -8,6 +8,8 @@ choose its depots, pin manifests, store depot keys, and write a Lua plan into
 Vapor Forge's script directory. Vapor Forge does the hooking and Steam does the
 downloading.
 
+![ExxaTools](docs/game.png)
+
 Rust, one binary, no runtime dependencies. `./exxa` builds it on first use and
 execs it; the old Python implementation is kept under `legacy/` as a reference.
 
@@ -43,6 +45,24 @@ cargo build --release
 ./exxa provider --write       # install the request-code provider script
 ./exxa shortcut                # add the desktop menu entry
 ```
+
+## In the Steam client
+
+`./exxa steamui enable` adds `-cef-enable-debugging` to the launcher and
+restarts Steam; `./exxa steamui inject` puts our mark next to **Help**. The panel
+lists saved plans with their state, opens the dashboard, restarts Steam and
+installs the provider. A watcher re-injects the menu after Steam re-renders, and
+Ctrl+Shift+E toggles it from anywhere in the client.
+
+## Install as a package
+
+```sh
+cd packaging && makepkg -si
+```
+
+The PKGBUILD builds the release binary and installs the desktop entry, icon and
+web assets under `/usr/share/exxatools`. The binary finds that directory on its
+own when it is not run from a checkout.
 
 ## What it talks to
 

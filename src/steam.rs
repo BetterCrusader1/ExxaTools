@@ -274,7 +274,7 @@ fn shuffle(items: &mut [Value]) {
 fn discover_pool(cc: &str) -> Vec<Value> {
     let mut pool: Vec<Value> = Vec::new();
     let mut seen: Vec<u64> = Vec::new();
-    let mut push = |appid: u64, name: &str, pool: &mut Vec<Value>, seen: &mut Vec<u64>| {
+    let push = |appid: u64, name: &str, pool: &mut Vec<Value>, seen: &mut Vec<u64>| {
         if name.is_empty() || seen.contains(&appid) {
             return;
         }

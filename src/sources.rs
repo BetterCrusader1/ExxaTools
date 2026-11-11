@@ -42,26 +42,3 @@ pub fn catalog(settings: &Settings) -> Vec<Value> {
     }
     out
 }
-
-pub fn resolve(settings: &Settings, name: Option<&str>) -> Value {
-    let chosen = name.map(str::to_string).or_else(|| Some(settings.default_source.clone())).unwrap_or_else(|| "auto".into());
-    let entries = catalog(settings);
-    if let Some(found) = entries.iter().find(|entry| entry.get("name").and_then(Value::as_str) == Some(chosen.as_str())) {
-        return found.clone();
-    }
-    entries
-        .iter()
-        .find(|entry| entry.get("name").and_then(Value::as_str) == Some("auto"))
-        .cloned()
-        .unwrap_or_else(|| json!({ "name": "auto", "label": "Auto", "providers": [], "key_source_url": "" }))
-}
-
-pub fn key_source(settings: &Settings, name: Option<&str>) -> String {
-    let source = resolve(settings, name);
-    source
-        .get("key_source_url")
-        .and_then(Value::as_str)
-        .filter(|value| !value.is_empty())
-        .map(str::to_string)
-        .unwrap_or_else(|| settings.key_source_url.clone())
-}

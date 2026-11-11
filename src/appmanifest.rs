@@ -43,22 +43,6 @@ pub const FLAG_BITS: &[(u64, &str)] = &[
     (1048576, "update stopping"),
 ];
 
-pub const SCALARS: &[&str] = &[
-    "appid",
-    "name",
-    "StateFlags",
-    "LastUpdated",
-    "SizeOnDisk",
-    "StagingSize",
-    "buildid",
-    "LastOwner",
-    "BytesToDownload",
-    "BytesDownloaded",
-    "AutoUpdateBehavior",
-    "AllowOtherDownloadsWhileRunning",
-    "ScheduledAutoUpdate",
-];
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Mode {
     Fix,
@@ -196,7 +180,7 @@ pub fn read(appid: u64) -> Result<Option<Manifest>, String> {
             list
         })
         .unwrap_or_default();
-    let numeric = |value: Option<String>| value.and_then(|text| text.trim().parse::<i64>().ok());
+    let numeric = |key: &str| vdf::scalar_i64(&state, key);
     let mtime = std::fs::metadata(&path)
         .and_then(|meta| meta.modified())
         .ok()
@@ -210,10 +194,10 @@ pub fn read(appid: u64) -> Result<Option<Manifest>, String> {
         name: scalar("name"),
         state_flags: flags,
         state: labels,
-        bytes_to_download: numeric(scalar("BytesToDownload")),
-        bytes_downloaded: numeric(scalar("BytesDownloaded")),
-        size_on_disk: numeric(scalar("SizeOnDisk")),
-        last_updated: numeric(scalar("LastUpdated")),
+        bytes_to_download: numeric("BytesToDownload"),
+        bytes_downloaded: numeric("BytesDownloaded"),
+        size_on_disk: numeric("SizeOnDisk"),
+        last_updated: numeric("LastUpdated"),
         buildid: scalar("buildid"),
         auto_update: scalar("AutoUpdateBehavior"),
         scheduled_auto_update: scalar("ScheduledAutoUpdate"),
@@ -318,6 +302,8 @@ pub fn report(appid: u64, plan: Option<&Value>) -> Value {
         "auto_update": data.auto_update,
         "scheduled_auto_update": data.scheduled_auto_update,
         "allow_other_downloads": data.allow_other_downloads,
+        "buildid": data.buildid,
+        "mtime": data.mtime,
         "depots": data.depots.iter().map(|depot| json!({
             "depot_id": depot.depot_id,
             "manifest": depot.manifest,
