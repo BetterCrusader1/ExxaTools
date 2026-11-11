@@ -14,6 +14,8 @@ const state = {
   app: null,
   branch: "public",
   selected: new Set(),
+  dlc: new Set(),
+  step: 0,
   searchSeq: 0,
 };
 
@@ -270,6 +272,8 @@ async function openApp(appid, branch) {
     state.app = app;
     state.branch = app.branch;
     state.selected = new Set((app.plan?.depots || []).map((depot) => depot.depot_id));
+    state.dlc = new Set((app.plan?.dlc || []).map(Number));
+    state.step = 0;
     if (!state.selected.size) {
       for (const depot of app.depots) {
         const preferred = state.status?.settings?.default_os || "linux";
@@ -319,6 +323,8 @@ function renderApp() {
   select.value = state.branch;
 
   renderDepots();
+  renderSteps();
+  renderDlc();
   const platform = state.status?.settings?.default_os || "linux";
   document.querySelectorAll("[data-select]").forEach((item) => {
     item.classList.toggle("is-active", item.dataset.select === platform);
@@ -338,6 +344,49 @@ function setHero(appid) {
     img.src = artUrl(appid, size);
   };
   attempt("library_hero");
+}
+
+function renderSteps() {
+  const done = [true, true, state.selected.size > 0, Boolean(state.app?.installed)];
+  document.querySelectorAll("#steps .step").forEach((button) => {
+    const index = Number(button.dataset.step);
+    button.classList.toggle("is-active", index === state.step);
+    button.classList.toggle("done", done[index] && index !== state.step);
+  });
+}
+
+function renderDlc() {
+  const list = $("#dlcList");
+  const hint = $("#dlcHint");
+  const count = $("#dlcCount");
+  if (!list) return;
+  const items = state.app?.dlc_names || [];
+  count.textContent = items.length ? String(items.length) : "";
+  if (!items.length) {
+    list.replaceChildren(h("p", { class: "hint", text: "This app has no DLC entries." }));
+    hint.textContent = "";
+    return;
+  }
+  list.replaceChildren(
+    ...items.map((item) =>
+      h("label", { class: "dlc-row" },
+        h("input", {
+          type: "checkbox",
+          checked: state.dlc.has(item.appid),
+          onchange: (event) => {
+            if (event.target.checked) state.dlc.add(item.appid);
+            else state.dlc.delete(item.appid);
+            renderSteps();
+            const hintNode = $("#dlcHint");
+            if (hintNode) hintNode.textContent = `${state.dlc.size} of ${items.length} selected`;
+          },
+        }),
+        h("span", { text: item.name }),
+        h("span", { class: "id", text: item.appid })
+      )
+    )
+  );
+  hint.textContent = `${state.dlc.size} of ${items.length} selected`;
 }
 
 function renderDepots() {
@@ -485,7 +534,7 @@ async function savePlan() {
   try {
     const record = await api("plan", {
       method: "POST",
-      body: { appid: app.appid, name: app.name, branch: state.branch, depots, dlc: app.dlc || [] },
+      body: { appid: app.appid, name: app.name, branch: state.branch, depots, dlc: [...state.dlc] },
     });
     app.plan = record;
     toast("plan saved", "ok");
@@ -887,6 +936,16 @@ $("#removeProvider").addEventListener("click", async () => {
 $("#reloadLog").addEventListener("click", loadLog);
 $("#shuffleDiscover").addEventListener("click", loadDiscover);
 $("#runDoctor").addEventListener("click", loadDoctor);
+
+document.querySelectorAll("#steps .step").forEach((button) => {
+  button.addEventListener("click", () => {
+    state.step = Number(button.dataset.step);
+    renderSteps();
+    const target = [".hero", "#dlcPanel", "#depotList", "#buildBar"][state.step];
+    document.querySelector(target)?.scrollIntoView({ behavior: "smooth", block: "start" });
+    if (state.step === 3) updateBuildBar();
+  });
+});
 
 const dropZone = h("div", { class: "doctor-drop", id: "dropZone", text: "Drop a .lua or .vdf to import depot keys" });
 document.body.append(dropZone);
