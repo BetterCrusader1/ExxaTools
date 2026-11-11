@@ -61,8 +61,18 @@ target/                 179 MB
 бінарник                308 KB   (strip + lto + opt-level=s)
 ```
 
-Тобто «40 ГБ» — це міф для нашого випадку. Навіть із steamroom орієнтир
-1.5–2 ГБ і 3–5 хвилин першого білда, і то лише якщо вмикати feature.
+Окремий пробник із самим `steamroom` (той самий release-профіль):
+
+```
+cargo build --release   53.2 s
+target/                 685 MB
+~/.cargo/registry       +100 MB
+```
+
+Тобто «40 ГБ» — це міф для нашого випадку. Ядро = 14 с і 179 МБ, ядро з
+`steamroom` = ~68 с і ~0.9 ГБ разом, і то лише якщо вмикати feature.
+Дерево `steamroom` (tokio, reqwest, rustls, prost, rsa) важить більше за все
+інше разом — тому воно й живе за флагом.
 
 Перевірено в роботі: `steamlocate` знайшов Steam у `~/.local/share/Steam` і
 бібліотеку, `keyvalues-parser` розібрав `AppState` з `appmanifest`.
