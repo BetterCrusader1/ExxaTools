@@ -20,6 +20,8 @@ cargo build --release
 ./target/release/exxa search "portal"
 ./target/release/exxa plan 620         # print the Lua plan, luac-checked
 ./target/release/exxa fix 620          # stop-loop repair for appmanifest
+./target/release/exxa pins 620         # branch gid vs the plan, per depot
+./target/release/exxa pin 620 621 1234567890   # pin an older manifest
 ./target/release/exxa doctor           # twelve checks with the fix for each
 ./target/release/exxa watch --once     # what still needs the flag repair
 ```

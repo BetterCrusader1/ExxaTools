@@ -15,6 +15,7 @@ const state = {
   branch: "public",
   selected: new Set(),
   dlc: new Set(),
+  pins: new Map(),
   step: 0,
   searchSeq: 0,
 };
@@ -126,6 +127,68 @@ function renderPlans() {
         )
       );
     })
+  );
+}
+
+function dialog({ title, note, value, placeholder, confirmText = "Save", onConfirm }) {
+  const back = h("div", { class: "modal-back" });
+  const input = h("input", { type: "text", value: value || "", placeholder: placeholder || "", spellcheck: "false" });
+  const close = () => back.remove();
+  const submit = async () => {
+    try {
+      await onConfirm(input.value.trim());
+      close();
+    } catch (error) {
+      toast(error.message, "bad");
+    }
+  };
+  input.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") submit();
+    if (event.key === "Escape") close();
+  });
+  back.append(
+    h("div", { class: "modal" },
+      h("h3", { text: title }),
+      h("p", { text: note || "" }),
+      h("label", { class: "field" }, h("span", { text: "manifest id" }), input),
+      h("div", { class: "modal-actions" },
+        h("button", { class: "btn small ghost", text: "Cancel", onclick: close }),
+        h("button", { class: "btn small", text: confirmText, onclick: submit })
+      )
+    )
+  );
+  back.addEventListener("click", (event) => { if (event.target === back) close(); });
+  document.body.append(back);
+  requestAnimationFrame(() => {
+    back.classList.add("on");
+    input.focus();
+    input.select();
+  });
+}
+
+async function loadPins() {
+  if (!state.app) return;
+  try {
+    const data = await api(`pins?appid=${state.app.appid}&branch=${encodeURIComponent(state.branch)}`);
+    state.pins = new Map((data.items || []).map((item) => [item.depot_id, item]));
+  } catch {
+    state.pins = new Map();
+  }
+  renderPins();
+  renderDepots();
+}
+
+function renderPins() {
+  const box = $("#pinsState");
+  if (!box) return;
+  const items = [...(state.pins?.values() || [])];
+  const pinned = items.filter((item) => item.state !== "branch");
+  const stale = items.filter((item) => item.state === "stale");
+  box.replaceChildren(
+    ...[
+      h("div", { class: "line" }, h("span", { text: "Pinned depots" }), h("span", { text: `${pinned.length} of ${items.length}` })),
+      stale.length ? h("div", { class: "line" }, h("span", { text: "Behind the branch" }), h("span", { text: String(stale.length) })) : null,
+    ].filter(Boolean)
   );
 }
 
@@ -331,6 +394,7 @@ function renderApp() {
   select.value = state.branch;
 
   renderDepots();
+  loadPins();
   renderSteps();
   renderDlc();
   const platform = state.status?.settings?.default_os || "linux";
@@ -404,7 +468,31 @@ function renderDepots() {
   const rows = app.depots.map((depot) => {
     const checked = state.selected.has(depot.depot_id);
     const key = depot.key || "";
-    const keyInput = h("input", {
+    const pin = state.pins?.get(depot.depot_id);
+  const pinState = pin?.state || "branch";
+  const pinButton = h("button", {
+    class: `pin-chip ${pinState}`,
+    title: pinState === "branch" ? "On the branch build" : `Pinned to ${pin?.planned_gid || ""}`,
+    text: pinState === "branch" ? "pin" : pinState,
+    onclick: () => {
+      const current = pin?.planned_gid || "";
+      dialog({
+        title: `Depot ${depot.depot_id}`,
+        note: pin?.branch_gid ? `Branch build is ${pin.branch_gid}. A different value pins an older manifest.` : "This depot has no manifest on the selected branch.",
+        value: current,
+        placeholder: "manifest id",
+        confirmText: "Pin",
+        onConfirm: async (value) => {
+          await api("pin", { method: "POST", body: { appid: state.app.appid, depot_id: depot.depot_id, gid: value } });
+          await loadPins();
+          await loadScript(state.app.appid);
+          updateBuildBar();
+        },
+      });
+    },
+  });
+
+  const keyInput = h("input", {
       class: `key-input${key ? " has-key" : ""}`,
       type: "text",
       spellcheck: "false",
@@ -440,6 +528,7 @@ function renderDepots() {
       ),
       h("div", { class: "depot-side" },
         h("span", { class: "depot-size", text: fmtSize(depot.size) }),
+        pinButton,
         keyInput
       )
     );
@@ -944,6 +1033,17 @@ $("#removeProvider").addEventListener("click", async () => {
 $("#reloadLog").addEventListener("click", loadLog);
 $("#shuffleDiscover").addEventListener("click", loadDiscover);
 $("#runDoctor").addEventListener("click", loadDoctor);
+$("#clearPins").addEventListener("click", async () => {
+  if (!state.app) return;
+  const pinned = [...(state.pins?.values() || [])].filter((item) => item.state !== "branch");
+  if (!pinned.length) return toast("nothing is pinned", "ok");
+  for (const item of pinned) {
+    await api("pin", { method: "POST", body: { appid: state.app.appid, depot_id: item.depot_id, gid: "" } });
+  }
+  toast("pins cleared", "ok");
+  await loadPins();
+  await loadScript(state.app.appid);
+});
 
 document.querySelectorAll("#steps .step").forEach((button) => {
   button.addEventListener("click", () => {

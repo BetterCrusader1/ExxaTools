@@ -9,6 +9,7 @@ mod engine;
 mod http;
 mod lua;
 mod paths;
+mod pins;
 mod providers;
 mod server;
 mod sources;
@@ -67,6 +68,8 @@ fn main() {
                 "exxa serve [--port 8765] [--window]",
                 "exxa steamui status|inject|remove|enable",
                 "exxa shortcut [install|remove]",
+                "exxa pins <appid> [--branch]",
+                "exxa pin <appid> <depot> [gid|clear]",
                 "exxa doctor",
                 "exxa update",
                 "exxa version",
@@ -280,6 +283,27 @@ fn main() {
                 Ok(output) => fail(String::from_utf8_lossy(&output.stderr).trim().to_string()),
                 Err(error) => fail(error.to_string()),
             }
+        }
+        "pins" => {
+            let Some(appid) = rest.first().and_then(|value| value.parse::<u64>().ok()) else {
+                fail("pins needs a numeric app id");
+            };
+            let st = state::load().unwrap_or_else(|error| fail(error));
+            let branch = arg_value(rest, "--branch").unwrap_or_else(|| "public".into());
+            print_json(&pins::compare(&st, appid, &branch).unwrap_or_else(|error| fail(error)));
+        }
+        "pin" => {
+            let Some(appid) = rest.first().and_then(|value| value.parse::<u64>().ok()) else {
+                fail("pin needs an app id");
+            };
+            let Some(depot) = rest.get(1).and_then(|value| value.parse::<u64>().ok()) else {
+                fail("pin needs a depot id");
+            };
+            let gid = rest.get(2).cloned().filter(|value| value != "clear");
+            let mut st = state::load().unwrap_or_else(|error| fail(error));
+            let result = pins::set_pin(&mut st, appid, depot, gid.as_deref()).unwrap_or_else(|error| fail(error));
+            state::save(&st).unwrap_or_else(|error| fail(error));
+            print_json(&result);
         }
         "doctor" => print_json(&doctor::run()),
         "verify" => {

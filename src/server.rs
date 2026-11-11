@@ -310,6 +310,11 @@ fn get_route(path: &str, query: &[(String, String)]) -> Result<Value, (u16, Stri
             Ok(json!({ "items": out, "os": os, "branch": branch }))
         }
         "/api/doctor" => Ok(crate::doctor::run()),
+        "/api/pins" => {
+            let appid = need_u64(query, "appid")?;
+            let branch = get(query, "branch").unwrap_or("public").to_string();
+            crate::pins::compare(&st, appid, &branch).map_err(|error| (502, error))
+        }
         "/api/watch" => Ok(crate::watch::sweep(false)),
         "/api/verify" => {
             let appid = need_u64(query, "appid")?;
@@ -500,6 +505,15 @@ fn post_route(path: &str, body: &Value, query: &[(String, String)]) -> Result<Va
                 }
             }
             Ok(json!({ "codes": out, "errors": errors }))
+        }
+        "/api/pin" => {
+            let appid = body_u64(body, "appid")?;
+            let depot_id = body_u64(body, "depot_id")?;
+            let gid = body.get("gid").and_then(Value::as_str).filter(|value| !value.is_empty());
+            let mut st = state::load().map_err(|error| (500, error))?;
+            let result = crate::pins::set_pin(&mut st, appid, depot_id, gid).map_err(|error| (400, error))?;
+            state::save(&st).map_err(|error| (500, error))?;
+            Ok(result)
         }
         "/api/watch" => {
             let apply = body.get("apply").and_then(Value::as_bool).unwrap_or(false);
