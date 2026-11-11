@@ -13,6 +13,14 @@ downloading.
 Rust, one binary, no runtime dependencies. `./exxa` builds it on first use and
 execs it; the old Python implementation is kept under `legacy/` as a reference.
 
+## Window and menu
+
+`./exxa` opens a real application window (GTK with a WebKit view, no browser
+chrome). `./exxa serve` keeps the integration alive in the background and puts the
+ExxaTools icon back into Steam within seconds whenever the client restarts;
+`./exxa autostart install` starts that at login. `./exxa window` opens just the
+window, starting the server when nothing answers on the port.
+
 ## Run
 
 ```sh

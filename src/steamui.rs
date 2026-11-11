@@ -354,7 +354,7 @@ pub fn inject() -> Result<Value, String> {
     let ws = target.get("webSocketDebuggerUrl").and_then(Value::as_str).unwrap_or("");
     let script = script();
     let build = script_hash(&script);
-    let body = format!("window.__vdNoIcon = false;\n{script}\nwindow.__vdBuild = {build:?};");
+    let body = format!("window.__vdNoIcon = false;\n{script}\nwindow.__vdBuild = {build:?};\nwindow.__vdInject();");
     let result = cdp::evaluate(ws, &body, std::time::Duration::from_secs(20))?;
     let text = result.as_str().unwrap_or("");
     if text != "injected" && text != "present" {
@@ -399,6 +399,36 @@ pub fn desktop_override() -> Option<PathBuf> {
 
 const DESKTOP_MARK: &str = "X-Vapor-Forge-Override=true";
 
+
+/// The flag is an argument of the steam binary, not a command: putting it before
+/// `env` breaks the whole entry and Steam starts without a debugging port.
+fn add_debug_flag(text: &str) -> String {
+    let mut out = String::with_capacity(text.len() + 32);
+    let broken = format!("Exec={FLAG} ");
+    for raw in text.lines() {
+        // Repair entries broken by the old rule, which put the flag before `env`.
+        let line = match raw.strip_prefix(&broken) {
+            Some(rest) => format!("Exec={rest}"),
+            None => raw.to_string(),
+        };
+        if line.starts_with("Exec=") && !line.contains(FLAG) {
+            if let Some(index) = line.find("/usr/bin/steam") {
+                let split = index + "/usr/bin/steam".len();
+                out.push_str(&line[..split]);
+                out.push(' ');
+                out.push_str(FLAG);
+                out.push_str(&line[split..]);
+            } else {
+                out.push_str(&line);
+            }
+        } else {
+            out.push_str(&line);
+        }
+        out.push('\n');
+    }
+    out
+}
+
 /// Persist the debugging flag in the launcher, then restart Steam.
 pub fn enable_debug() -> Result<Value, String> {
     let mut patched: Vec<String> = Vec::new();
@@ -410,18 +440,16 @@ pub fn enable_debug() -> Result<Value, String> {
             continue;
         }
         let Ok(text) = std::fs::read_to_string(&path) else { continue };
-        if text.contains(FLAG) {
-            patched.push(path.display().to_string());
-            continue;
-        }
         if !text.contains("Exec=") {
             continue;
         }
         if path.file_name().and_then(|value| value.to_str()) == Some("steam.desktop") && !text.contains(DESKTOP_MARK) {
             continue;
         }
-        let updated = text.replacen("Exec=", &format!("Exec={FLAG} "), 1);
-        if std::fs::write(&path, updated).is_ok() {
+        let updated = add_debug_flag(&text);
+        if updated == text {
+            patched.push(path.display().to_string());
+        } else if std::fs::write(&path, updated).is_ok() {
             patched.push(path.display().to_string());
         }
     }
@@ -429,23 +457,91 @@ pub fn enable_debug() -> Result<Value, String> {
     Ok(json!({ "patched": patched, "restarted": restarted, "flag": FLAG }))
 }
 
-/// Puts the menu back after Steam re-renders or updates itself.
+static WATCHER: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Keeps the menu alive for the whole session: Steam rebuilds its window on every
+/// restart and drops whatever was injected, so the icon has to be put back.
+pub fn ensure_started() {
+    use std::sync::atomic::Ordering;
+    if WATCHER.swap(true, Ordering::Relaxed) {
+        return;
+    }
+    std::thread::spawn(|| {
+        loop {
+            let running = steamctl::is_running();
+            if !running {
+                std::thread::sleep(std::time::Duration::from_secs(2));
+                continue;
+            }
+            if !debug_ready() {
+                // A Steam started without the debugging flag cannot be reached; the
+                // launcher entry is repaired so the next start works.
+                let _ = enable_debug_if_possible();
+                std::thread::sleep(std::time::Duration::from_secs(10));
+                continue;
+            }
+            let injected = status().get("injected").and_then(Value::as_bool).unwrap_or(false);
+            if !injected {
+                match inject() {
+                    Ok(_) => eprintln!("steamui: menu injected"),
+                    Err(error) => eprintln!("steamui: inject failed: {error}"),
+                }
+            }
+            std::thread::sleep(std::time::Duration::from_secs(if injected { 20 } else { 3 }));
+        }
+    });
+}
+
+/// Writes the flag into the launcher without restarting anything.
+fn enable_debug_if_possible() -> Result<(), String> {
+    for path in [desktop_override(), Some(PathBuf::from("/usr/share/applications/steam.desktop"))]
+        .into_iter()
+        .flatten()
+    {
+        let Ok(text) = std::fs::read_to_string(&path) else { continue };
+        if !text.contains("Exec=") {
+            continue;
+        }
+        if path.file_name().and_then(|value| value.to_str()) == Some("steam.desktop") && !text.contains(DESKTOP_MARK) {
+            continue;
+        }
+        let updated = add_debug_flag(&text);
+        if updated != text {
+            let _ = std::fs::write(&path, updated);
+        }
+    }
+    Ok(())
+}
+
+/// Kept for callers that used to start the loop by hand.
 pub fn watch_loop() {
-    loop {
-        std::thread::sleep(std::time::Duration::from_secs(45));
-        if !steamctl::is_running() {
-            continue;
-        }
-        if !debug_ready() {
-            continue;
-        }
-        let injected = status().get("injected").and_then(Value::as_bool).unwrap_or(false);
-        if injected {
-            continue;
-        }
-        match inject() {
-            Ok(_) => eprintln!("steamui: menu re-injected"),
-            Err(error) => eprintln!("steamui: re-inject failed: {error}"),
-        }
+    ensure_started();
+}
+
+
+#[cfg(test)]
+mod tests {
+    use super::add_debug_flag;
+
+    #[test]
+    fn flag_goes_after_the_binary() {
+        let entry = "[Desktop Entry]\nExec=env \"LD_AUDIT=/x\" /usr/bin/steam %U\n";
+        let patched = add_debug_flag(entry);
+        assert!(patched.contains("/usr/bin/steam -cef-enable-debugging %U"));
+        assert!(!patched.starts_with("Exec=-cef"));
+    }
+
+    #[test]
+    fn broken_entry_is_repaired() {
+        let entry = "Exec=-cef-enable-debugging env \"LD_AUDIT=/x\" /usr/bin/steam %U\n";
+        let patched = add_debug_flag(entry);
+        assert!(patched.starts_with("Exec=env "));
+        assert!(patched.contains("/usr/bin/steam -cef-enable-debugging %U"));
+    }
+
+    #[test]
+    fn flag_is_not_added_twice() {
+        let entry = "Exec=/usr/bin/steam -cef-enable-debugging %U\n";
+        assert_eq!(add_debug_flag(entry), entry);
     }
 }

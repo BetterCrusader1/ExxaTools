@@ -2,6 +2,7 @@
 
 mod appmanifest;
 mod steamui;
+mod window;
 mod desktop;
 mod cdp;
 mod doctor;
@@ -238,7 +239,24 @@ fn main() {
                     let _ = desktop::open_window(&url);
                 });
             }
+            crate::steamui::ensure_started();
             if let Err(error) = server::serve(server::Config { port }) {
+                fail(error);
+            }
+        }
+        "window" => {
+            let port = arg_value(rest, "--port").unwrap_or_else(|| "8765".into());
+            let url = arg_value(rest, "--url").unwrap_or_else(|| format!("http://127.0.0.1:{port}/"));
+            if std::net::TcpStream::connect(("127.0.0.1", port.parse().unwrap_or(8765))).is_err() {
+                let exe = std::env::current_exe().unwrap_or_default();
+                let _ = std::process::Command::new(exe)
+                    .args(["serve", "--port", &port])
+                    .stdout(std::process::Stdio::null())
+                    .stderr(std::process::Stdio::null())
+                    .spawn();
+                std::thread::sleep(std::time::Duration::from_millis(800));
+            }
+            if let Err(error) = window::run(&url) {
                 fail(error);
             }
         }

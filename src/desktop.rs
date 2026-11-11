@@ -12,6 +12,7 @@ fn port_answers(port: u16) -> bool {
     std::net::TcpStream::connect(("127.0.0.1", port)).is_ok()
 }
 
+#[allow(dead_code)]
 fn spawn_open(url: &str) -> Result<(), String> {
     let mut command = Command::new("xdg-open");
     crate::steamctl::apply_session_env(&mut command);
@@ -29,7 +30,7 @@ pub fn launch_app() -> Value {
     let port = 8765u16;
     let url = format!("http://127.0.0.1:{port}/");
     if port_answers(port) {
-        let _ = spawn_open(&url);
+        let _ = open_window(&url);
         return json!({ "started": false, "opened": url, "running": true });
     }
     let exe = std::env::current_exe().unwrap_or_default();
@@ -42,8 +43,8 @@ pub fn launch_app() -> Value {
     if !spawned {
         return json!({ "started": false, "opened": Value::Null, "error": "cannot start the server" });
     }
-    std::thread::sleep(std::time::Duration::from_millis(700));
-    let opened = spawn_open(&url).is_ok();
+    std::thread::sleep(std::time::Duration::from_millis(900));
+    let opened = open_window(&url).is_ok();
     json!({ "started": true, "opened": if opened { json!(url) } else { Value::Null }, "running": true })
 }
 
@@ -100,8 +101,17 @@ pub fn remove_autostart() -> Value {
     json!({ "path": target.display().to_string(), "removed": removed })
 }
 
-/// `serve --window` has no toolkit: start the server and hand the URL to the
-/// browser, which is the same page the GTK helper shows.
+/// Opens the dashboard as a real window. The server keeps running on its own, so
+/// closing the window leaves the Steam integration alive.
 pub fn open_window(url: &str) -> Result<(), String> {
-    spawn_open(url)
+    let exe = std::env::current_exe().map_err(|error| error.to_string())?;
+    let mut command = Command::new(exe);
+    crate::steamctl::apply_session_env(&mut command);
+    command
+        .args(["window", "--url", url])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .map(|_| ())
+        .map_err(|error| format!("cannot open a window: {error}"))
 }
