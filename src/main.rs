@@ -9,7 +9,9 @@ mod providers;
 mod server;
 mod state;
 mod steam;
+mod hubcap;
 mod steamctl;
+mod vfsys;
 mod vdf;
 
 use serde_json::{json, Value};
