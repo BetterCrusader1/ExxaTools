@@ -264,10 +264,7 @@ fn get_route(path: &str, query: &[(String, String)]) -> Result<Value, (u16, Stri
             let text = lua::render_provider(&order).map_err(|error| (500, error))?;
             Ok(json!({ "text": text, "state": vfsys::provider_state() }))
         }
-        "/api/steamui" => Ok(json!({
-            "supported": false,
-            "note": "the Steam menu is still served by the Python build; the Rust port lands with the CDP client",
-        })),
+        "/api/steamui" => Ok(crate::steamui::status()),
         "/api/steam" => Ok(json!({
             "root": steamctl::root().map(|value| value.display().to_string()),
             "running": steamctl::is_running(),
@@ -399,6 +396,24 @@ fn post_route(path: &str, body: &Value, query: &[(String, String)]) -> Result<Va
                 return Ok(result);
             }
             appmanifest::patch(appid, &mode, !force).map_err(|error| (500, error))
+        }
+        "/api/steamui" => {
+            let action = body.get("action").and_then(Value::as_str).unwrap_or("status");
+            match action {
+                "inject" => crate::steamui::inject().map_err(|error| (500, error)),
+                "remove" => Ok(crate::steamui::remove()),
+                "enable" => crate::steamui::enable_debug().map_err(|error| (500, error)),
+                other => Err((400, format!("action must be inject, remove, or enable, not {other}"))),
+            }
+        }
+        "/api/app/launch" => Ok(crate::desktop::launch_app()),
+        "/api/desktop" => {
+            let action = body.get("action").and_then(Value::as_str).unwrap_or("install");
+            match action {
+                "install" => crate::desktop::install_desktop_entry().map_err(|error| (500, error)),
+                "uninstall" => Ok(crate::desktop::uninstall_desktop_entry()),
+                other => Err((400, format!("action must be install or uninstall, not {other}"))),
+            }
         }
         "/api/steam/restart" => steamctl::restart(&[]).map_err(|error| (500, error)),
         "/api/steam/shutdown" => {

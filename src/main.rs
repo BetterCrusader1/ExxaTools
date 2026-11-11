@@ -1,6 +1,9 @@
 //! ExxaTools: Steam depots and manifests for the Linux client, on Vapor Forge.
 
 mod appmanifest;
+mod steamui;
+mod desktop;
+mod cdp;
 mod engine;
 mod http;
 mod lua;
@@ -15,6 +18,11 @@ mod vfsys;
 mod vdf;
 
 use serde_json::{json, Value};
+
+pub fn base64_encode(bytes: &[u8]) -> String {
+    use base64::Engine;
+    base64::engine::general_purpose::STANDARD.encode(bytes)
+}
 
 fn arg_value(args: &[String], flag: &str) -> Option<String> {
     args.iter().position(|arg| arg == flag).and_then(|index| args.get(index + 1)).cloned()
@@ -52,7 +60,9 @@ fn main() {
                 "exxa log [lines]",
                 "exxa discover [limit]",
                 "exxa provider [--write]",
-                "exxa serve [--port 8765]",
+                "exxa serve [--port 8765] [--window]",
+                "exxa steamui status|inject|remove|enable",
+                "exxa shortcut [install|remove]",
             ],
         }));
         return;
@@ -204,8 +214,33 @@ fn main() {
         }
         "serve" => {
             let port = arg_value(rest, "--port").and_then(|value| value.parse().ok()).unwrap_or(8765);
+            if has_flag(rest, "--window") {
+                let url = format!("http://127.0.0.1:{port}/");
+                std::thread::spawn(move || {
+                    std::thread::sleep(std::time::Duration::from_millis(500));
+                    let _ = desktop::open_window(&url);
+                });
+            }
             if let Err(error) = server::serve(server::Config { port }) {
                 fail(error);
+            }
+        }
+        "steamui" => {
+            let action = rest.first().cloned().unwrap_or_else(|| "status".into());
+            match action.as_str() {
+                "status" => print_json(&steamui::status()),
+                "inject" => print_json(&steamui::inject().unwrap_or_else(|error| fail(error))),
+                "remove" => print_json(&steamui::remove()),
+                "enable" => print_json(&steamui::enable_debug().unwrap_or_else(|error| fail(error))),
+                other => fail(format!("unknown steamui action {other}; use status, inject, remove, enable")),
+            }
+        }
+        "shortcut" => {
+            let action = rest.first().cloned().unwrap_or_else(|| "install".into());
+            match action.as_str() {
+                "install" => print_json(&desktop::install_desktop_entry().unwrap_or_else(|error| fail(error))),
+                "remove" => print_json(&desktop::uninstall_desktop_entry()),
+                other => fail(format!("unknown shortcut action {other}; use install or remove")),
             }
         }
         "log" => {
