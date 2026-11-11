@@ -97,27 +97,8 @@ async function refreshStatus() {
     toast(`status: ${error.message}`, "bad");
     return;
   }
-  renderRail();
   renderPlans();
   loadEngine();
-}
-
-function renderRail() {
-  const forge = state.status?.vapor_forge;
-  const node = $("#railStatus");
-  const text = $("#railStatusText");
-  if (!forge) return;
-  let label = "engine missing";
-  let kind = "bad";
-  if (forge.installed && forge.ld_audit.configured) {
-    label = "engine ready";
-    kind = "ok";
-  } else if (forge.installed) {
-    label = "wiring missing";
-    kind = "warn";
-  }
-  node.className = `rail-status ${kind}`;
-  text.textContent = label;
 }
 
 function renderPlans() {
@@ -138,11 +119,33 @@ function renderPlans() {
   );
 }
 
+async function loadDiscover() {
+  const box = $("#discover");
+  box.replaceChildren(h("p", { class: "hint", text: "loading picks…" }));
+  try {
+    const data = await api("discover?limit=18");
+    const items = data.items || [];
+    box.replaceChildren(...items.map(resultCard));
+  } catch (error) {
+    box.replaceChildren(h("p", { class: "hint", text: `discover: ${error.message}` }));
+  }
+}
+
+function showDiscover(visible) {
+  $("#discoverHead").hidden = !visible;
+  $("#discover").hidden = !visible;
+}
+
 let searchTimer = null;
 async function runSearch(term) {
   const query = term.trim();
   const box = $("#results");
-  if (!query) { box.replaceChildren(); return; }
+  if (!query) {
+    box.replaceChildren();
+    showDiscover(true);
+    return;
+  }
+  showDiscover(false);
   const seq = ++state.searchSeq;
   box.replaceChildren(h("p", { class: "hint", text: "searching…" }));
   try {
@@ -162,23 +165,24 @@ async function runSearch(term) {
 
 function resultCard(item) {
   const art = h("div", { class: "card-art" });
+  const fallback = h("div", { class: "card-art empty", text: (item.name || "?").slice(0, 1).toUpperCase() });
+  const sizes = ["library_600x900", "header", "capsule_231x87", "logo"];
+  let index = 0;
   const img = new Image();
   img.onload = () => { art.style.backgroundImage = `url('${img.src}')`; };
   img.onerror = () => {
-    img.src = artUrl(item.appid, "header");
+    index += 1;
+    if (index < sizes.length) img.src = artUrl(item.appid, sizes[index]);
+    else art.replaceWith(fallback);
   };
-  img.src = artUrl(item.appid);
-  const initials = (item.name || "?").slice(0, 1).toUpperCase();
-  const fallback = h("div", { class: "card-art empty", text: initials });
-  const card = h("button", { class: "card", type: "button", onclick: () => openApp(item.appid) },
+  img.src = artUrl(item.appid, sizes[0]);
+  return h("button", { class: "card", type: "button", onclick: () => openApp(item.appid) },
     art,
     h("div", { class: "card-body" },
       h("span", { class: "card-name", text: item.name }),
-      h("span", { class: "card-sub", text: item.price || String(item.appid) })
+      h("span", { class: "card-sub", text: item.price || `app ${item.appid}` })
     )
   );
-  img.onerror = () => { art.replaceWith(fallback); };
-  return card;
 }
 
 // ------------------------------------------------------------------ app view
@@ -799,6 +803,7 @@ $("#removeProvider").addEventListener("click", async () => {
   }
 });
 $("#reloadLog").addEventListener("click", loadLog);
+$("#shuffleDiscover").addEventListener("click", loadDiscover);
 
 async function steamUiAction(action) {
   try {
@@ -829,4 +834,5 @@ document.addEventListener("keydown", (event) => {
 });
 
 refreshStatus();
+loadDiscover();
 loadSystem();

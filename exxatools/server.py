@@ -347,6 +347,11 @@ class Handler(BaseHTTPRequestHandler):
                     return result
                 return appmanifest.patch(appid, mode, steam_check=not force)
 
+        if path == "discover" and method == "GET":
+            cc = query.get("cc") or store.load()["settings"]["country"]
+            limit = int(query.get("limit") or 18)
+            return {"items": steam.discover(cc, limit)}
+
         if path == "search" and method == "GET":
             term = query.get("q", "")
             cc = query.get("cc") or store.load()["settings"]["country"]

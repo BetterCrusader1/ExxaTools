@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+import re
+
 from . import http
 
 STORE_SEARCH = "https://store.steampowered.com/api/storesearch/?term={term}&l=english&cc={cc}"
 STORE_DETAILS = "https://store.steampowered.com/api/appdetails?appids={appid}&l=english&cc={cc}"
 APPINFO = "https://api.steamcmd.net/v1/info/{appid}"
+FEATURED = "https://store.steampowered.com/api/featuredcategories?l=english&cc={cc}"
 
 BRANCH_FALLBACKS = ("public",)
 
@@ -211,3 +214,49 @@ def pick_manifest(depot: dict, branch: str) -> dict | None:
 
 def selectable(depot: dict, branch: str) -> bool:
     return pick_manifest(depot, branch) is not None
+
+
+_DISCOVER_CACHE: dict = {"at": 0.0, "items": []}
+STEAMSPY = "https://steamspy.com/api.php?request=top100in2weeks"
+NOISE = re.compile(
+    r"soundtrack|\bdemo\b|bundle|steam deck|steam frame|steam controller|"
+    r"\bdlc\b|season pass|artbook|wallpaper|server|beta",
+    re.IGNORECASE,
+)
+
+
+def _discover_pool(cc: str) -> list[dict]:
+    pool: dict[int, dict] = {}
+    try:
+        spy = http.get_json(STEAMSPY, timeout=20)
+        for item in spy.values() if isinstance(spy, dict) else []:
+            appid, name = item.get("appid"), item.get("name")
+            if isinstance(appid, int) and name:
+                pool[appid] = {"appid": appid, "name": name}
+    except http.HttpError:
+        pass
+    try:
+        featured = http.get_json(FEATURED.format(cc=cc))
+        for section in ("top_sellers", "new_releases", "specials"):
+            for item in (featured.get(section) or {}).get("items") or []:
+                appid, name = item.get("id"), item.get("name")
+                if isinstance(appid, int) and name:
+                    pool.setdefault(appid, {"appid": appid, "name": name})
+    except http.HttpError:
+        pass
+    return [item for item in pool.values() if not NOISE.search(item["name"])]
+
+
+def discover(cc: str = "us", limit: int = 18) -> list[dict]:
+    """A rotating slice of games people actually play, without an API key."""
+    import random
+    import time
+
+    now = time.time()
+    if not _DISCOVER_CACHE["items"] or now - _DISCOVER_CACHE["at"] > 900:
+        _DISCOVER_CACHE["items"] = _discover_pool(cc)
+        _DISCOVER_CACHE["at"] = now
+
+    items = list(_DISCOVER_CACHE["items"])
+    random.shuffle(items)
+    return items[: max(1, limit)]
