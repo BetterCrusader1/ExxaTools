@@ -46,28 +46,50 @@ pub fn is_running() -> bool {
         .unwrap_or(false)
 }
 
-pub fn audit_loaded() -> serde_json::Value {
-    let target = pid().or_else(|| {
-        let output = Command::new("pgrep").args(["-f", "ubuntu12_32/steam "]).output().ok()?;
-        let text = String::from_utf8_lossy(&output.stdout);
-        text.split_whitespace().next().and_then(|value| value.parse::<i32>().ok())
-    });
-    let Some(target) = target else {
-        return serde_json::json!({ "pid": null, "ld_audit": "", "loaded": false });
-    };
-    match std::fs::read(format!("/proc/{target}/environ")) {
-        Ok(bytes) => {
-            let mut value = String::new();
-            for chunk in bytes.split(|byte| *byte == 0) {
-                if let Some(rest) = chunk.strip_prefix(b"LD_AUDIT=") {
-                    value = String::from_utf8_lossy(rest).into_owned();
-                    break;
+fn steam_pids() -> Vec<i32> {
+    let mut pids = Vec::new();
+    if let Some(pid) = pid() {
+        pids.push(pid);
+    }
+    if let Ok(output) = Command::new("pgrep").arg("-x").arg("steam").output() {
+        for line in String::from_utf8_lossy(&output.stdout).lines() {
+            if let Ok(value) = line.trim().parse::<i32>() {
+                if !pids.contains(&value) {
+                    pids.push(value);
                 }
             }
-            let loaded = value.contains("libvapor_forge.so");
-            serde_json::json!({ "pid": target, "ld_audit": value, "loaded": loaded })
         }
-        Err(error) => serde_json::json!({ "pid": target, "ld_audit": "", "loaded": false, "error": error.to_string() }),
+    }
+    pids
+}
+
+fn audit_value(p: i32) -> Option<String> {
+    let bytes = std::fs::read(format!("/proc/{p}/environ")).ok()?;
+    for chunk in bytes.split(|byte| *byte == 0) {
+        if let Some(rest) = chunk.strip_prefix(b"LD_AUDIT=") {
+            return Some(String::from_utf8_lossy(rest).into_owned());
+        }
+    }
+    Some(String::new())
+}
+
+/// The client runs several processes called `steam`; the shim shows up in the
+/// environment of the real one, so every candidate is checked instead of the
+/// first pid that happens to match.
+pub fn audit_loaded() -> serde_json::Value {
+    let mut fallback: Option<(i32, String)> = None;
+    for candidate in steam_pids() {
+        let Some(value) = audit_value(candidate) else { continue };
+        if value.contains("libvapor_forge.so") {
+            return serde_json::json!({ "pid": candidate, "ld_audit": value, "loaded": true });
+        }
+        if fallback.is_none() && !value.is_empty() {
+            fallback = Some((candidate, value));
+        }
+    }
+    match fallback {
+        Some((pid, value)) => serde_json::json!({ "pid": pid, "ld_audit": value, "loaded": false }),
+        None => serde_json::json!({ "pid": null, "ld_audit": "", "loaded": false }),
     }
 }
 
