@@ -10,6 +10,8 @@ mod lua;
 mod paths;
 mod providers;
 mod server;
+mod sources;
+mod verify;
 mod state;
 mod steam;
 mod hubcap;
@@ -63,6 +65,9 @@ fn main() {
                 "exxa serve [--port 8765] [--window]",
                 "exxa steamui status|inject|remove|enable",
                 "exxa shortcut [install|remove]",
+                "exxa verify <appid>",
+                "exxa launchoptions <appid> [options]",
+                "exxa sources",
             ],
         }));
         return;
@@ -242,6 +247,32 @@ fn main() {
                 "remove" => print_json(&desktop::uninstall_desktop_entry()),
                 other => fail(format!("unknown shortcut action {other}; use install or remove")),
             }
+        }
+        "verify" => {
+            let Some(appid) = rest.first().and_then(|value| value.parse::<u64>().ok()) else {
+                fail("verify needs a numeric app id");
+            };
+            print_json(&verify::run(appid));
+        }
+        "launchoptions" => {
+            let Some(appid) = rest.first().and_then(|value| value.parse::<u64>().ok()) else {
+                fail("launchoptions needs a numeric app id");
+            };
+            if let Some(options) = rest.get(1) {
+                print_json(&steamctl::set_launch_options(appid, options).unwrap_or_else(|error| fail(error)));
+            } else {
+                print_json(&json!({
+                    "path": steamctl::localconfig_path().map(|path| path.display().to_string()),
+                    "options": steamctl::read_launch_options(appid),
+                }));
+            }
+        }
+        "sources" => {
+            let st = state::load().unwrap_or_else(|error| fail(error));
+            print_json(&json!({
+                "sources": sources::catalog(&st.settings),
+                "default": st.settings.default_source,
+            }));
         }
         "log" => {
             let lines = rest.first().and_then(|value| value.parse::<usize>().ok()).unwrap_or(200);

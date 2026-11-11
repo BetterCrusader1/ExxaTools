@@ -259,6 +259,22 @@ fn get_route(path: &str, query: &[(String, String)]) -> Result<Value, (u16, Stri
             }))
         }
         "/api/settings" => Ok(json!(st.settings)),
+        "/api/sources" => Ok(json!({
+            "sources": crate::sources::catalog(&st.settings),
+            "default": st.settings.default_source,
+        })),
+        "/api/verify" => {
+            let appid = need_u64(query, "appid")?;
+            Ok(crate::verify::run(appid))
+        }
+        "/api/launchoptions" => {
+            let appid = need_u64(query, "appid")?;
+            Ok(json!({
+                "found": steamctl::localconfig_path().is_some(),
+                "path": steamctl::localconfig_path().map(|path| path.display().to_string()),
+                "options": steamctl::read_launch_options(appid),
+            }))
+        }
         "/api/provider" => {
             let order: Vec<Value> = st.settings.manifest_providers.iter().map(|name| json!(name)).collect();
             let text = lua::render_provider(&order).map_err(|error| (500, error))?;
@@ -414,6 +430,28 @@ fn post_route(path: &str, body: &Value, query: &[(String, String)]) -> Result<Va
                 "uninstall" => Ok(crate::desktop::uninstall_desktop_entry()),
                 other => Err((400, format!("action must be install or uninstall, not {other}"))),
             }
+        }
+        "/api/launchoptions" => {
+            let appid = body_u64(body, "appid")?;
+            let options = body.get("options").and_then(Value::as_str).unwrap_or("").to_string();
+            steamctl::set_launch_options(appid, &options).map_err(|error| (400, error))
+        }
+        "/api/codes" => {
+            let appid = body_u64(body, "appid")?;
+            let depots = body.get("depots").and_then(Value::as_array).cloned().unwrap_or_default();
+            let st = state::load().map_err(|error| (500, error))?;
+            let order: Vec<Value> = st.settings.manifest_providers.iter().map(|name| json!(name)).collect();
+            let mut out = Vec::new();
+            let mut errors = Vec::new();
+            for depot in depots {
+                let Some(depot_id) = depot.get("depot_id").and_then(Value::as_u64) else { continue };
+                let Some(gid) = depot.get("gid").and_then(Value::as_str).filter(|value| !value.is_empty()) else { continue };
+                match crate::providers::fetch_code(appid, depot_id, gid, &order) {
+                    Ok(result) => out.push(result),
+                    Err(error) => errors.push(json!({ "depot_id": depot_id, "gid": gid, "error": error })),
+                }
+            }
+            Ok(json!({ "codes": out, "errors": errors }))
         }
         "/api/steam/restart" => steamctl::restart(&[]).map_err(|error| (500, error)),
         "/api/steam/shutdown" => {

@@ -68,3 +68,21 @@ pub fn collect_paths(node: &Value, out: &mut Vec<String>) {
         _ => {}
     }
 }
+/// Depth-first search for the first object value stored under `key`.
+pub fn find_key<'a>(node: &'a Value, key: &str) -> Option<&'a Value> {
+    match node {
+        Value::Object(map) => {
+            if let Some(found) = map.iter().find(|(name, _)| name.eq_ignore_ascii_case(key)).map(|(_, value)| value) {
+                return Some(found);
+            }
+            for value in map.values() {
+                if let Some(found) = find_key(value, key) {
+                    return Some(found);
+                }
+            }
+            None
+        }
+        Value::Array(items) => items.iter().find_map(|item| find_key(item, key)),
+        _ => None,
+    }
+}
