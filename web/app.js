@@ -109,15 +109,23 @@ function renderPlans() {
   const box = $("#plans");
   head.hidden = !plans.length;
   box.replaceChildren(
-    ...plans.map((plan) =>
-      h("button", { class: "card", type: "button", onclick: () => openApp(plan.appid, plan.branch) },
-        h("div", { class: "card-art empty", style: `background-image:url('${artUrl(plan.appid)}')` }),
+    ...plans.map((plan) => {
+      const missing = (plan.missing_keys || []).length;
+      const badge = plan.installed
+        ? missing
+          ? { text: "needs keys", kind: "warn" }
+          : { text: "installed", kind: "ok" }
+        : { text: "planned", kind: "idle" };
+      return h("button", { class: "card", type: "button", onclick: () => openApp(plan.appid, plan.branch) },
+        h("div", { class: "card-art empty", style: `background-image:url('${artUrl(plan.appid)}')` },
+          h("span", { class: `card-badge ${badge.kind}`, text: badge.text })
+        ),
         h("div", { class: "card-body" },
           h("span", { class: "card-name", text: plan.name || String(plan.appid) }),
-          h("span", { class: "card-sub", text: `${plan.depots?.length || 0} depots` })
+          h("span", { class: "card-sub", text: missing ? `${plan.depot_count} depots · ${missing} keyless` : `${plan.depot_count} depots` })
         )
-      )
-    )
+      );
+    })
   );
 }
 

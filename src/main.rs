@@ -68,6 +68,8 @@ fn main() {
                 "exxa steamui status|inject|remove|enable",
                 "exxa shortcut [install|remove]",
                 "exxa doctor",
+                "exxa update",
+                "exxa version",
                 "exxa verify <appid>",
                 "exxa launchoptions <appid> [options]",
                 "exxa sources",
@@ -250,6 +252,33 @@ fn main() {
                 "install" => print_json(&desktop::install_desktop_entry().unwrap_or_else(|error| fail(error))),
                 "remove" => print_json(&desktop::uninstall_desktop_entry()),
                 other => fail(format!("unknown shortcut action {other}; use install or remove")),
+            }
+        }
+        "version" => print_json(&json!({
+            "version": env!("CARGO_PKG_VERSION"),
+            "project": paths::project_dir().display().to_string(),
+        })),
+        "update" => {
+            let project = paths::project_dir();
+            let git = project.join(".git");
+            if !git.exists() {
+                fail("this checkout has no .git; update it the way it was installed");
+            }
+            let pull = std::process::Command::new("git")
+                .args(["-C", &project.display().to_string(), "pull", "--ff-only", "--quiet"])
+                .output();
+            match pull {
+                Ok(output) if output.status.success() => {
+                    let before = String::from_utf8_lossy(&output.stdout).trim().to_string();
+                    let build = std::process::Command::new("cargo")
+                        .args(["build", "--release", "--quiet"])
+                        .current_dir(&project)
+                        .status();
+                    let built = build.map(|status| status.success()).unwrap_or(false);
+                    print_json(&json!({ "updated": true, "git": before, "rebuilt": built }));
+                }
+                Ok(output) => fail(String::from_utf8_lossy(&output.stderr).trim().to_string()),
+                Err(error) => fail(error.to_string()),
             }
         }
         "doctor" => print_json(&doctor::run()),

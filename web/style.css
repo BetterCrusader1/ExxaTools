@@ -256,6 +256,7 @@ a { color: var(--sand); text-decoration: none; }
 .card:focus-visible { outline: 2px solid var(--sand); outline-offset: 3px; }
 
 .card-art {
+  position: relative;
   aspect-ratio: 3 / 4;
   background-color: var(--raised);
   background-size: cover;
@@ -746,3 +747,13 @@ input[type="checkbox"]:focus-visible { outline: 2px solid var(--sand); outline-o
 .dlc-row:last-child { border-bottom: 0; }
 .dlc-row span { font-size: 13px; color: var(--dim); }
 .dlc-row .id { margin-left: auto; font: 11px var(--mono); color: var(--faint); }
+
+.card-badge {
+  position: absolute; top: 8px; left: 8px; z-index: 2;
+  padding: 3px 8px; border-radius: 999px;
+  font: 600 10.5px var(--sans); letter-spacing: .01em;
+  background: rgba(14, 16, 19, 0.82); border: 1px solid var(--line);
+  color: var(--faint); backdrop-filter: blur(3px);
+}
+.card-badge.ok { color: var(--mint); border-color: rgba(111, 211, 160, 0.35); }
+.card-badge.warn { color: var(--sand); border-color: rgba(237, 180, 95, 0.38); }

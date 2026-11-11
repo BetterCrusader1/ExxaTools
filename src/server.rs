@@ -213,7 +213,20 @@ fn get_route(path: &str, query: &[(String, String)]) -> Result<Value, (u16, Stri
                 "running": steamctl::is_running(),
             },
             "engine": engine::detect(),
-            "apps": st.apps.values().cloned().collect::<Vec<_>>(),
+            "apps": st.apps.values().map(|record| {
+                let appid = record.get("appid").and_then(Value::as_u64).unwrap_or(0);
+                let depots = record.get("depots").and_then(Value::as_array).cloned().unwrap_or_default();
+                let missing: Vec<u64> = depots
+                    .iter()
+                    .filter_map(|depot| depot.get("depot_id").and_then(Value::as_u64))
+                    .filter(|id| !st.depot_keys.contains_key(&id.to_string()))
+                    .collect();
+                let mut view = record.clone();
+                view["installed"] = json!(vfsys::script_path(appid).exists());
+                view["depot_count"] = json!(depots.len());
+                view["missing_keys"] = json!(missing);
+                view
+            }).collect::<Vec<_>>(),
             "settings": st.settings,
             "state_path": state::state_path().display().to_string(),
             "keys": st.depot_keys.len(),
