@@ -102,3 +102,13 @@ pub fn steam_root() -> Option<PathBuf> {
 pub fn steam_log() -> PathBuf {
     data_home().join("Steam/logs/console-linux.txt")
 }
+
+/// systemd drop-ins the Vapor Forge installer writes for the Steam unit.
+pub fn systemd_dropins() -> Vec<PathBuf> {
+    let base = config_home().join("systemd/user");
+    let names = [
+        "app-steam@autostart.service.d/vapor-forge.conf",
+        "app-steam.service.d/vapor-forge.conf",
+    ];
+    names.iter().map(|name| base.join(name)).collect()
+}

@@ -16,6 +16,18 @@ no toolchain bloat.
 ## Run
 
 ```sh
+cargo build --release
+./target/release/exxa serve            # UI and JSON API on 127.0.0.1:8765
+./target/release/exxa status           # engine, Steam and key state
+./target/release/exxa search "portal"
+./target/release/exxa plan 620         # print the Lua plan, luac-checked
+./target/release/exxa fix 620          # stop-loop repair for appmanifest
+```
+
+The Python launcher below still works and is the reference for everything the
+Rust core has not covered yet.
+
+```sh
 ./exxa                        # local UI on http://127.0.0.1:8765/
 ./exxa serve --window         # same UI in a GTK/WebKit app window
 ./exxa serve --port 9000
