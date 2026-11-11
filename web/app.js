@@ -218,6 +218,7 @@ function renderApp() {
   const app = state.app;
   if (!app) return;
   const total = app.depots.reduce((sum, depot) => sum + (depot.size || 0), 0);
+  const dlcNames = app.dlc_names || [];
   $("#appName").textContent = app.name;
   $("#appMeta").textContent = [
     app.appid,
@@ -225,6 +226,9 @@ function renderApp() {
     app.developers,
     `${app.depots.length} depots`,
     total ? fmtSize(total) : null,
+    dlcNames.length
+      ? `${dlcNames.length} dlc: ${dlcNames.slice(0, 3).map((item) => item.name).join(", ")}${dlcNames.length > 3 ? "…" : ""}`
+      : null,
   ].filter(Boolean).join(" · ");
 
   setHero(app.appid);
@@ -295,7 +299,13 @@ function renderDepots() {
         h("div", { class: "depot-title" },
           `Depot ${depot.depot_id}`,
           depot.oslist.length ? h("span", { class: "os", text: depot.oslist.join(" / ") }) : null,
-          depot.dlc_appid ? h("span", { class: "os", text: `dlc ${depot.dlc_appid}` }) : null
+          depot.dlc_appid
+            ? h("span", {
+                class: "os",
+                text: (state.app?.dlc_names || []).find((item) => item.appid === depot.dlc_appid)?.name
+                  || `dlc ${depot.dlc_appid}`,
+              })
+            : null
         ),
         h("div", { class: "depot-meta", text: depot.gid ? `manifest ${depot.gid}` : "no manifest on this branch" })
       ),

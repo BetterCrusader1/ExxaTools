@@ -17,6 +17,7 @@ mod steam;
 mod hubcap;
 mod steamctl;
 mod vfsys;
+mod watch;
 mod vdf;
 
 use serde_json::{json, Value};
@@ -68,6 +69,7 @@ fn main() {
                 "exxa verify <appid>",
                 "exxa launchoptions <appid> [options]",
                 "exxa sources",
+                "exxa watch [--once] [--apply]",
             ],
         }));
         return;
@@ -273,6 +275,14 @@ fn main() {
                 "sources": sources::catalog(&st.settings),
                 "default": st.settings.default_source,
             }));
+        }
+        "watch" => {
+            if has_flag(rest, "--once") {
+                let apply = has_flag(rest, "--apply");
+                print_json(&watch::sweep(apply));
+            } else {
+                watch::run().unwrap_or_else(|error| fail(error));
+            }
         }
         "log" => {
             let lines = rest.first().and_then(|value| value.parse::<usize>().ok()).unwrap_or(200);

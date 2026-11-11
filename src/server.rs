@@ -147,6 +147,8 @@ fn app_view(appid: u64, branch: &str) -> Result<Value, (u16, String)> {
             }));
         }
     }
+    let has_dlc = catalog.get("dlc").and_then(Value::as_array).map(|list| !list.is_empty()).unwrap_or(false);
+    let dlc_names = if has_dlc { steam::dlc_names(appid, &st.settings.country) } else { Vec::new() };
     Ok(json!({
         "appid": appid,
         "name": catalog.get("name").cloned().unwrap_or(Value::Null),
@@ -155,6 +157,7 @@ fn app_view(appid: u64, branch: &str) -> Result<Value, (u16, String)> {
         "branch": branch,
         "branches": catalog.get("branches").cloned().unwrap_or_else(|| json!([])),
         "dlc": catalog.get("dlc").cloned().unwrap_or_else(|| json!([])),
+        "dlc_names": dlc_names,
         "depots": depots,
         "plan": st.apps.get(&appid.to_string()).cloned(),
         "installed": vfsys::script_path(appid).exists(),
@@ -263,6 +266,37 @@ fn get_route(path: &str, query: &[(String, String)]) -> Result<Value, (u16, Stri
             "sources": crate::sources::catalog(&st.settings),
             "default": st.settings.default_source,
         })),
+        "/api/dlc" => {
+            let appid = need_u64(query, "appid")?;
+            Ok(json!({ "items": steam::dlc_names(appid, &st.settings.country) }))
+        }
+        "/api/autoselect" => {
+            let appid = need_u64(query, "appid")?;
+            let branch = get(query, "branch").unwrap_or("public").to_string();
+            let os = get(query, "os").unwrap_or(&st.settings.default_os).to_string();
+            let catalog = steam::catalog(appid).map_err(|error| (502, error))?;
+            let mut out = Vec::new();
+            if let Some(list) = catalog.get("depots").and_then(Value::as_array) {
+                for depot in list {
+                    let depot_id = depot.get("depot_id").and_then(Value::as_u64).unwrap_or(0);
+                    let oslist: Vec<String> = depot.get("oslist").and_then(Value::as_array).map(|list| list.iter().filter_map(Value::as_str).map(str::to_string).collect()).unwrap_or_default();
+                    let shared = depot.get("shared_install").and_then(Value::as_bool).unwrap_or(false);
+                    let manifest = steam::pick_manifest(depot, &branch);
+                    let (selected, reason) = if manifest.is_none() {
+                        (false, format!("no manifest in {branch}"))
+                    } else if !oslist.is_empty() && !oslist.iter().any(|value| value == &os) {
+                        (false, format!("only for {}", oslist.join(", ")))
+                    } else if shared {
+                        (true, "shared depot".to_string())
+                    } else {
+                        (true, if oslist.is_empty() { format!("platform-neutral, {branch}") } else { format!("{os} build, {branch}") })
+                    };
+                    out.push(json!({ "depot_id": depot_id, "selected": selected, "reason": reason }));
+                }
+            }
+            Ok(json!({ "items": out, "os": os, "branch": branch }))
+        }
+        "/api/watch" => Ok(crate::watch::sweep(false)),
         "/api/verify" => {
             let appid = need_u64(query, "appid")?;
             Ok(crate::verify::run(appid))
@@ -453,6 +487,10 @@ fn post_route(path: &str, body: &Value, query: &[(String, String)]) -> Result<Va
             }
             Ok(json!({ "codes": out, "errors": errors }))
         }
+        "/api/watch" => {
+            let apply = body.get("apply").and_then(Value::as_bool).unwrap_or(false);
+            Ok(crate::watch::sweep(apply))
+        }
         "/api/steam/restart" => steamctl::restart(&[]).map_err(|error| (500, error)),
         "/api/steam/shutdown" => {
             let stopped = steamctl::shutdown(std::time::Duration::from_secs(45)).map_err(|error| (500, error))?;
@@ -532,6 +570,28 @@ fn post_route(path: &str, body: &Value, query: &[(String, String)]) -> Result<Va
                 .spawn()
                 .map_err(|error| (500, format!("cannot open: {error}")))?;
             Ok(json!({ "opened": target }))
+        }
+        "/api/import" => {
+            let text = body.get("text").and_then(Value::as_str).unwrap_or("");
+            if text.trim().is_empty() {
+                return Err((400, "text is required".into()));
+            }
+            let mut st = state::load().map_err(|error| (500, error))?;
+            let parsed = hubcap::parse_lua(text, body.get("appid").and_then(Value::as_u64));
+            if parsed.appid.is_none() {
+                return Err((400, "that lua has no app id".into()));
+            }
+            let stamp = vfsys::stamp();
+            let summary = hubcap::apply_to_state(
+                &mut st,
+                &parsed,
+                &stamp,
+                body.get("name").and_then(Value::as_str),
+                body.get("pin").and_then(Value::as_bool).unwrap_or(false),
+                body.get("create").and_then(Value::as_bool).unwrap_or(false),
+            );
+            state::save(&st).map_err(|error| (500, error))?;
+            Ok(json!({ "summary": summary }))
         }
         "/api/code" => {
             let appid = body_u64(body, "appid")?;

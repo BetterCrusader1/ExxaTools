@@ -325,3 +325,33 @@ pub fn discover(cc: &str, limit: usize) -> Vec<Value> {
     items.truncate(limit.max(1));
     items
 }
+static DLC_CACHE: Mutex<Option<(Instant, Vec<Value>)>> = Mutex::new(None);
+
+/// Names for an app's DLC list. The store only returns ids on the app itself,
+/// so each id costs one small request; the result is cached for fifteen minutes.
+pub fn dlc_names(appid: u64, cc: &str) -> Vec<Value> {
+    if let Ok(guard) = DLC_CACHE.lock() {
+        if let Some((at, items)) = guard.as_ref() {
+            if at.elapsed() < Duration::from_secs(900) && !items.is_empty() {
+                return items.clone();
+            }
+        }
+    }
+    let Some(details) = store_details(appid, cc) else { return Vec::new() };
+    let ids: Vec<u64> = details
+        .get("dlc")
+        .and_then(Value::as_array)
+        .map(|list| list.iter().filter_map(Value::as_u64).take(12).collect())
+        .unwrap_or_default();
+    let mut out = Vec::new();
+    for id in ids {
+        let name = store_details(id, cc)
+            .and_then(|info| info.get("name").and_then(Value::as_str).map(str::to_string))
+            .unwrap_or_else(|| id.to_string());
+        out.push(json!({ "appid": id, "name": name }));
+    }
+    if let Ok(mut guard) = DLC_CACHE.lock() {
+        *guard = Some((Instant::now(), out.clone()));
+    }
+    out
+}
