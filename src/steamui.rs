@@ -84,34 +84,51 @@ fn evaluate_on(target: &Value, expression: &str, timeout: std::time::Duration) -
     cdp::evaluate(ws, expression, timeout)
 }
 
-static OVERLAY: std::sync::Mutex<Option<std::process::Child>> = std::sync::Mutex::new(None);
-
 fn overlay_script() -> std::path::PathBuf {
     crate::paths::project_dir().join("assets/overlay.py")
 }
 
-fn stop_overlay() -> bool {
-    let Ok(mut guard) = OVERLAY.lock() else { return false };
-    match guard.as_mut() {
-        Some(child) => {
-            let _ = child.kill();
-            let _ = child.wait();
-            *guard = None;
-            true
+fn overlay_marker() -> String {
+    crate::paths::project_dir().join("assets/overlay.py").display().to_string()
+}
+
+/// The overlay is tracked by its command line, not by a child handle: the
+/// handle dies with a server restart while the window keeps running.
+fn overlay_pids() -> Vec<i32> {
+    let marker = overlay_marker();
+    let Ok(entries) = std::fs::read_dir("/proc") else { return Vec::new() };
+    let mut pids = Vec::new();
+    for entry in entries.flatten() {
+        let name = entry.file_name();
+        let Some(pid) = name.to_str().and_then(|value| value.parse::<i32>().ok()) else { continue };
+        let Ok(raw) = std::fs::read(format!("/proc/{pid}/cmdline")) else { continue };
+        let cmdline = String::from_utf8_lossy(&raw);
+        if cmdline.contains(&marker) {
+            pids.push(pid);
         }
-        None => false,
     }
+    pids
 }
 
 fn overlay_alive() -> bool {
-    let Ok(mut guard) = OVERLAY.lock() else { return false };
-    if let Some(child) = guard.as_mut() {
-        if child.try_wait().ok().flatten().is_none() {
-            return true;
+    !overlay_pids().is_empty()
+}
+
+fn stop_overlay() -> bool {
+    let pids = overlay_pids();
+    for pid in &pids {
+        let _ = std::process::Command::new("kill").arg(pid.to_string()).status();
+    }
+    for pid in &pids {
+        let deadline = std::time::Instant::now() + std::time::Duration::from_millis(600);
+        while std::time::Instant::now() < deadline {
+            if !std::path::Path::new(&format!("/proc/{pid}")).exists() {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(40));
         }
     }
-    *guard = None;
-    false
+    !pids.is_empty()
 }
 
 /// Steam paints its store, library and Community windows above the main frame,
@@ -148,10 +165,7 @@ pub fn panel(open: bool, toggle: bool, x: i64, y: i64, screen_x: i64, screen_y: 
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null());
     crate::steamctl::apply_session_env(&mut command);
-    let child = command.spawn().map_err(|error| format!("cannot start the overlay: {error}"))?;
-    if let Ok(mut guard) = OVERLAY.lock() {
-        *guard = Some(child);
-    }
+    command.spawn().map_err(|error| format!("cannot start the overlay: {error}"))?;
     Ok(json!({ "open": true, "x": left, "y": top, "width": width, "height": height }))
 }
 
