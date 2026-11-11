@@ -15,12 +15,14 @@ Everything below serves those three points.
 | Vapor Forge engine | installs, updates, `LD_AUDIT` verified against `/proc` |
 | Plans | lua plan, manifest-code provider, manual keys plus Hubcap |
 | Steam | icon and menu injected in the client over CDP, appmanifest fixes |
-| UI | Library / Discover / Game / System, GTK window, `.desktop` entry |
+| UI | Library / Discover / Game / System, `.desktop` entry |
+| Language | Rust is the product; `legacy/` keeps the Python build for reference |
+| Tests | 22 unit tests over lua, appmanifest, hubcap, providers, vdf, launch options |
 | Missing | named DLC, importing foreign lua, older build picker, auto-finish after download, self-diagnostics, app updates, tests |
 
 ## Locked decisions
 
-- Rust owns the core; Python is a reference only and gets removed once parity lands.
+- Rust owns the product; Python lives in `legacy/` and is no longer wired to `./exxa`.
 - Steam protocol comes from `steamroom` behind a feature flag, not from Hubcap alone.
 - Steam UI integration moves from CDP DOM patching to a Millennium plugin.
 - UI copy, docs and identifiers are English-only.

@@ -8,10 +8,8 @@ choose its depots, pin manifests, store depot keys, and write a Lua plan into
 Vapor Forge's script directory. Vapor Forge does the hooking and Steam does the
 downloading.
 
-Current implementation is Python 3.10+ with the standard library only — no pip,
-no build step. The Rust rewrite lives in `src/` and is tracked in
-[ROADMAP.md](ROADMAP.md); it builds in about 15 seconds and 179 MB of `target/`,
-no toolchain bloat.
+Rust, one binary, no runtime dependencies. `./exxa` builds it on first use and
+execs it; the old Python implementation is kept under `legacy/` as a reference.
 
 ## Run
 
@@ -23,9 +21,6 @@ cargo build --release
 ./target/release/exxa plan 620         # print the Lua plan, luac-checked
 ./target/release/exxa fix 620          # stop-loop repair for appmanifest
 ```
-
-The Python launcher below still works and is the reference for everything the
-Rust core has not covered yet.
 
 ```sh
 ./exxa                        # local UI on http://127.0.0.1:8765/

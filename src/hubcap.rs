@@ -347,3 +347,57 @@ pub fn apply_to_state(state: &mut State, parsed: &Parsed, stamp: &str, name: Opt
         "dlc": parsed.dlc,
     })
 }
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const LUA: &str = r#"
+addappid(620)
+addappid(621, 1, "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+setmanifestid(621, "9044256803759256265", 1200)
+addappid(650)
+"#;
+
+    #[test]
+    fn parses_depots_keys_and_pins() {
+        let parsed = parse_lua(LUA, Some(620));
+        assert_eq!(parsed.appid, Some(620));
+        assert_eq!(parsed.dlc, vec![650]);
+        let depot = parsed
+            .depots
+            .iter()
+            .find(|item| item.get("depot_id").and_then(Value::as_u64) == Some(621))
+            .unwrap();
+        assert_eq!(depot.get("gid").and_then(Value::as_str), Some("9044256803759256265"));
+        assert_eq!(depot.get("size").and_then(Value::as_u64), Some(1200));
+        assert_eq!(depot.get("key").and_then(Value::as_str).map(str::len), Some(64));
+    }
+
+    #[test]
+    fn keys_land_without_pinning() {
+        let parsed = parse_lua(LUA, Some(620));
+        let mut st = crate::state::State::default();
+        let summary = apply_to_state(&mut st, &parsed, "1700000000", Some("Portal 2"), false, false);
+        assert_eq!(summary.get("keys").and_then(Value::as_u64), Some(1));
+        assert_eq!(st.depot_keys.get("621").map(String::len), Some(64));
+        assert!(st.apps.is_empty(), "no plan unless asked");
+    }
+
+    #[test]
+    fn create_writes_a_plan() {
+        let parsed = parse_lua(LUA, Some(620));
+        let mut st = crate::state::State::default();
+        let summary = apply_to_state(&mut st, &parsed, "1700000000", Some("Portal 2"), false, true);
+        assert_eq!(summary.get("created_plan").and_then(Value::as_bool), Some(true));
+        let record = st.apps.get("620").unwrap();
+        assert_eq!(record.get("name").and_then(Value::as_str), Some("Portal 2"));
+        assert_eq!(record.get("depots").and_then(Value::as_array).map(Vec::len), Some(1));
+    }
+
+    #[test]
+    fn validates_keys() {
+        assert!(valid_key("smm_1234567890abcdef").is_some());
+        assert!(valid_key("nope_1234567890abc").is_none());
+        assert!(valid_key("smm has space here").is_none());
+    }
+}

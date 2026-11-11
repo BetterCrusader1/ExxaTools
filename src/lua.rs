@@ -147,3 +147,50 @@ pub fn render_provider(order: &[Value]) -> Result<String, String> {
     let block = format!("{{\n{}\n}}", rows.join("\n"));
     Ok(PROVIDER_TEMPLATE.replace("__STAMP__", &stamp()).replace("__SOURCES__", &block))
 }
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    fn keys() -> BTreeMap<String, String> {
+        let mut map = BTreeMap::new();
+        map.insert("621".to_string(), "ab".repeat(32));
+        map
+    }
+
+    #[test]
+    fn renders_keys_pins_and_dlc() {
+        let depots = vec![
+            json!({ "depot_id": 621, "gid": "111", "size": 1200 }),
+            json!({ "depot_id": 624, "gid": "222" }),
+            json!({ "depot_id": 625 }),
+        ];
+        let text = render_plan(620, "Portal 2", "public", &depots, &keys(), &[650], "auto");
+        assert!(text.contains("addappid(620)"));
+        assert!(text.contains("addappid(621, 1, \""));
+        assert!(text.contains("setmanifestid(621, \"111\", 1200)"));
+        assert!(text.contains("setmanifestid(624, \"222\")"));
+        assert!(text.contains("addappid(650)"));
+        assert!(!text.contains("setmanifestid(625"));
+        assert_eq!(lint_hint(&text), 0);
+    }
+
+    fn lint_hint(text: &str) -> usize {
+        text.lines().filter(|line| line.starts_with("setmanifestid")).count() - 2
+    }
+
+    #[test]
+    fn escapes_quotes_in_names() {
+        let text = render_plan(1, "Some \"Game\"", "public", &[], &BTreeMap::new(), &[], "auto");
+        assert!(text.contains("-- @name Some \"Game\""));
+    }
+
+    #[test]
+    fn provider_rows_are_lua() {
+        let order = vec![json!("steamrun")];
+        let text = render_provider(&order).unwrap();
+        assert!(text.contains("kind = \"json\""));
+        assert!(text.contains("field = \"content\""));
+        assert!(!text.contains("__SOURCES__"));
+    }
+}

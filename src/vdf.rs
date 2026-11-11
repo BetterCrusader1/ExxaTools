@@ -86,3 +86,36 @@ pub fn find_key<'a>(node: &'a Value, key: &str) -> Option<&'a Value> {
         _ => None,
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const NESTED: &str = "\"root\"\n{\n\t\"Software\"\n\t{\n\t\t\"Valve\"\n\t\t{\n\t\t\t\"Steam\"\n\t\t\t{\n\t\t\t\t\"apps\"\n\t\t\t\t{\n\t\t\t\t\t\"440\"\n\t\t\t\t\t{\n\t\t\t\t\t\t\"LaunchOptions\"\t\t\"-windowed\"\n\t\t\t\t\t}\n\t\t\t\t}\n\t\t\t}\n\t\t}\n\t}\n}\n";
+
+    #[test]
+    fn finds_nested_keys() {
+        let tree = parse(NESTED).unwrap();
+        let apps = find_key(&tree, "apps").expect("apps block");
+        let app = child(apps, "440").expect("app entry");
+        assert_eq!(scalar(app, "LaunchOptions").as_deref(), Some("-windowed"));
+    }
+
+    #[test]
+    fn collects_library_paths() {
+        let text = "\"libraryfolders\"\n{\n\t\"0\"\n\t{\n\t\t\"path\"\t\t\"/games\"\n\t}\n}\n";
+        let tree = parse(text).unwrap();
+        let mut paths = Vec::new();
+        collect_paths(&tree, &mut paths);
+        assert_eq!(paths, vec!["/games".to_string()]);
+    }
+
+    #[test]
+    fn reads_numbers_and_quotes() {
+        let text = "\"AppState\"\n{\n\t\"appid\"\t\t\"620\"\n\t\"StateFlags\"\t\t\"4\"\n}\n";
+        let tree = parse(text).unwrap();
+        assert_eq!(scalar(&tree, "appid").as_deref(), Some("620"));
+        assert_eq!(scalar_i64(&tree, "StateFlags"), Some(4));
+    }
+}
+

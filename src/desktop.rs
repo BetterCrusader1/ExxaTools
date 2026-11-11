@@ -54,7 +54,8 @@ pub fn install_desktop_entry() -> Result<Value, String> {
     if let Some(parent) = target.parent() {
         std::fs::create_dir_all(parent).map_err(|error| error.to_string())?;
     }
-    let exe = std::env::current_exe().map_err(|error| error.to_string())?;
+    let launcher = paths::project_dir().join("exxa");
+    let exe = if launcher.is_file() { launcher } else { std::env::current_exe().map_err(|error| error.to_string())? };
     let icon = paths::web_dir().join("logo.png");
     let content = format!(
         "[Desktop Entry]\nType=Application\nName=ExxaTools\nComment=Steam depots and manifests on Vapor Forge\nExec={} serve --window\nIcon={}\nTerminal=false\nCategories=Game;Utility;\n",

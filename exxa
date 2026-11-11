@@ -1,6 +1,18 @@
 #!/usr/bin/env bash
-# Launch ExxaTools's local web UI.
+# ExxaTools launcher: builds the release binary when the sources are newer.
 set -euo pipefail
+
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-cd "$here"
-exec python3 -m exxatools "$@"
+bin="$here/target/release/exxa"
+
+stale() {
+    [[ ! -x "$bin" ]] && return 0
+    [[ -n "$(find "$here/src" "$here/assets" "$here/Cargo.toml" -newer "$bin" -print -quit 2>/dev/null)" ]]
+}
+
+if stale; then
+    echo "building exxa..." >&2
+    cargo build --release --manifest-path "$here/Cargo.toml" >&2
+fi
+
+exec "$bin" "$@"

@@ -186,3 +186,49 @@ pub fn fetch_code(app_id: u64, depot_id: u64, gid: &str, order: &[Value]) -> Res
         .collect();
     Err(format!("every provider failed: {}", detail.join("; ")))
 }
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn spec(kind: &str, field: Option<&str>) -> Spec {
+        Spec {
+            name: "test".into(),
+            url: "https://example.invalid/{gid}".into(),
+            format: kind.into(),
+            json_field: field.map(str::to_string),
+            user_agent: None,
+        }
+    }
+
+    #[test]
+    fn parses_plain_codes() {
+        assert_eq!(parse_code(" 12345 \n", &spec("plain", None)).unwrap(), 12345);
+    }
+
+    #[test]
+    fn parses_json_field() {
+        let body = r#"{"content":"987654321"}"#;
+        assert_eq!(parse_code(body, &spec("json", Some("content"))).unwrap(), 987654321);
+    }
+
+    #[test]
+    fn rejects_html_and_garbage() {
+        assert!(parse_code("<html>challenge</html>", &spec("plain", None)).is_err());
+        assert!(parse_code("not a code", &spec("plain", None)).is_err());
+        assert!(parse_code("", &spec("plain", None)).is_err());
+    }
+
+    #[test]
+    fn builds_urls_from_templates() {
+        let built = build_url(&spec("plain", None), 620, 621, "42");
+        assert_eq!(built, "https://example.invalid/42");
+    }
+
+    #[test]
+    fn resolves_custom_entries() {
+        let entry = serde_json::json!({ "name": "mine", "url": "https://x.test/{gid}", "format": "plain" });
+        assert!(resolve(&entry).is_some());
+        let broken = serde_json::json!({ "name": "mine", "url": "https://x.test/none", "format": "plain" });
+        assert!(resolve(&broken).is_none());
+    }
+}

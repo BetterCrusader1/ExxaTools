@@ -168,6 +168,8 @@ pub fn read(appid: u64) -> Result<Option<Manifest>, String> {
     let Some(path) = manifest_path(appid) else { return Ok(None) };
     let text = std::fs::read_to_string(&path).map_err(|error| format!("cannot read {}: {error}", path.display()))?;
     let tree = vdf::parse(&text).map_err(|error| format!("cannot parse {}: {error}", path.display()))?;
+    // keyvalues-parser hands back the root object's contents, so AppState is
+    // already unwrapped; older callers may still pass a wrapped tree.
     let state = match vdf::child(&tree, "AppState") {
         Some(node) => node.clone(),
         None => tree,
@@ -403,10 +405,10 @@ pub fn patch(appid: u64, mode: &Mode, steam_check: bool) -> Result<Value, String
     std::fs::rename(&temp, &path).map_err(|error| format!("cannot replace {}: {error}", path.display()))?;
 
     match vdf::parse(&text) {
-        Ok(tree) if vdf::child(&tree, "AppState").is_some() => {}
+        Ok(tree) if vdf::child(&tree, "appid").is_some() => {}
         Ok(_) => {
             let _ = std::fs::copy(&backup, &path);
-            return Err("patched file lost its AppState block, restored the backup".into());
+            return Err("patched file lost its appid, restored the backup".into());
         }
         Err(error) => {
             let _ = std::fs::copy(&backup, &path);
@@ -429,4 +431,37 @@ pub fn patch(appid: u64, mode: &Mode, steam_check: bool) -> Result<Value, String
         "steam_running": running,
         "warning": if running { Value::Null } else { Value::String("start Steam again so the patched appmanifest is the one it loads".into()) },
     }))
+}
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const ACF: &str = "\"AppState\"\n{\n\t\"appid\"\t\t\"620\"\n\t\"name\"\t\t\"Portal 2\"\n\t\"StateFlags\"\t\t\"1026\"\n\t\"BytesToDownload\"\t\t\"100\"\n\t\"BytesDownloaded\"\t\t\"40\"\n\t\"AutoUpdateBehavior\"\t\t\"0\"\n\t\"InstalledDepots\"\n\t{\n\t\t\"621\"\n\t\t{\n\t\t\t\"manifest\"\t\t\"111\"\n\t\t}\n\t}\n}\n";
+
+    #[test]
+    fn replaces_existing_values() {
+        let (text, replaced) = set_key(ACF, "StateFlags", "4");
+        assert!(replaced);
+        assert!(text.contains("\"StateFlags\"\t\t\"4\""));
+        assert!(!text.contains("\"1026\""));
+    }
+
+    #[test]
+    fn inserts_missing_keys() {
+        let (text, replaced) = set_key(ACF, "ScheduledAutoUpdate", "0");
+        assert!(!replaced);
+        assert!(text.contains("\"ScheduledAutoUpdate\"\t\t\"0\""));
+        assert!(crate::vdf::parse(&text).is_ok());
+    }
+
+    #[test]
+    fn reads_flags_and_depots() {
+        let tree = crate::vdf::parse(ACF).unwrap();
+        let state = &tree;
+        let flags: u64 = crate::vdf::scalar(state, "StateFlags").unwrap().parse().unwrap();
+        assert_eq!(flags & 2, 2);
+        assert_eq!(flags & 1024, 1024);
+        let depots = crate::vdf::child(state, "InstalledDepots").unwrap();
+        assert!(crate::vdf::child(depots, "621").is_some());
+    }
 }
