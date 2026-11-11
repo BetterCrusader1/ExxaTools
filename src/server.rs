@@ -69,6 +69,28 @@ fn respond_json(stream: &mut TcpStream, status: u16, value: &Value) {
     respond(stream, status, "application/json; charset=utf-8", &body);
 }
 
+/// Percent-decoded query value, so a game name with spaces or an ampersand
+/// arrives as typed instead of as escape codes.
+fn decode(value: &str) -> String {
+    let bytes = value.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut index = 0;
+    while index < bytes.len() {
+        match bytes[index] {
+            b'+' => { out.push(b' '); index += 1; }
+            b'%' if index + 2 < bytes.len() => {
+                let hex = std::str::from_utf8(&bytes[index + 1..index + 3]).ok();
+                match hex.and_then(|text| u8::from_str_radix(text, 16).ok()) {
+                    Some(byte) => { out.push(byte); index += 3; }
+                    None => { out.push(bytes[index]); index += 1; }
+                }
+            }
+            byte => { out.push(byte); index += 1; }
+        }
+    }
+    String::from_utf8_lossy(&out).into_owned()
+}
+
 fn query_pairs(query: &str) -> Vec<(String, String)> {
     query
         .split('&')
@@ -76,7 +98,7 @@ fn query_pairs(query: &str) -> Vec<(String, String)> {
         .map(|pair| {
             let mut parts = pair.splitn(2, '=');
             let key = parts.next().unwrap_or("").to_string();
-            let value = parts.next().unwrap_or("").replace('+', " ");
+            let value = decode(parts.next().unwrap_or(""));
             (key, value)
         })
         .collect()
@@ -305,6 +327,45 @@ fn get_route(path: &str, query: &[(String, String)]) -> Result<Value, (u16, Stri
             }
             Ok(json!({ "items": out, "os": os, "branch": branch }))
         }
+        "/api/library" => {
+            let items: Vec<Value> = st
+                .apps
+                .values()
+                .map(|record| {
+                    let appid = record.get("appid").and_then(Value::as_u64).unwrap_or(0);
+                    let depots = record.get("depots").and_then(Value::as_array).cloned().unwrap_or_default();
+                    let missing: Vec<u64> = depots
+                        .iter()
+                        .filter_map(|depot| depot.get("depot_id").and_then(Value::as_u64))
+                        .filter(|id| !st.depot_keys.contains_key(&id.to_string()))
+                        .collect();
+                    json!({
+                        "appid": appid,
+                        "name": record.get("name").cloned().unwrap_or(Value::Null),
+                        "installed": vfsys::script_path(appid).exists(),
+                        "enabled": vfsys::script_path(appid).exists(),
+                        "depot_count": depots.len(),
+                        "missing_keys": missing,
+                        "dlc": record.get("dlc").cloned().unwrap_or_else(|| json!([])),
+                        "branch": record.get("branch").cloned().unwrap_or_else(|| json!("public")),
+                        "updated": record.get("updated").cloned().unwrap_or(Value::Null),
+                        "launch_options": steamctl::read_launch_options(appid),
+                        "cloud": steamctl::cloud_state(appid),
+                    })
+                })
+                .collect();
+            Ok(json!({
+                "items": items,
+                "keys": st.depot_keys.len(),
+                "steam": { "running": steamctl::is_running(), "root": steamctl::root().map(|value| value.display().to_string()) },
+                "engine": engine::detect(),
+                "settings": st.settings,
+            }))
+        }
+        "/api/cloud" => {
+            let appid = need_u64(query, "appid")?;
+            Ok(json!({ "appid": appid, "cloud": steamctl::cloud_state(appid) }))
+        }
         "/api/doctor" => Ok(crate::doctor::run()),
         "/api/pins" => {
             let appid = need_u64(query, "appid")?;
@@ -466,6 +527,60 @@ fn post_route(path: &str, body: &Value, query: &[(String, String)]) -> Result<Va
                 return Ok(result);
             }
             appmanifest::patch(appid, &mode, !force).map_err(|error| (500, error))
+        }
+        "/api/fix" => {
+            let action = body.get("action").and_then(Value::as_str).unwrap_or("");
+            let appid = body.get("appid").and_then(Value::as_u64).unwrap_or(0);
+            let st = state::load().map_err(|error| (500, error))?;
+            match action {
+                "manifest" => {
+                    if appid == 0 { return Err((400, "appid is required".into())); }
+                    let result = appmanifest::patch(appid, &appmanifest::Mode::Fix, true)
+                        .map_err(|error| (500, error))?;
+                    Ok(json!({ "ok": true, "message": "manifest repaired", "result": result }))
+                }
+                "keys" => {
+                    let mut written = 0;
+                    for record in st.apps.values() {
+                        let id = record.get("appid").and_then(Value::as_u64).unwrap_or(0);
+                        if appid != 0 && id != appid { continue; }
+                        let text = render_record(record, &st);
+                        if vfsys::script_path(id).exists() {
+                            if vfsys::write_script(id, &text, true).is_ok() { written += 1; }
+                        }
+                    }
+                    let order: Vec<Value> = st.settings.manifest_providers.iter().map(|name| json!(name)).collect();
+                    let provider = lua::render_provider(&order).and_then(|text| vfsys::write_provider(&text).map(|_| ()))
+                        .map_err(|error| (500, error))?;
+                    let _ = provider;
+                    Ok(json!({ "ok": true, "message": format!("{written} script(s) refreshed with the keys on disk") }))
+                }
+                "provider" => {
+                    let order: Vec<Value> = st.settings.manifest_providers.iter().map(|name| json!(name)).collect();
+                    let text = lua::render_provider(&order).map_err(|error| (500, error))?;
+                    vfsys::write_provider(&text).map_err(|error| (500, error))?;
+                    Ok(json!({ "ok": true, "message": "provider script written" }))
+                }
+                "cloud" => {
+                    if appid == 0 { return Err((400, "appid is required".into())); }
+                    let result = steamctl::clear_cloud_state(appid).map_err(|error| (409, error))?;
+                    Ok(json!({ "ok": true, "message": "cloud state reset, Steam will sync this game from scratch", "result": result }))
+                }
+                "launch" => {
+                    if appid == 0 { return Err((400, "appid is required".into())); }
+                    steamctl::set_launch_options(appid, "").map_err(|error| (409, error))?;
+                    Ok(json!({ "ok": true, "message": "launch options cleared" }))
+                }
+                "remove" => {
+                    if appid == 0 { return Err((400, "appid is required".into())); }
+                    vfsys::remove_script(appid);
+                    let mut fresh = state::load().map_err(|error| (500, error))?;
+                    fresh.apps.remove(&appid.to_string());
+                    state::save(&fresh).map_err(|error| (500, error))?;
+                    Ok(json!({ "ok": true, "message": "removed from the library" }))
+                }
+                other => Err((400, format!("unknown fix {other}"))),
+            }
         }
         "/api/steamui/panel" => {
             let open = body.get("open").and_then(Value::as_bool).unwrap_or(true);
@@ -785,4 +900,18 @@ pub fn serve(config: Config) -> Result<(), String> {
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::decode;
+
+    #[test]
+    fn decodes_query_values() {
+        assert_eq!(decode("portal%202"), "portal 2");
+        assert_eq!(decode("dota+2"), "dota 2");
+        assert_eq!(decode("tom%27s%20game"), "tom's game");
+        assert_eq!(decode("plain"), "plain");
+        assert_eq!(decode("bad%zz"), "bad%zz");
+    }
 }

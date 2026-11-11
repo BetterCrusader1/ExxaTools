@@ -244,7 +244,7 @@ pub fn read_launch_options(appid: u64) -> Option<String> {
 }
 
 /// Brace span of the `"<appid>" { ... }` block inside the apps table.
-fn app_block(text: &str, appid: u64) -> Option<(usize, usize)> {
+pub fn app_block(text: &str, appid: u64) -> Option<(usize, usize)> {
     let needle = format!("\"{appid}\"");
     let mut from = 0;
     while let Some(found) = text[from..].find(&needle) {
@@ -322,6 +322,87 @@ pub fn set_launch_options(appid: u64, options: &str) -> Result<serde_json::Value
         "path": path.display().to_string(),
         "previous": previous,
         "options": options,
+        "backup": backup.display().to_string(),
+    }))
+}
+
+
+/// Steam keeps the per-game sync marker in localconfig.vdf. Reading it tells the
+/// user whether the last cloud exchange with this game finished; dropping it
+/// forces Steam to treat the next launch as a fresh sync, which is what clears
+/// the stuck "cloud out of date" prompt.
+pub fn cloud_state(appid: u64) -> serde_json::Value {
+    let Some(path) = localconfig_path() else {
+        return serde_json::json!({ "found": false });
+    };
+    let Ok(text) = std::fs::read_to_string(&path) else {
+        return serde_json::json!({ "found": false });
+    };
+    let Ok(tree) = crate::vdf::parse(&text) else {
+        return serde_json::json!({ "found": false });
+    };
+    let app = crate::vdf::find_key(&tree, "apps").and_then(|apps| crate::vdf::child(apps, &appid.to_string()));
+    let cloud = app.and_then(|app| crate::vdf::child(app, "cloud"));
+    match cloud {
+        Some(cloud) => serde_json::json!({
+            "found": true,
+            "state": crate::vdf::scalar(cloud, "last_sync_state"),
+            "used_bytes": crate::vdf::scalar_i64(cloud, "used_bytes"),
+            "used_files": crate::vdf::scalar_i64(cloud, "used_files"),
+            "quota_bytes": crate::vdf::scalar_i64(cloud, "quota_bytes"),
+        }),
+        None => serde_json::json!({ "found": true, "state": "never synced" }),
+    }
+}
+
+pub fn clear_cloud_state(appid: u64) -> Result<serde_json::Value, String> {
+    let path = localconfig_path().ok_or("no Steam localconfig.vdf found for the active account")?;
+    if is_running() {
+        return Err("close Steam before resetting a cloud sync state".into());
+    }
+    let text = std::fs::read_to_string(&path).map_err(|error| error.to_string())?;
+    let Some((open, close)) = app_block(&text, appid) else {
+        return Err(format!("{appid} is not in this config yet: launch the game once first"));
+    };
+    let block = &text[open..close];
+    let Some(offset) = block.find("\"cloud\"") else {
+        return Err("this game has no cloud state to reset".into());
+    };
+    let after_key = open + offset + "\"cloud\"".len();
+    let Some(brace) = text[after_key..close].find('{') else {
+        return Err("malformed cloud block".into());
+    };
+    let start_of_brace = after_key + brace;
+    let mut depth = 0usize;
+    let mut end = None;
+    for (index, ch) in text[start_of_brace..close].char_indices() {
+        match ch {
+            '{' => depth += 1,
+            '}' => {
+                depth -= 1;
+                if depth == 0 {
+                    end = Some(start_of_brace + index + 1);
+                    break;
+                }
+            }
+            _ => {}
+        }
+    }
+    let end = end.ok_or("unbalanced cloud block")?;
+    let line_start = text[..open + offset].rfind('\n').map(|index| index + 1).unwrap_or(open);
+    let mut tail = &text[end..];
+    if tail.starts_with('\n') {
+        tail = &tail[1..];
+    }
+    let updated = format!("{}{}", &text[..line_start], tail);
+    let backup = path.with_file_name("localconfig.vdf.exxatools.bak");
+    let _ = std::fs::write(&backup, &text);
+    let temp = path.with_file_name("localconfig.vdf.exxatools.tmp");
+    std::fs::write(&temp, &updated).map_err(|error| error.to_string())?;
+    std::fs::rename(&temp, &path).map_err(|error| error.to_string())?;
+    Ok(serde_json::json!({
+        "reset": true,
+        "path": path.display().to_string(),
         "backup": backup.display().to_string(),
     }))
 }

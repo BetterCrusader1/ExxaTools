@@ -58,7 +58,9 @@ pub fn search(term: &str, cc: &str) -> Result<Vec<Value>, String> {
             return Ok(vec![json!({ "appid": appid, "name": name, "image": "", "price": null })]);
         }
     }
-    let url = STORE_SEARCH.replace("{term}", &http::quote(term)).replace("{cc}", cc);
+    // Steam's store search wants spaces as plus signs; %20 comes back empty.
+    let encoded = http::quote(term).replace("%20", "+");
+    let url = STORE_SEARCH.replace("{term}", &encoded).replace("{cc}", cc);
     let payload = http::get_json(&url).map_err(|error| error.to_string())?;
     let mut items = Vec::new();
     if let Some(entries) = payload.get("items").and_then(Value::as_array) {
