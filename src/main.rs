@@ -4,6 +4,7 @@ mod appmanifest;
 mod steamui;
 mod desktop;
 mod cdp;
+mod doctor;
 mod engine;
 mod http;
 mod lua;
@@ -66,6 +67,7 @@ fn main() {
                 "exxa serve [--port 8765] [--window]",
                 "exxa steamui status|inject|remove|enable",
                 "exxa shortcut [install|remove]",
+                "exxa doctor",
                 "exxa verify <appid>",
                 "exxa launchoptions <appid> [options]",
                 "exxa sources",
@@ -250,6 +252,7 @@ fn main() {
                 other => fail(format!("unknown shortcut action {other}; use install or remove")),
             }
         }
+        "doctor" => print_json(&doctor::run()),
         "verify" => {
             let Some(appid) = rest.first().and_then(|value| value.parse::<u64>().ok()) else {
                 fail("verify needs a numeric app id");

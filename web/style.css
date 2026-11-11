@@ -700,3 +700,27 @@ input[type="checkbox"]:focus-visible { outline: 2px solid var(--sand); outline-o
 .btn.warn { border-color: rgba(237, 180, 95, 0.35); color: var(--sand); }
 .btn.warn:hover { background: var(--sand-soft); border-color: rgba(237, 180, 95, 0.55); }
 .chip.is-active { background: var(--sand-soft); border-color: rgba(237, 180, 95, 0.45); color: var(--sand); }
+
+.doctor-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 0;
+  border-bottom: 1px solid var(--line-soft);
+}
+.doctor-row:last-child { border-bottom: 0; }
+.doctor-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--faint); flex: none; }
+.doctor-row.ok .doctor-dot { background: var(--mint); }
+.doctor-row.warn .doctor-dot { background: var(--sand); }
+.doctor-row.bad .doctor-dot { background: var(--rose); }
+.doctor-main { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.doctor-label { font-size: 13px; color: var(--text); }
+.doctor-detail { font-size: 11.5px; color: var(--faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.doctor-action { margin-left: auto; flex: none; }
+.doctor-drop {
+  position: fixed; inset: 0; z-index: 40; display: none;
+  align-items: center; justify-content: center;
+  background: rgba(8, 10, 13, 0.78); backdrop-filter: blur(2px);
+  font: 600 15px var(--sans); color: var(--text);
+}
+.doctor-drop.on { display: flex; }

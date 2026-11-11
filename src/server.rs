@@ -296,6 +296,7 @@ fn get_route(path: &str, query: &[(String, String)]) -> Result<Value, (u16, Stri
             }
             Ok(json!({ "items": out, "os": os, "branch": branch }))
         }
+        "/api/doctor" => Ok(crate::doctor::run()),
         "/api/watch" => Ok(crate::watch::sweep(false)),
         "/api/verify" => {
             let appid = need_u64(query, "appid")?;

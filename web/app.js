@@ -119,6 +119,78 @@ function renderPlans() {
   );
 }
 
+const DOCTOR_ACTIONS = {
+  engine_install: () => api("engine/install", { method: "POST", body: {} }),
+  restart_steam: () => api("steam/restart", { method: "POST", body: {} }),
+  provider_install: () => api("provider", { method: "POST", body: {} }),
+  steamui_enable: () => api("steamui", { method: "POST", body: { action: "enable" } }),
+  watch: () => api("watch", { method: "POST", body: { apply: true } }),
+};
+
+const DOCTOR_LABELS = {
+  engine_install: "Install",
+  restart_steam: "Restart",
+  provider_install: "Install",
+  steamui_enable: "Enable",
+  watch: "Fix",
+};
+
+async function loadDoctor() {
+  const box = $("#doctorList");
+  const hint = $("#doctorHint");
+  if (!box) return;
+  try {
+    const data = await api("doctor");
+    hint.textContent = data.ok
+      ? data.warnings
+        ? `No blocking problems, ${data.warnings} warning(s).`
+        : "Everything checks out."
+      : "Something blocks a download, see the red rows.";
+    box.replaceChildren(
+      ...(data.items || []).map((item) =>
+        h("div", { class: `doctor-row ${item.status}`, title: item.hint || "" },
+          h("span", { class: "doctor-dot" }),
+          h("div", { class: "doctor-main" },
+            h("span", { class: "doctor-label", text: item.label }),
+            h("span", { class: "doctor-detail", text: item.detail || "" })
+          ),
+          item.action
+            ? h("button", {
+                class: "btn small ghost doctor-action",
+                text: DOCTOR_LABELS[item.action] || "Fix",
+                onclick: async () => {
+                  if (!DOCTOR_ACTIONS[item.action]) return;
+                  try {
+                    await DOCTOR_ACTIONS[item.action]();
+                    toast(`${item.label}: done`, "ok");
+                  } catch (error) {
+                    toast(`${item.label}: ${error.message}`, "bad");
+                  }
+                  loadDoctor();
+                  refreshStatus();
+                },
+              })
+            : null
+        )
+      )
+    );
+  } catch (error) {
+    box.replaceChildren(h("p", { class: "hint", text: `doctor: ${error.message}` }));
+  }
+}
+
+async function importLua(text, name) {
+  try {
+    const result = await api("import", { method: "POST", body: { text } });
+    const summary = result.summary || {};
+    toast(`${name || "lua"}: ${summary.keys || 0} key(s), ${summary.depots || 0} depot(s)`, "ok");
+    refreshStatus();
+    loadDoctor();
+  } catch (error) {
+    toast(`${name || "lua"}: ${error.message}`, "bad");
+  }
+}
+
 async function loadDiscover() {
   const box = $("#discover");
   box.replaceChildren(h("p", { class: "hint", text: "loading picks…" }));
@@ -814,6 +886,30 @@ $("#removeProvider").addEventListener("click", async () => {
 });
 $("#reloadLog").addEventListener("click", loadLog);
 $("#shuffleDiscover").addEventListener("click", loadDiscover);
+$("#runDoctor").addEventListener("click", loadDoctor);
+
+const dropZone = h("div", { class: "doctor-drop", id: "dropZone", text: "Drop a .lua or .vdf to import depot keys" });
+document.body.append(dropZone);
+let dragDepth = 0;
+window.addEventListener("dragenter", (event) => {
+  if (!event.dataTransfer?.types?.includes("Files")) return;
+  dragDepth += 1;
+  dropZone.classList.add("on");
+});
+window.addEventListener("dragleave", () => {
+  dragDepth = Math.max(0, dragDepth - 1);
+  if (!dragDepth) dropZone.classList.remove("on");
+});
+window.addEventListener("dragover", (event) => event.preventDefault());
+window.addEventListener("drop", async (event) => {
+  event.preventDefault();
+  dragDepth = 0;
+  dropZone.classList.remove("on");
+  for (const file of event.dataTransfer?.files || []) {
+    if (!/\.(lua|vdf|txt|st)$/i.test(file.name)) continue;
+    await importLua(await file.text(), file.name);
+  }
+});
 
 async function steamUiAction(action) {
   try {
@@ -845,4 +941,5 @@ document.addEventListener("keydown", (event) => {
 
 refreshStatus();
 loadDiscover();
+loadDoctor();
 loadSystem();

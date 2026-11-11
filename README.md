@@ -20,6 +20,8 @@ cargo build --release
 ./target/release/exxa search "portal"
 ./target/release/exxa plan 620         # print the Lua plan, luac-checked
 ./target/release/exxa fix 620          # stop-loop repair for appmanifest
+./target/release/exxa doctor           # twelve checks with the fix for each
+./target/release/exxa watch --once     # what still needs the flag repair
 ```
 
 ```sh
