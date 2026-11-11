@@ -69,6 +69,52 @@ fn script() -> String {
         .replace("ICON_ICON", &serde_json::to_string(&icon_markup()).unwrap_or_else(|_| "\"\"".into()))
 }
 
+fn page_targets() -> Vec<Value> {
+    cdp::targets(DEBUG_PORT)
+        .into_iter()
+        .filter(|target| target.get("type").and_then(Value::as_str) == Some("page"))
+        .collect()
+}
+
+fn evaluate_on(target: &Value, expression: &str, timeout: std::time::Duration) -> Result<Value, String> {
+    let ws = target.get("webSocketDebuggerUrl").and_then(Value::as_str).unwrap_or("");
+    if ws.is_empty() {
+        return Err("target has no websocket url".into());
+    }
+    cdp::evaluate(ws, expression, timeout)
+}
+
+/// Every Steam window gets its own copy of the panel; show the same state in all
+/// of them so the visible one always has it.
+pub fn panel(open: bool, x: i64, y: i64) -> Result<Value, String> {
+    if !steamctl::is_running() {
+        return Err("Steam is not running".into());
+    }
+    if !debug_ready() {
+        return Err(format!("Steam has no debugging port: run `exxa steamui enable`"));
+    }
+    let mut total = 0;
+    let mut painted = 0;
+    for target in page_targets() {
+        total += 1;
+        let has_panel = evaluate_on(&target, "Boolean(window.__vdPanel)", std::time::Duration::from_secs(4))
+            .ok()
+            .and_then(|value| value.as_bool())
+            .unwrap_or(false);
+        if !has_panel {
+            let bootstrap = format!("window.__vdNoIcon = true;\n{}", script());
+            if evaluate_on(&target, &bootstrap, std::time::Duration::from_secs(8)).is_err() {
+                continue;
+            }
+        }
+        let expression = format!("window.__vdPanel({{ open: {open}, x: {x}, y: {y} }})");
+        if evaluate_on(&target, &expression, std::time::Duration::from_secs(4)).is_ok() {
+            painted += 1;
+        }
+    }
+    Ok(json!({ "open": open, "targets": total, "painted": painted }))
+}
+
 pub fn debug_ready() -> bool {
     cdp::version(DEBUG_PORT).is_some()
 }
@@ -138,24 +184,26 @@ pub fn inject() -> Result<Value, String> {
 }
 
 pub fn remove() -> Value {
-    let Some(target) = main_target() else {
-        return json!({ "injected": false, "removed": false });
-    };
-    let ws = target.get("webSocketDebuggerUrl").and_then(Value::as_str).unwrap_or("");
-    let expression = format!(
-        r#"(() => {{
-          const root = document.getElementById({ROOT_ID:?});
-          const panel = document.getElementById({PANEL_ID:?});
-          const style = document.getElementById({ROOT_ID:?} + "-style");
-          if (root) root.remove();
-          if (panel) panel.remove();
-          if (style) style.remove();
-          return true;
-        }})()"#
-    );
-    let removed = cdp::evaluate(ws, &expression, std::time::Duration::from_secs(10))
-        .map(|value| value.as_bool().unwrap_or(false))
-        .unwrap_or(false);
+    let mut removed = 0;
+    for target in page_targets() {
+        let expression = format!(
+            r#"(() => {{
+              const root = document.getElementById({ROOT_ID:?});
+              const panel = document.getElementById({PANEL_ID:?});
+              const style = document.getElementById({PANEL_ID:?} + "-style");
+              const iconStyle = document.getElementById({ROOT_ID:?} + "-style");
+              if (root) root.remove();
+              if (panel) panel.remove();
+              if (style) style.remove();
+              if (iconStyle) iconStyle.remove();
+              window.__vdOpen = false;
+              return true;
+            }})()"#
+        );
+        if evaluate_on(&target, &expression, std::time::Duration::from_secs(4)).is_ok() {
+            removed += 1;
+        }
+    }
     let mut out = status();
     out["removed"] = json!(removed);
     out

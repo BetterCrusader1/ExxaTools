@@ -1,8 +1,10 @@
 window.__vdGlyphs = __GLYPHS__;
+window.__vdOpen = false;
+
 window.__vdToast = (text) => {
   const node = document.createElement("div");
   Object.assign(node.style, {
-    position: "fixed", right: "18px", bottom: "18px", zIndex: 2147483001,
+    position: "fixed", right: "18px", bottom: "18px", zIndex: 2147483647,
     padding: "10px 14px", borderRadius: "10px",
     background: "#151A21", border: "1px solid #2E3A49", color: "#E9EDF2",
     font: "500 12.5px Montserrat, 'Motiva Sans', Arial, sans-serif",
@@ -22,116 +24,121 @@ window.__vdToast = (text) => {
   }, 2600);
 };
 
-window.__vdInject = () => {
+// Steam renders the store, the library and Community in their own CEF windows
+// that sit above the main frame. A panel built only in the main frame is
+// therefore covered, so every target carries a copy and all of them are shown
+// at once: whichever window ends up on top already has the panel in it.
+window.__vdPanel = (opts) => {
   const API = "__API__";
-  const ROOT = "__ROOT__";
   const PANEL = "__PANEL__";
-  const ICON = "__ICON__";
 
-  if (document.getElementById(ROOT)) return "present";
+  const glyph = (name) => (window.__vdGlyphs || {})[name] || "";
 
-  // The Help item is a leaf div inside a one-child wrapper inside the menubar.
-  let help = null;
-  for (const el of document.querySelectorAll("div,button,span,a,li")) {
-    if (el.childElementCount) continue;
-    if (el.textContent.trim() !== "Help") continue;
-    const rect = el.getBoundingClientRect();
-    if (rect.width > 0 && rect.top < 60) { help = el; break; }
-  }
-  if (!help) return "no-menubar";
-  const wrapper = help.parentElement;
-  const bar = wrapper && wrapper.parentElement;
-  if (!wrapper || !bar) return "no-anchor";
+  const build = () => {
+    if (!document.body) return null;
+    const style = document.createElement("style");
+    style.id = PANEL + "-style";
+    style.textContent = `
+      #${PANEL} {
+        position: fixed; z-index: 2147483647; width: 272px; padding: 6px;
+        background: #151A21; border: 1px solid #2E3A49; border-radius: 14px;
+        box-shadow: 0 24px 60px rgba(0,0,0,.62);
+        font-family: Montserrat, "Motiva Sans", Arial, sans-serif;
+        color: #E9EDF2; display: none;
+      }
+      #${PANEL}.open { display: block; }
+      #${PANEL} .vd-head { padding: 8px 10px 9px; }
+      #${PANEL} .vd-title { display: flex; justify-content: space-between; align-items: baseline;
+        font-size: 13px; font-weight: 700; letter-spacing: .01em; }
+      #${PANEL} .vd-ver { font-family: ui-monospace, monospace; font-size: 10.5px; font-weight: 400;
+        color: #6B7686; }
+      #${PANEL} .vd-state { display: flex; align-items: center; gap: 6px; margin-top: 3px;
+        font-size: 11.5px; color: #9DA8B7; }
+      #${PANEL} .vd-dot { width: 6px; height: 6px; border-radius: 50%; background: #6B7686; }
+      #${PANEL} .vd-state.ok .vd-dot { background: #58B77E; }
+      #${PANEL} .vd-state.warn .vd-dot { background: #D9A15A; }
+      #${PANEL} .vd-state.bad .vd-dot { background: #D9655C; }
+      #${PANEL} .vd-sep { height: 1px; margin: 6px 4px; background: #222A35; }
+      #${PANEL} .vd-item { display: flex; align-items: center; width: 100%; min-height: 32px;
+        padding: 6px 10px; gap: 9px; background: transparent; border: 1px solid transparent;
+        border-radius: 9px; color: #9DA8B7; font: 500 12.5px Montserrat, "Motiva Sans", Arial, sans-serif;
+        text-align: left; cursor: pointer; }
+      #${PANEL} .vd-item:hover { background: #1A212B; color: #E9EDF2; }
+      #${PANEL} .vd-item svg { width: 15px; height: 15px; flex: none; opacity: .9; }
+      #${PANEL} .vd-plans { padding: 2px 4px 4px; }
+      #${PANEL} .vd-plan { display: flex; align-items: center; gap: 8px; padding: 5px 6px;
+        border-radius: 8px; font-size: 12px; color: #9DA8B7; }
+      #${PANEL} .vd-plan b { font-weight: 600; color: #E9EDF2; overflow: hidden;
+        text-overflow: ellipsis; white-space: nowrap; }
+      #${PANEL} .vd-flag { margin-left: auto; font: 600 10px Montserrat, Arial, sans-serif;
+        padding: 2px 6px; border-radius: 999px; border: 1px solid #2E3A49; color: #6B7686; }
+      #${PANEL} .vd-flag.ok { color: #7FCFA2; border-color: #2F5B45; }
+      #${PANEL} .vd-flag.warn { color: #D9A15A; border-color: #5B4A2F; }
+      #${PANEL} .vd-empty { padding: 6px 10px; font-size: 11.5px; color: #6B7686; }
+      #${PANEL} .vd-msg { padding: 6px 10px 2px; font-size: 11.5px; color: #9DA8B7; min-height: 16px; }
+    `;
+    document.head.appendChild(style);
 
-  // Reuse Steam's own menu item markup so hover and spacing stay native.
-  const item = wrapper.cloneNode(true);
-  item.id = ROOT;
-  item.innerHTML = "";
-  item.style.cursor = "pointer";
-  item.style.display = "flex";
-  item.style.alignItems = "center";
-  item.style.justifyContent = "center";
-  item.title = "ExxaTools (Ctrl+Shift+E)";
-  const icon = document.createElement("span");
-  icon.id = ICON;
-  icon.style.display = "flex";
-  icon.style.width = "16px";
-  icon.style.height = "16px";
-  icon.innerHTML = ICON_ICON;
-  item.appendChild(icon);
-  wrapper.insertAdjacentElement("afterend", item);
+    const panel = document.createElement("div");
+    panel.id = PANEL;
+    panel.innerHTML = `
+      <div class="vd-head">
+        <div class="vd-title">ExxaTools <span class="vd-ver" id="vd-ver">—</span></div>
+        <div class="vd-state" id="vd-state"><span class="vd-dot"></span><span id="vd-state-text">checking engine</span></div>
+      </div>
+      <div class="vd-sep"></div>
+      <div class="vd-plans" id="vd-plans"><div class="vd-empty">no plans yet</div></div>
+      <div class="vd-sep"></div>
+      <button class="vd-item" data-act="open">ICON_GLYPH_APP Open ExxaTools</button>
+      <button class="vd-item" data-act="restart">ICON_GLYPH_RESTART Restart Steam</button>
+      <button class="vd-item" data-act="provider">ICON_GLYPH_PROVIDER Install provider</button>
+      <div class="vd-sep"></div>
+      <button class="vd-item" data-act="about">ICON_GLYPH_ABOUT About</button>
+      <div class="vd-msg" id="vd-msg"></div>
+    `
+      .replace("ICON_GLYPH_APP", glyph("app"))
+      .replace("ICON_GLYPH_RESTART", glyph("restart"))
+      .replace("ICON_GLYPH_PROVIDER", glyph("provider"))
+      .replace("ICON_GLYPH_ABOUT", glyph("about"));
+    document.body.appendChild(panel);
 
-  const style = document.createElement("style");
-  style.id = ROOT + "-style";
-  style.textContent = `
-    #${PANEL} {
-      position: fixed; z-index: 2147483000; width: 272px; padding: 6px;
-      background: #151A21; border: 1px solid #2E3A49; border-radius: 14px;
-      box-shadow: 0 24px 60px rgba(0,0,0,.62);
-      font-family: Montserrat, "Motiva Sans", Arial, sans-serif;
-      color: #E9EDF2; display: none;
-    }
-    #${PANEL}.open { display: block; }
-    #${PANEL} .vd-head { padding: 8px 10px 9px; }
-    #${PANEL} .vd-title { display: flex; justify-content: space-between; align-items: baseline;
-      font-size: 13px; font-weight: 700; letter-spacing: .01em; }
-    #${PANEL} .vd-ver { font-family: ui-monospace, monospace; font-size: 10.5px; font-weight: 400;
-      color: #6B7686; }
-    #${PANEL} .vd-state { display: flex; align-items: center; gap: 6px; margin-top: 3px;
-      font-size: 11.5px; color: #9DA8B7; }
-    #${PANEL} .vd-dot { width: 6px; height: 6px; border-radius: 50%; background: #6B7686; }
-    #${PANEL} .vd-state.ok .vd-dot { background: #58B77E; }
-    #${PANEL} .vd-state.warn .vd-dot { background: #D9A15A; }
-    #${PANEL} .vd-state.bad .vd-dot { background: #D9655C; }
-    #${PANEL} .vd-sep { height: 1px; margin: 6px 4px; background: #222A35; }
-    #${PANEL} .vd-item { display: flex; align-items: center; width: 100%; min-height: 32px;
-      padding: 6px 10px; gap: 9px; background: transparent; border: 1px solid transparent;
-      border-radius: 9px; color: #9DA8B7; font: 500 12.5px Montserrat, "Motiva Sans", Arial, sans-serif;
-      text-align: left; cursor: pointer; }
-    #${PANEL} .vd-item:hover { background: #1A212B; color: #E9EDF2; }
-    #${PANEL} .vd-item svg { width: 15px; height: 15px; flex: none; opacity: .9; }
-    #${PANEL} .vd-plans { padding: 2px 4px 4px; }
-    #${PANEL} .vd-plan { display: flex; align-items: center; gap: 8px; padding: 5px 6px;
-      border-radius: 8px; font-size: 12px; color: #9DA8B7; }
-    #${PANEL} .vd-plan b { font-weight: 600; color: #E9EDF2; overflow: hidden;
-      text-overflow: ellipsis; white-space: nowrap; }
-    #${PANEL} .vd-flag { margin-left: auto; font: 600 10px Montserrat, Arial, sans-serif;
-      padding: 2px 6px; border-radius: 999px; border: 1px solid #2E3A49; color: #6B7686; }
-    #${PANEL} .vd-flag.ok { color: #7FCFA2; border-color: #2F5B45; }
-    #${PANEL} .vd-flag.warn { color: #D9A15A; border-color: #5B4A2F; }
-    #${PANEL} .vd-empty { padding: 6px 10px; font-size: 11.5px; color: #6B7686; }
-    #${PANEL} .vd-msg { padding: 6px 10px 2px; font-size: 11.5px; color: #9DA8B7; min-height: 16px; }
-  `;
-  document.head.appendChild(style);
+    const msg = (text) => {
+      const node = panel.querySelector("#vd-msg");
+      if (node) node.textContent = text;
+    };
 
-  const panel = document.createElement("div");
-  panel.id = PANEL;
-  panel.innerHTML = `
-    <div class="vd-head">
-      <div class="vd-title">ExxaTools <span class="vd-ver" id="vd-ver">—</span></div>
-      <div class="vd-state" id="vd-state"><span class="vd-dot"></span><span id="vd-state-text">checking engine</span></div>
-    </div>
-    <div class="vd-sep"></div>
-    <div class="vd-plans" id="vd-plans"><div class="vd-empty">no plans yet</div></div>
-    <div class="vd-sep"></div>
-    <button class="vd-item" data-act="open">ICON_GLYPH_APP Open ExxaTools</button>
-    <button class="vd-item" data-act="restart">ICON_GLYPH_RESTART Restart Steam</button>
-    <button class="vd-item" data-act="provider">ICON_GLYPH_PROVIDER Install provider</button>
-    <div class="vd-sep"></div>
-    <button class="vd-item" data-act="about">ICON_GLYPH_ABOUT About</button>
-    <div class="vd-msg" id="vd-msg"></div>
-  `.replace("ICON_GLYPH_APP", ICON_GLYPH("app"))
-   .replace("ICON_GLYPH_RESTART", ICON_GLYPH("restart"))
-   .replace("ICON_GLYPH_PROVIDER", ICON_GLYPH("provider"))
-   .replace("ICON_GLYPH_ABOUT", ICON_GLYPH("about"));
-  document.body.appendChild(panel);
-
-  function ICON_GLYPH(name) { return (window.__vdGlyphs || {})[name] || ""; }
-
-  const msg = (text) => {
-    const node = panel.querySelector("#vd-msg");
-    if (node) node.textContent = text;
+    panel.addEventListener("click", async (event) => {
+      const button = event.target.closest("[data-act]");
+      if (!button) return;
+      const action = button.dataset.act;
+      msg("");
+      try {
+        if (action === "open") {
+          const response = await fetch(API + "/api/app/launch", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
+          const data = await response.json();
+          msg(data.started ? "opening the dashboard" : "dashboard already running");
+        } else if (action === "restart") {
+          msg("stopping Steam…");
+          await fetch(API + "/api/steam/restart", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
+          msg("Steam is restarting");
+        } else if (action === "provider") {
+          const response = await fetch(API + "/api/provider", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
+          const data = await response.json();
+          const text = data.error ? data.error : "provider script written";
+          msg(text);
+          window.__vdToast(text);
+        } else if (action === "about") {
+          msg("ExxaTools — depots, manifests and keys for Vapor Forge");
+        }
+      } catch (error) {
+        msg("ExxaTools is not answering");
+      }
+    });
+    return panel;
   };
+
+  const panel = document.getElementById(PANEL) || build();
+  if (!panel) return false;
 
   const setState = (engine) => {
     const state = panel.querySelector("#vd-state");
@@ -170,88 +177,106 @@ window.__vdInject = () => {
     return row;
   };
 
-  const renderPlans = (status) => {
-    const box = panel.querySelector("#vd-plans");
-    const plans = (status && status.apps) || [];
-    if (!plans.length) {
-      box.innerHTML = '<div class="vd-empty">no plans yet</div>';
-      return;
-    }
-    box.replaceChildren(...plans.slice(0, 4).map(planRow));
-  };
-
   const refresh = async () => {
     try {
       const response = await fetch(API + "/api/status", { cache: "no-store" });
       const status = await response.json();
       setState(status.engine);
-      renderPlans(status);
+      const plans = status.apps || [];
+      const box = panel.querySelector("#vd-plans");
+      if (!plans.length) box.innerHTML = '<div class="vd-empty">no plans yet</div>';
+      else box.replaceChildren(...plans.slice(0, 4).map(planRow));
     } catch (error) {
       setState(null);
     }
   };
 
-  const place = () => {
-    const rect = item.getBoundingClientRect();
-    const width = 272;
-    let left = Math.min(Math.max(8, rect.left - width + rect.width), window.innerWidth - width - 8);
-    panel.style.left = left + "px";
-    panel.style.top = Math.round(rect.bottom + 10) + "px";
-  };
+  if (opts && opts.open === false) {
+    panel.classList.remove("open");
+    window.__vdOpen = false;
+    return true;
+  }
 
-  const close = () => panel.classList.remove("open");
-  const open = () => {
-    place();
-    panel.classList.add("open");
-    refresh();
+  const width = 272;
+  const anchorX = Number((opts && opts.x) || 12);
+  const anchorY = Number((opts && opts.y) || 44);
+  const left = Math.min(Math.max(8, anchorX - width + 24), window.innerWidth - width - 8);
+  panel.style.left = left + "px";
+  panel.style.top = Math.max(8, anchorY + 10) + "px";
+  panel.classList.add("open");
+  window.__vdOpen = true;
+  refresh();
+  return true;
+};
+
+// The icon lives only in the window that owns the Help menu; the panel above
+// exists in every window.
+window.__vdInject = () => {
+  if (window.__vdNoIcon) return "panel-only";
+  const API = "__API__";
+  const ROOT = "__ROOT__";
+  const ICON = "__ICON__";
+
+  if (document.getElementById(ROOT)) return "present";
+
+  // The Help item is a leaf div inside a one-child wrapper inside the menubar.
+  let help = null;
+  for (const el of document.querySelectorAll("div,button,span,a,li")) {
+    if (el.childElementCount) continue;
+    if (el.textContent.trim() !== "Help") continue;
+    const rect = el.getBoundingClientRect();
+    if (rect.width > 0 && rect.top < 60) { help = el; break; }
+  }
+  if (!help) return "no-menubar";
+  const wrapper = help.parentElement;
+  if (!wrapper) return "no-anchor";
+
+  // Reuse Steam's own menu item markup so hover and spacing stay native.
+  const item = wrapper.cloneNode(true);
+  item.id = ROOT;
+  item.innerHTML = "";
+  item.style.cursor = "pointer";
+  item.style.display = "flex";
+  item.style.alignItems = "center";
+  item.style.justifyContent = "center";
+  item.title = "ExxaTools (Ctrl+Shift+E)";
+  const icon = document.createElement("span");
+  icon.id = ICON;
+  icon.style.display = "flex";
+  icon.style.width = "16px";
+  icon.style.height = "16px";
+  icon.innerHTML = ICON_ICON;
+  item.appendChild(icon);
+  wrapper.insertAdjacentElement("afterend", item);
+
+  const toggle = () => {
+    const rect = item.getBoundingClientRect();
+    fetch(API + "/api/steamui/panel", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ open: !window.__vdOpen, x: Math.round(rect.left), y: Math.round(rect.bottom) }),
+    }).catch(() => {});
   };
-  const toggle = () => (panel.classList.contains("open") ? close() : open());
 
   item.addEventListener("click", (event) => {
     event.stopPropagation();
     toggle();
   });
-  document.addEventListener("click", (event) => {
-    if (!panel.contains(event.target) && !item.contains(event.target)) close();
-  });
   document.addEventListener("keydown", (event) => {
-    if (event.key === "Escape") close();
     if (event.ctrlKey && event.shiftKey && (event.key === "E" || event.key === "e")) {
       event.preventDefault();
       toggle();
     }
-  });
-  window.addEventListener("resize", () => { if (panel.classList.contains("open")) place(); });
-
-  panel.addEventListener("click", async (event) => {
-    const button = event.target.closest("[data-act]");
-    if (!button) return;
-    const action = button.dataset.act;
-    msg("");
-    try {
-      if (action === "open") {
-        const response = await fetch(API + "/api/app/launch", { method: "POST", headers: {"Content-Type": "application/json"}, body: "{}" });
-        const data = await response.json();
-        msg(data.started ? "opening the dashboard" : "dashboard already running");
-      } else if (action === "restart") {
-        msg("stopping Steam…");
-        await fetch(API + "/api/steam/restart", { method: "POST", headers: {"Content-Type": "application/json"}, body: "{}" });
-        msg("Steam is restarting");
-      } else if (action === "provider") {
-        const response = await fetch(API + "/api/provider", { method: "POST", headers: {"Content-Type": "application/json"}, body: "{}" });
-        const data = await response.json();
-        const text = data.error ? data.error : "provider script written";
-        msg(text);
-        window.__vdToast(text);
-      } else if (action === "about") {
-        msg("ExxaTools — depots, manifests and keys for Vapor Forge");
-      }
-    } catch (error) {
-      msg("ExxaTools is not answering");
+    if (event.key === "Escape" && window.__vdOpen) {
+      fetch(API + "/api/steamui/panel", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ open: false }),
+      }).catch(() => {});
     }
   });
 
-  refresh();
+  window.__vdPanel({ open: false });
   return "injected";
 };
 
@@ -261,7 +286,7 @@ if (!window.__vdWatcher) {
     if (pending) return;
     pending = setTimeout(() => {
       pending = null;
-      if (!document.getElementById("__ROOT__") && document.body) {
+      if (!window.__vdNoIcon && !document.getElementById("__ROOT__") && document.body) {
         try { window.__vdInject(); } catch (error) { /* Steam is mid-render */ }
       }
     }, 250);

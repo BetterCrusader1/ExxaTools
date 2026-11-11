@@ -467,6 +467,12 @@ fn post_route(path: &str, body: &Value, query: &[(String, String)]) -> Result<Va
             }
             appmanifest::patch(appid, &mode, !force).map_err(|error| (500, error))
         }
+        "/api/steamui/panel" => {
+            let open = body.get("open").and_then(Value::as_bool).unwrap_or(true);
+            let x = body.get("x").and_then(Value::as_i64).unwrap_or(12);
+            let y = body.get("y").and_then(Value::as_i64).unwrap_or(44);
+            crate::steamui::panel(open, x, y).map_err(|error| (500, error))
+        }
         "/api/steamui" => {
             let action = body.get("action").and_then(Value::as_str).unwrap_or("status");
             match action {
