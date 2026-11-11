@@ -150,13 +150,99 @@ fn ensure_panel(target: &Frame) -> Result<(), String> {
     cdp::evaluate(&target.ws, &bootstrap, std::time::Duration::from_secs(8)).map(|_| ())
 }
 
-fn hide_everywhere() {
-    for frame in frames() {
-        let _ = cdp::evaluate(&frame.ws, "window.__vdPanel && window.__vdPanel({ open: false })", std::time::Duration::from_secs(3));
+static PANEL_SHOWN: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+static PANEL_HOST: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
+static PUMP: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+fn status_snapshot() -> Value {
+    let st = crate::state::load().unwrap_or_default();
+    let apps: Vec<Value> = st
+        .apps
+        .values()
+        .map(|record| {
+            let appid = record.get("appid").and_then(Value::as_u64).unwrap_or(0);
+            let depots = record.get("depots").and_then(Value::as_array).cloned().unwrap_or_default();
+            let missing: Vec<u64> = depots
+                .iter()
+                .filter_map(|depot| depot.get("depot_id").and_then(Value::as_u64))
+                .filter(|id| !st.depot_keys.contains_key(&id.to_string()))
+                .collect();
+            let mut view = record.clone();
+            view["installed"] = json!(crate::vfsys::script_path(appid).exists());
+            view["missing_keys"] = json!(missing);
+            view
+        })
+        .collect();
+    json!({ "engine": crate::engine::detect(), "apps": apps })
+}
+
+fn run_action(action: &str) -> String {
+    match action {
+        "open" => match crate::desktop::launch_app().get("error").and_then(Value::as_str) {
+            Some(error) => error.to_string(),
+            None => "opening the dashboard".into(),
+        },
+        "restart" => match crate::steamctl::restart(&[]) {
+            Ok(_) => "Steam is restarting".into(),
+            Err(error) => error,
+        },
+        "provider" => {
+            let st = crate::state::load().unwrap_or_default();
+            let order: Vec<Value> = st.settings.manifest_providers.iter().map(|name| json!(name)).collect();
+            match crate::lua::render_provider(&order) {
+                Ok(text) => match crate::vfsys::write_provider(&text) {
+                    Ok(_) => "provider script written".into(),
+                    Err(error) => error,
+                },
+                Err(error) => error,
+            }
+        }
+        "close" => {
+            hide_panel();
+            String::new()
+        }
+        _ => String::new(),
     }
 }
 
-static PANEL_SHOWN: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+/// Steam's pages block loopback requests with their CSP, so the panel has no
+/// network at all: the pump reads clicks and pushes fresh state over CDP.
+fn pump() {
+    loop {
+        std::thread::sleep(std::time::Duration::from_millis(400));
+        if !PANEL_SHOWN.load(std::sync::atomic::Ordering::Relaxed) {
+            continue;
+        }
+        let Some(ws) = PANEL_HOST.lock().ok().and_then(|guard| guard.clone()) else { continue };
+        let action = cdp::evaluate(&ws, "window.__vdAction || ''", std::time::Duration::from_secs(3))
+            .ok()
+            .and_then(|value| value.as_str().map(str::to_string))
+            .unwrap_or_default();
+        if !action.is_empty() {
+            let _ = cdp::evaluate(&ws, "window.__vdAction = ''", std::time::Duration::from_secs(3));
+            let message = run_action(&action);
+            let state = status_snapshot();
+            let payload = json!({ "engine": state["engine"], "apps": state["apps"], "msg": message });
+            let expression = format!("window.__vdUpdate({payload})");
+            let _ = cdp::evaluate(&ws, &expression, std::time::Duration::from_secs(3));
+            continue;
+        }
+        let state = status_snapshot();
+        let expression = format!("window.__vdUpdate({state})");
+        let _ = cdp::evaluate(&ws, &expression, std::time::Duration::from_secs(3));
+    }
+}
+
+fn hide_panel() {
+    use std::sync::atomic::Ordering;
+    for frame in frames() {
+        let _ = cdp::evaluate(&frame.ws, "window.__vdPanel && window.__vdPanel({ open: false })", std::time::Duration::from_secs(3));
+    }
+    PANEL_SHOWN.store(false, Ordering::Relaxed);
+    if let Ok(mut guard) = PANEL_HOST.lock() {
+        *guard = None;
+    }
+}
 
 /// The panel lives inside Steam: it is injected into whichever window sits under
 /// the menu, so it scrolls with that window and cannot float over other apps.
@@ -164,8 +250,7 @@ pub fn panel(open: bool, toggle: bool, x: i64, y: i64, screen_x: i64, screen_y: 
     use std::sync::atomic::Ordering;
 
     if !open || (toggle && PANEL_SHOWN.load(Ordering::Relaxed)) {
-        hide_everywhere();
-        PANEL_SHOWN.store(false, Ordering::Relaxed);
+        hide_panel();
         return Ok(json!({ "open": false }));
     }
     if !steamctl::is_running() {
@@ -181,23 +266,30 @@ pub fn panel(open: bool, toggle: bool, x: i64, y: i64, screen_x: i64, screen_y: 
     let host = host_for(left + width / 2, top + height / 2).ok_or("no Steam window covers that spot")?;
 
     ensure_panel(&host)?;
-    // Right-aligning under the icon only works when there is room on its left;
-    // otherwise the panel hangs off the window and lands at the far edge.
     if left < host.x + 8 {
         left = icon_abs - 16;
     }
     let local_x = (left - host.x).clamp(8, (host.w - width - 8).max(8));
     let local_y = (top - host.y).max(8);
-    let expression = format!("window.__vdPanel({{ open: true, x: {local_x}, y: {local_y} }})");
+    let state = status_snapshot();
+    let expression = format!(
+        "window.__vdPanel({{ open: true, x: {local_x}, y: {local_y}, state: {state} }})"
+    );
     cdp::evaluate(&host.ws, &expression, std::time::Duration::from_secs(4))?;
     PANEL_SHOWN.store(true, Ordering::Relaxed);
+    if let Ok(mut guard) = PANEL_HOST.lock() {
+        *guard = Some(host.ws.clone());
+    }
 
-    // Any other copy must go, otherwise the same panel shows twice.
     for frame in frames() {
         if frame.ws == host.ws {
             continue;
         }
         let _ = cdp::evaluate(&frame.ws, "window.__vdPanel && window.__vdPanel({ open: false })", std::time::Duration::from_secs(3));
+    }
+
+    if !PUMP.swap(true, Ordering::Relaxed) {
+        std::thread::spawn(pump);
     }
 
     Ok(json!({ "open": true, "host": [host.x, host.y, host.w, host.h], "left": local_x, "top": local_y }))

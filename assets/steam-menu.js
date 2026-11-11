@@ -94,32 +94,59 @@ window.__vdPanel = (opts) => {
       if (node) node.textContent = text;
     };
 
-    panel.addEventListener("click", async (event) => {
+    // Steam's store and community pages send a CSP that blocks requests to
+    // loopback, so the panel never talks to the API itself: the server pushes a
+    // state snapshot in, and clicks are read back through the same channel.
+    window.__vdRender = (state) => {
+      state = state || {};
+      const engine = state.engine;
+      const stateNode = panel.querySelector("#vd-state");
+      const text = panel.querySelector("#vd-state-text");
+      const version = panel.querySelector("#vd-ver");
+      if (!engine) {
+        text.textContent = "ExxaTools is not answering";
+        stateNode.className = "vd-state bad";
+      } else {
+        version.textContent = engine.version || "—";
+        let label = "engine not installed";
+        let kind = "bad";
+        if (engine.installed) {
+          if (!engine.steam_running) { label = "Steam is not running"; kind = "warn"; }
+          else if (engine.steam_engine_loaded) { label = "engine loaded in Steam"; kind = "ok"; }
+          else { label = "restart Steam to load the engine"; kind = "warn"; }
+        }
+        text.textContent = label;
+        stateNode.className = "vd-state " + kind;
+      }
+      const box = panel.querySelector("#vd-plans");
+      const plans = state.apps || [];
+      if (!plans.length) {
+        box.innerHTML = '<div class="vd-empty">no plans yet</div>';
+      } else {
+        box.replaceChildren(...plans.slice(0, 4).map((plan) => {
+          const missing = (plan.missing_keys || []).length;
+          const flag = plan.installed
+            ? (missing ? { text: "keys", kind: "warn" } : { text: "ready", kind: "ok" })
+            : { text: "plan", kind: "" };
+          const row = document.createElement("div");
+          row.className = "vd-plan";
+          const name = document.createElement("b");
+          name.textContent = plan.name || String(plan.appid);
+          const chip = document.createElement("span");
+          chip.className = "vd-flag " + flag.kind;
+          chip.textContent = flag.text;
+          row.append(name, chip);
+          return row;
+        }));
+      }
+      if (state.msg !== undefined) msg(state.msg || "");
+    };
+
+    panel.addEventListener("click", (event) => {
       const button = event.target.closest("[data-act]");
       if (!button) return;
-      const action = button.dataset.act;
-      msg("");
-      try {
-        if (action === "close") {
-          await fetch(API + "/api/steamui/panel", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ open: false }) });
-        } else if (action === "open") {
-          const response = await fetch(API + "/api/app/launch", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
-          const data = await response.json();
-          msg(data.started ? "opening the dashboard" : "dashboard already running");
-        } else if (action === "restart") {
-          msg("stopping Steam…");
-          await fetch(API + "/api/steam/restart", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
-          msg("Steam is restarting");
-        } else if (action === "provider") {
-          const response = await fetch(API + "/api/provider", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
-          const data = await response.json();
-          msg(data.error ? data.error : "provider script written");
-        } else if (action === "about") {
-          msg("ExxaTools — depots, manifests and keys for Vapor Forge");
-        }
-      } catch (error) {
-        msg("ExxaTools is not answering");
-      }
+      window.__vdAction = button.dataset.act;
+      msg("working…");
     });
     return panel;
   };
@@ -132,61 +159,15 @@ window.__vdPanel = (opts) => {
     return true;
   }
 
-  const setState = (engine) => {
-    const state = panel.querySelector("#vd-state");
-    const text = panel.querySelector("#vd-state-text");
-    const version = panel.querySelector("#vd-ver");
-    if (!engine) {
-      text.textContent = "ExxaTools is not answering";
-      state.className = "vd-state bad";
-      return;
-    }
-    version.textContent = engine.version || "—";
-    let label = "engine not installed";
-    let kind = "bad";
-    if (engine.installed) {
-      if (!engine.steam_running) { label = "Steam is not running"; kind = "warn"; }
-      else if (engine.steam_engine_loaded) { label = "engine loaded in Steam"; kind = "ok"; }
-      else { label = "restart Steam to load the engine"; kind = "warn"; }
-    }
-    text.textContent = label;
-    state.className = "vd-state " + kind;
-  };
-
-  const planRow = (plan) => {
-    const missing = (plan.missing_keys || []).length;
-    const flag = plan.installed
-      ? (missing ? { text: "keys", kind: "warn" } : { text: "ready", kind: "ok" })
-      : { text: "plan", kind: "" };
-    const row = document.createElement("div");
-    row.className = "vd-plan";
-    const name = document.createElement("b");
-    name.textContent = plan.name || String(plan.appid);
-    const chip = document.createElement("span");
-    chip.className = "vd-flag " + flag.kind;
-    chip.textContent = flag.text;
-    row.append(name, chip);
-    return row;
-  };
-
-  const refresh = async () => {
-    try {
-      const response = await fetch(API + "/api/status", { cache: "no-store" });
-      const status = await response.json();
-      setState(status.engine);
-      const plans = status.apps || [];
-      const box = panel.querySelector("#vd-plans");
-      if (!plans.length) box.innerHTML = '<div class="vd-empty">no plans yet</div>';
-      else box.replaceChildren(...plans.slice(0, 4).map(planRow));
-    } catch (error) {
-      setState(null);
-    }
-  };
-
   panel.style.left = Math.max(8, Number((opts && opts.x) || 8)) + "px";
   panel.style.top = Math.max(8, Number((opts && opts.y) || 44)) + "px";
   panel.classList.add("open");
-  refresh();
+  if (opts && opts.state && window.__vdRender) window.__vdRender(opts.state);
+  return true;
+};
+
+window.__vdUpdate = (state) => {
+  if (window.__vdRender) window.__vdRender(state);
   return true;
 };
 
