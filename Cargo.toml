@@ -1,0 +1,26 @@
+[package]
+name = "exxa"
+version = "0.2.0"
+edition = "2021"
+description = "Steam depots and manifests for the Linux client, on Vapor Forge"
+license = "MIT"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+base64 = "0.22"
+zip = { version = "2", default-features = false, features = ["deflate"] }
+keyvalues-parser = "0.2"
+steamlocate = "2"
+ureq = { version = "3", default-features = false, features = ["rustls"] }
+tungstenite = "0.30"
+notify = "8"
+
+
+[profile.release]
+opt-level = "s"
+lto = "thin"
+strip = true
+codegen-units = 1
+panic = "abort"
