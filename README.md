@@ -8,7 +8,10 @@ choose its depots, pin manifests, store depot keys, and write a Lua plan into
 Vapor Forge's script directory. Vapor Forge does the hooking and Steam does the
 downloading.
 
-Python 3.10+ standard library only. No pip install, no build step.
+Current implementation is Python 3.10+ with the standard library only — no pip,
+no build step. The Rust rewrite lives in `src/` and is tracked in
+[ROADMAP.md](ROADMAP.md); it builds in about 15 seconds and 179 MB of `target/`,
+no toolchain bloat.
 
 ## Run
 

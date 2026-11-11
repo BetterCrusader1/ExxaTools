@@ -1,115 +1,122 @@
-# ExxaTools — план розвитку
+# ExxaTools — roadmap
 
-Три речі визначають продукт:
+Three things define the product:
 
-1. гра з'являється в бібліотеці Steam і реально качається;
-2. немає «no internet connection» і «update required» після перезапуску;
-3. людина завжди розуміє, на якому кроці вона застрягла.
+1. the game shows up in the Steam library and actually downloads;
+2. no "no internet connection" and no update-required loop after a restart;
+3. the person always knows which step is stuck.
 
-Усе нижче — заради цих трьох пунктів.
+Everything below serves those three points.
 
-## Де ми зараз
+## Where we are
 
-| Що | Стан |
+| Area | State |
 | --- | --- |
-| Двигун Vapor Forge | ставиться, оновлюється, LD_AUDIT перевіряється через `/proc` |
-| Плани | lua-план, провайдер кодів, ключі вручну + Hubcap |
-| Steam | іконка й меню в клієнті через CDP, appmanifest-фікси |
-| UI | Library / Discover / Game / System, GTK-вікно, .desktop |
-| Чого немає | DLC-именники, імпорт чужих lua, вибір старої версії, авто-завершення після завантаження, самодіагностика, оновлення застосунку, тести |
+| Vapor Forge engine | installs, updates, `LD_AUDIT` verified against `/proc` |
+| Plans | lua plan, manifest-code provider, manual keys plus Hubcap |
+| Steam | icon and menu injected in the client over CDP, appmanifest fixes |
+| UI | Library / Discover / Game / System, GTK window, `.desktop` entry |
+| Missing | named DLC, importing foreign lua, older build picker, auto-finish after download, self-diagnostics, app updates, tests |
 
-## Фаза 0 — гігієна (≈ пів дня)
+## Locked decisions
 
-- [ ] Origin-перевірка й токен для POST: зараз API слухає loopback, але будь-яка
-      вкладка в браузері може дьорнути `steam/restart`.
-- [ ] Тести: `unittest` на рендер/розбір lua, патч appmanifest, розбір Hubcap,
-      провайдер-скрипт (усі чисті функції, без Steam).
-- [ ] CI: `.github/workflows/ci.yml` — python 3.12, `ruff`, `unittest`.
-- [ ] Самооновлення: `./exxa update` тягне реліз/`git pull`, показує версію.
-- [ ] Версія застосунку в `exxatools/__init__.py` і в меню.
+- Rust owns the core; Python is a reference only and gets removed once parity lands.
+- Steam protocol comes from `steamroom` behind a feature flag, not from Hubcap alone.
+- Steam UI integration moves from CDP DOM patching to a Millennium plugin.
+- UI copy, docs and identifiers are English-only.
 
-**Критерій:** `python3 -m unittest` зелений, CI зелений на push.
+## Phase 0 — hygiene (~half a day)
 
-## Фаза 1 — «Add game» як один потік (2–3 дні)
+- [ ] Origin check and a token for POST. The API binds loopback, but any browser
+      tab can still call `steam/restart`.
+- [ ] Tests: `unittest` over lua rendering and parsing, appmanifest patching,
+      Hubcap parsing, the provider script. Pure functions, no Steam.
+- [ ] CI: `.github/workflows/ci.yml` — Python 3.12, `ruff`, `unittest`.
+- [ ] Self-update: `./exxa update` pulls a release, prints the version.
+- [ ] Version surfaced in `exxatools/__init__.py` and in the menu.
 
-Найважливіше. Зараз між «знайшов гру» і «Steam качає» п'ять ручних кроків.
+**Done when:** `python3 -m unittest` is green and CI passes on push.
 
-1. **Візард із 4 кроків**: Game → Branch & DLC → Depots & keys → Install.
-   Кожен крок зберігає стан, можна повернутись.
-2. **DLC з іменами**: `store.steampowered.com/api/appdetails` дає назви DLC;
-   зараз є тільки appid. Чекбокси з назвами, а не цифри.
-3. **Розумний автопідбір**: платформа (linux/windows), архітектура, мова —
-   з `oslist`/`osarch`, з підсвіткою «чому саме цей депо».
-4. **Ключі в один клік**: Hubcap (є), імпорт `.lua`/`.vdf`/`steam.keys`
-   drag-and-drop, ручне поле для решти. Показати покриття «18/20 депо з ключем».
-5. **Install**: план → скрипт → `Config.toml` → перезапуск Steam (галочка).
-6. **Автозавершення**: фоновий watcher читає `appmanifest` і, коли
-   `StateFlags` стає 4, сам робить fix flags і показує тост.
-7. **Стан гри в Library**: `planned` / `downloading` / `needs key` /
-   `installed` — бейдж на картці, а не текст у лозі.
+## Phase 1 — "Add game" as one flow (2–3 days)
 
-**Критерій:** свіжий користувач без знань проходить шлях і отримує працюючу гру,
-не відкриваючи термінал.
+The important one. Right now there are five manual steps between finding a game
+and Steam downloading it.
 
-## Фаза 2 — самодіагностика (1–2 дні)
+1. **Four-step wizard**: Game → Branch & DLC → Depots & keys → Install. Every
+   step keeps its state and can be revisited.
+2. **Named DLC**: `store.steampowered.com/api/appdetails` returns DLC titles.
+   Checkboxes with names instead of bare ids.
+3. **Sensible preselection**: platform (linux/windows), architecture, language,
+   derived from `oslist`/`osarch`, with a short reason on each selected depot.
+4. **Keys in one move**: Hubcap, drag-and-drop of `.lua` / `.vdf` / `steam.keys`,
+   and a manual field for the rest. Show coverage as `18 of 20 depots keyed`.
+5. **Install**: plan → script → `Config.toml` → Steam restart, as a checkbox.
+6. **Auto-finish**: a background watcher reads the appmanifest and, once
+   `StateFlags` becomes 4, runs the flag fix and raises a toast.
+7. **Game state in Library**: `planned` / `downloading` / `needs key` /
+   `installed` as a badge on the card, not a line in a log.
 
-- [ ] **Doctor**: 12 перевірок із людськими підказками — двигун, `LD_AUDIT`,
-      debug-порт, права на scripts, свіжість патернів, покриття ключами,
-      request codes, прапорці appmanifest, місце на диску, стан Steam,
-      вибрана гілка, depotcache.
-- [ ] **«Чому не працює»** для конкретної гри: покроковий список, що саме
-      зламалось і що натиснути.
-- [ ] **Панель стану** замість стрічки логу: згруповано, зі статусами,
-      лог — за кнопкою «details».
+**Done when:** someone with no context walks the flow and ends up with a running
+game without opening a terminal.
 
-**Критерій:** будь-яка поломка з таблиці нижче має свою перевірку й кнопку.
+## Phase 2 — self-diagnostics (1–2 days)
 
-| Симптом | Перевірка |
+- [ ] **Doctor**: twelve checks with human hints — engine, `LD_AUDIT`, debug
+      port, script permissions, pattern freshness, key coverage, manifest
+      request codes, appmanifest flags, free disk, Steam state, selected branch,
+      depotcache.
+- [ ] **"Why is it broken"** for a specific game: an ordered list of what failed
+      and which button fixes it.
+- [ ] **Status board** instead of a raw log: grouped, with states, log behind a
+      "details" toggle.
+
+**Done when:** every symptom in the table below has its own check and action.
+
+| Symptom | Check chain |
 | --- | --- |
-| гра не з'явилась у Steam | engine → ld_audit → scripts dir → plan installed |
-| «no internet connection» | ключі → request codes → appmanifest |
-| «update required» цикл | StateFlags → BytesDownloaded → AutoUpdateBehavior |
-| качає не те | гілка → закріплений manifest → платформа |
-| зависла на «Preallocating» | місце на диску → depotcache |
+| game never appears in Steam | engine → ld_audit → scripts dir → plan installed |
+| "no internet connection" | keys → request codes → appmanifest |
+| update-required loop | StateFlags → BytesDownloaded → AutoUpdateBehavior |
+| wrong build downloads | branch → pinned manifest → platform |
+| stuck at "Preallocating" | free disk → depotcache |
 
-## Фаза 3 — версії та білди (2 дні)
+## Phase 3 — versions and builds (2 days)
 
-- [ ] **Історія білдів**: Hubcap віддає знімки — показати список дат, вибрати.
-- [ ] **Pin UI**: закріпити конкретний manifest за депо, з поясненням наслідків.
-- [ ] **Експорт/імпорт** планів у json (перенос між машинами).
-- [ ] **Порівняння** двох знімків: що змінилось у депо (розмір, gid).
+- [ ] **Build history**: Hubcap exposes snapshots — list dates, pick one.
+- [ ] **Pin UI**: pin a specific manifest per depot, with the consequence spelled out.
+- [ ] **Export/import** plans as JSON, so they move between machines.
+- [ ] **Diff** two snapshots: what changed per depot (size, gid).
 
-## Фаза 4 — інтеграція зі Steam (2 дні)
+## Phase 4 — Steam integration (2 days)
 
-- [ ] Панель у меню Steam: останні ігри, швидкий Install, статус завантажень.
-- [ ] Тосты в клієнті через брідж Vapor Forge (у нього є `[toast]`).
-- [ ] Гаряча клавіша на панель (Ctrl+Shift+E).
-- [ ] Launch options: перемикач `-onlinefix` для гри.
-- [ ] Перевірка після оновлення Steam: якщо меню зникло — повідомити й
-      переінжектити.
+- [ ] Steam menu panel: recent games, quick Install, download status.
+- [ ] Toasts inside the client through the Vapor Forge bridge (`[toast]`).
+- [ ] Hotkey for the panel (Ctrl+Shift+E).
+- [ ] Launch options: an `-onlinefix` toggle per game.
+- [ ] Post-update check: if the menu is gone after a Steam update, say so and
+      re-inject.
 
-## Фаза 5 — продукт (2 дні)
+## Phase 5 — product (2 days)
 
-- [ ] Трей-іконка, автозапуск, «стартувати згорнутим».
-- [ ] i18n: `strings/uk.json`, `strings/en.json`, перемикач.
-- [ ] Пакування: AUR `PKGBUILD`, оновлений `.desktop`, скріншоти в README.
-- [ ] `diagnostics.json`: останні помилки застосунку, кнопка «export».
+- [ ] Tray icon, autostart, start-minimised.
+- [ ] Packaging: AUR `PKGBUILD`, refreshed `.desktop`, screenshots in the README.
+- [ ] `diagnostics.json`: last app errors, an export button.
 
-## Ризики й що з ними робимо
+## Risks and countermeasures
 
-| Ризик | Захист |
+| Risk | Countermeasure |
 | --- | --- |
-| Steam оновлює UI, CDP-інжект ламається | шукаємо меню по тексту Help, а не по класах; fallback — панель із трею |
-| Vapor Forge змінює Lua API | зберігаємо версію API, перевіряємо сумісність при старті |
-| Hubcap ліміти/падіння | кеш ключів, альтернативні джерела, ручний ввід |
-| Гонка з appmanifest | бекап + валідація після запису + відмова, якщо Steam пише |
-| Ключі користувача | ніколи не логуємо повністю, тільки `ab12…` |
+| Steam ships a UI update and CDP injection breaks | find the menu by the "Help" label, not by class names; Millennium plugin as the primary path; tray panel as last resort |
+| Vapor Forge changes its Lua API | record the API version, refuse to run on a mismatch |
+| Hubcap rate limits or outages | key cache, alternative providers, manual entry |
+| appmanifest race with Steam | backup, validate after write, refuse while Steam is writing |
+| User keys | never log them whole, only `ab12…` |
 
-## Порядок, який я рекомендую
+## Order I'd take
 
-1. Фаза 1, кроки 1–4 — саме це робить інструмент «як LuaTools».
-2. Фаза 2 Doctor — прибирає більшість питань «чому не працює».
-3. Фаза 0 тести/CI — щоб не ламати те, що вже працює.
-4. Далі 3, 4, 5 за бажанням.
+1. Phase 1, steps 1–4 — this is what makes it a LuaTools-grade tool.
+2. Phase 2 Doctor — removes most "why doesn't it work" questions.
+3. Phase 0 tests and CI — so the rest stops breaking.
+4. Then 3, 4, 5.
 
-Оцінки дані для одного робочого дня на фазу, без полірування.
+Estimates assume one focused working day per phase, without polish.

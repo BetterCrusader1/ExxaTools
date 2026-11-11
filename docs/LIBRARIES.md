@@ -1,67 +1,67 @@
-# Бібліотеки: що беремо, що тестуємо, що відкидаємо
+# Libraries: what we use, what we test, what we reject
 
-Дослідження під Rust-порт. Кожен рядок — перевірений факт (версія, ліцензія,
-дерево залежностей) або явно позначена оцінка.
+Research for the Rust port. Every row is either a checked fact — version,
+licence, dependency tree — or an explicitly marked estimate.
 
-## Що нам насправді потрібно
+## What the product actually needs
 
-1. **Steam CM** — логін, ліцензії, PICS (appinfo), depot keys. Без цього ми
-   назавжди залежимо від Hubcap.
-2. **CDN** — маніфести, чанки, AES, zstd/lzma, delta-патчі.
-3. **VDF/ACF** — читати й писати `appmanifest_*.acf` без втрати полів.
-4. **HTTP/TLS і WebSocket** — API, CDP.
-5. **ZIP** — архіви Hubcap.
-6. **Вікно** — зараз python+webkit, хочемо один бінарник.
-7. **UI Steam** — зараз CDP-інжект, це крихко.
-8. **Арт** — обкладинки для ігор без `library_600x900`.
-9. **Lua** — перевіряти наші плани справжнім інтерпретатором.
-10. **FS watch** — ловити момент, коли Steam дописав `appmanifest`.
+1. **Steam CM** — login, licences, PICS (appinfo), depot keys. Without it we
+   depend on Hubcap forever.
+2. **CDN** — manifests, chunks, AES, zstd/lzma, delta patches.
+3. **VDF/ACF** — read and write `appmanifest_*.acf` without dropping fields.
+4. **HTTP/TLS and WebSocket** — APIs, CDP.
+5. **ZIP** — Hubcap archives.
+6. **Window** — currently python + webkit, we want a single binary.
+7. **Steam UI** — currently CDP injection, which is brittle.
+8. **Artwork** — covers for games without `library_600x900`.
+9. **Lua** — validate our plans with a real interpreter.
+10. **FS watch** — catch the moment Steam finishes an appmanifest.
 
-## Кандидати
+## Crates
 
-| Бібліотека | Версія | Ліцензія | Що дає | Ціна в білді | Вердикт |
+| Crate | Version | Licence | Gives us | Build cost | Verdict |
 | --- | --- | --- | --- | --- | --- |
-| **steamroom** | 0.3.0 | Apache-2.0 | CM-клієнт, QR-логін, PICS, розбір маніфестів, AES-чанки, CDN-пул, KeyValue binary+text | tokio+reqwest+rustls+prost+rsa ≈ 120 крейтів | **Беремо за feature-флагом.** Єдине, що дає «свій акаунт» без Hubcap |
-| **steamroom-client** | 0.3.0 | Apache-2.0 | Те саме + retry, delta-патчі, прогрес | те саме дерево | Беремо разом із steamroom |
-| steamdepot | 0.3.3 | **LGPL-2.1** | Те саме, інша реалізація | те саме | **Не лінкуємо.** LGPL + статичний Rust = зобов'язання віддавати об'єктники. Тільки як референс або окремий процес |
-| **keyvalues-parser** | 0.2.4 | MIT/Apache-2.0 | VDF text: парс + рендер, 458k завантажень | 2 крейти | **Беремо** для appmanifest і config.vdf |
-| **steamlocate** | 2.1.1 | MIT | Знаходить Steam, бібліотеки, ігри | 3 крейти | **Беремо.** Перевірено на цій машині |
-| **ureq** | 3.5.1 | MIT/Apache-2.0 | Блокуючий HTTP з rustls | ~20 крейтів | **Беремо** замість `curl`-процесів |
-| **tungstenite** | 0.30.0 | MIT/Apache-2.0 | WebSocket для CDP | 5 крейтів | **Беремо** замість власної реалізації |
-| **zip** | 2.x | MIT | Читання архівів Hubcap | 3 крейти | Беремо |
-| **notify** | 8.2.2 | CC0-1.0 | inotify: стежити за `appmanifest` і логом Steam | 4 крейти | Беремо для watcher |
-| mlua | 0.12.2 | MIT | Lua 5.4/LuaJIT з Rust | системний lua або vendored | Опційно: валідація планів перед записом |
-| steamguard | 0.18.4 | MIT | 2FA, mobile confirmations | середнє | Тільки якщо робимо повний логін у свій акаунт |
-| prost | 0.14.5 | Apache-2.0 | Protobuf для CM | тягне rustc-білд | Не окремо: приходить із steamroom |
-| wry + tao | 0.57 / 0.37 | MIT/Apache-2.0 | Вікно з webview (webkit2gtk) | ~60 крейтів | **Пізніше.** Дає один бінарник замість python-хелпера |
-| egui / iced / slint | 0.37 / 0.14 / 1.18 | MIT | GUI без webview | 30–60 крейтів, але вбиває нашу верстку | Ні |
-| steamgriddb_api | 0.3.1 | MIT | Арт зі SteamGridDB | закинута з 2022, async на reqwest | **Ні.** Три HTTP-виклики простіші за залежність |
-| steamworks | 0.13.1 | MIT | Офіційний SDK | потребує Steamworks SDK | Ні: він для своїх ігор, не для менеджера бібліотеки |
+| **steamroom** | 0.3.0 | Apache-2.0 | CM client, QR and credential login, PICS, manifest parsing, AES chunk decrypt, CDN pooling, KeyValue binary and text | tokio + reqwest + rustls + prost + rsa, ~120 crates | **Take it, behind a feature.** The only path to "your own account" without Hubcap |
+| **steamroom-client** | 0.3.0 | Apache-2.0 | The same plus retry, delta patching, progress events | same tree | Take with steamroom |
+| steamdepot | 0.3.3 | **LGPL-2.1** | Same capabilities, different implementation | same tree | **Do not link.** LGPL plus static Rust means shipping relinkable objects. Reference only |
+| **keyvalues-parser** | 0.2.4 | MIT/Apache-2.0 | VDF text parse and render, 458k downloads | 2 crates | **Take** for appmanifest and config.vdf |
+| **steamlocate** | 2.1.1 | MIT | Finds Steam, libraries, installed apps | 3 crates | **Take.** Verified on this machine |
+| **ureq** | 3.5.1 | MIT/Apache-2.0 | Blocking HTTP over rustls | ~20 crates | **Take**, instead of shelling out to curl |
+| **tungstenite** | 0.30.0 | MIT/Apache-2.0 | WebSocket for CDP | 5 crates | **Take**, instead of a hand-rolled client |
+| **zip** | 2.x | MIT | Hubcap archive reading | 3 crates | Take |
+| **notify** | 8.2.2 | CC0-1.0 | inotify on appmanifest and Steam log | 4 crates | Take for the watcher |
+| mlua | 0.12.2 | MIT | Lua 5.4 / LuaJIT from Rust | system lua or vendored | Optional: validate plans before writing |
+| steamguard | 0.18.4 | MIT | 2FA codes, mobile confirmations | moderate | Only for a full own-account login |
+| prost | 0.14.5 | Apache-2.0 | Protobuf for CM | rustc build step | Not separately: arrives with steamroom |
+| wry + tao | 0.57 / 0.37 | MIT/Apache-2.0 | WebView window on webkit2gtk | ~60 crates | **Later.** Replaces the python helper |
+| egui / iced / slint | 0.37 / 0.14 / 1.18 | MIT | GUI without a webview | 30–60 crates, but throws away our layout | No |
+| steamgriddb_api | 0.3.1 | MIT | Artwork from SteamGridDB | unmaintained since 2022, async over reqwest | **No.** Three HTTP calls beat a stale dependency |
+| steamworks | 0.13.1 | MIT | Official SDK bindings | needs the Steamworks SDK | No: it is for your own games, not a library manager |
 
-## Не-крейти, які варто знати
+## Non-crate projects worth knowing
 
-| Проєкт | Що це | Чому цікаво |
+| Project | What it is | Why it matters |
 | --- | --- | --- |
-| **Millennium / SteamBrew** | Завантажувач модів Steam: хукає серверний роутер клієнта й патчить JS **на льоту**, поки Steam його віддає | Замінює наш CDP-інжект: панель у меню стає частиною UI, а не DOM-патчем. Linux x86_64 підтримується офіційно. Бекенд плагіна — Lua, фронт — TS |
-| **SteamProtocolBreakdown** (EliCunninghamDev) | 873 рядки: покроковий розбір логіну, PICS, depot keys, CDN | Специфікація, за якою можна писати свій CM-клієнт без здогадок |
-| **ManifestHub3** | Спільнотний кеш depot-ключів | Ще один провайдер ключів |
-| **ManifestDeX.Cli** | .NET CLI для ключів/appinfo | Провайдер, не бібліотека |
-| **opensteamdb-api** | Self-hosted API з appinfo | Потребує Postgres/Redis — не для нас |
-| **SLSsteam** | C++ референс Linux-клієнта | Читати, не лінкувати |
-| **vapor-forge** | Наш рушій, AGPL-3.0 | Викликаємо як `.so` через `LD_AUDIT` — це не лінкування, AGPL не переходить на нас |
+| **Millennium / SteamBrew** | Steam mod loader that hooks the client's server router and patches JS **while Steam serves it** | Replaces our CDP injection: the panel becomes part of the UI instead of a DOM patch. Linux x86_64 supported. Plugin backend is Lua, frontend is TS |
+| **SteamProtocolBreakdown** | 873 lines walking through login, PICS, depot keys, CDN | The spec to write our own CM client without guessing |
+| **ManifestHub3** | Community depot-key cache | One more key provider |
+| **ManifestDeX.Cli** | .NET CLI for keys and appinfo | A provider, not a library |
+| **opensteamdb-api** | Self-hosted appinfo API | Needs Postgres and Redis; not for us |
+| **SLSsteam** | C++ reference for the Linux client | Read it, do not link it |
+| **vapor-forge** | Our engine, AGPL-3.0 | Loaded as a `.so` through `LD_AUDIT`, which is not linking, so the licence does not reach us |
 
-## Виміряно на цій машині
+## Measured on this machine
 
-Мінімальний каркас (serde, serde_json, sha2, base64, zip, keyvalues-parser,
+Minimal core (serde, serde_json, sha2, base64, zip, keyvalues-parser,
 steamlocate, ureq, tungstenite, notify):
 
 ```
 cargo build --release   14.4 s
 target/                 179 MB
-бінарник                308 KB   (strip + lto + opt-level=s)
+binary                  308 KB   (strip + lto + opt-level=s)
 ```
 
-Окремий пробник із самим `steamroom` (той самий release-профіль):
+Separate probe with steamroom alone, same release profile:
 
 ```
 cargo build --release   53.2 s
@@ -69,42 +69,55 @@ target/                 685 MB
 ~/.cargo/registry       +100 MB
 ```
 
-Тобто «40 ГБ» — це міф для нашого випадку. Ядро = 14 с і 179 МБ, ядро з
-`steamroom` = ~68 с і ~0.9 ГБ разом, і то лише якщо вмикати feature.
-Дерево `steamroom` (tokio, reqwest, rustls, prost, rsa) важить більше за все
-інше разом — тому воно й живе за флагом.
+So "40 GB" is a myth here. Core is 14 s and 179 MB; core plus steamroom is about
+68 s and 0.9 GB, and only when the feature is on. The steamroom tree — tokio,
+reqwest, rustls, prost, rsa — outweighs everything else combined, which is
+exactly why it sits behind a flag.
 
-Перевірено в роботі: `steamlocate` знайшов Steam у `~/.local/share/Steam` і
-бібліотеку, `keyvalues-parser` розібрав `AppState` з `appmanifest`.
+Verified working, not just compiled: `steamlocate` found Steam at
+`~/.local/share/Steam` and its library, `keyvalues-parser` parsed an `AppState`
+block out of an appmanifest.
 
-## Рекомендований стек
+## Decision
 
-**Tier A — ядро (завжди):**
-`serde`, `serde_json`, `keyvalues-parser`, `steamlocate`, `ureq`, `tungstenite`,
-`zip`, `sha2`, `notify`, `base64`.
+Locked. This is the stack the port is written against.
 
-**Tier B — `--features steam-login`:**
-`steamroom` + `steamroom-client`. Дає: вхід у свій акаунт (QR або пароль),
-ліцензії, PICS, depot keys, скачування маніфестів без Hubcap.
+**Core, always compiled:** `serde`, `serde_json`, `keyvalues-parser`,
+`steamlocate`, `ureq`, `tungstenite`, `zip`, `sha2`, `notify`, `base64`.
 
-**Tier C — `--features webview`:**
-`wry` + `tao`, коли прибираємо python-хелпер. Міряємо білд перед тим.
+**`--features steam-login`:** `steamroom` + `steamroom-client`. Gives own-account
+login by QR or password, licences, PICS, depot keys, and manifest downloads
+without Hubcap.
 
-## Чотири експерименти перед портом (по 1–2 години)
+**`--features webview`:** `wry` + `tao`, replacing the python helper once the
+core reaches parity.
 
-1. **steamroom QR-логін** → ліцензії → `get_depot_key(730, 731)` → порівняти з
-   тим, що дає Hubcap. Якщо збігається — Hubcap стає запасним шляхом.
-2. **Millennium-плагін** із нашою панеллю замість CDP. Перевірити, чи виживає
-   після оновлення Steam і чи не конфліктує з `LD_AUDIT` від Vapor Forge.
-3. **notify-watcher** на `appmanifest_*.acf`: авто-фікс при `StateFlags=4`.
-4. **steamlocate** замість власного парсера `libraryfolders.vdf` — перевірити
-   на бібліотеці на іншому диску.
+**Steam UI:** Millennium plugin as the primary path, CDP kept only as a
+development fallback. Reason: router-level patching survives Steam updates far
+better than DOM selectors, and it does not fight the page for ownership.
 
-## Що це змінює в плані
+**Artwork:** SteamGridDB over plain HTTP, no wrapper crate.
 
-- Порт на Rust робимо **без tokio в ядрі**: важкі речі — за feature-флагами.
-- Меню в Steam переходить із CDP на Millennium-плагін (менше поломок).
-- Ключі: додається шлях «свій акаунт → PICS», Hubcap лишається для решти.
-- Арт: SteamGridDB прямими HTTP-викликами для ігор без обкладинки.
-- `steamdepot` не чіпаємо через LGPL; якщо потрібен другий реалізаційний
-  референс — читаємо, але не лінкуємо.
+**Lua:** `mlua` as an optional validation dependency.
+
+Why steamroom over steamdepot: same capability, Apache-2.0 instead of LGPL-2.1,
+actively maintained, and the same author ships an orchestration layer with delta
+patching. Licence compatibility decides this one, quality confirms it.
+
+## Four experiments before the port (1–2 hours each)
+
+1. **steamroom QR login** → licences → `get_depot_key(730, 731)` → compare with
+   what Hubcap returns. If they match, Hubcap becomes the fallback path.
+2. **Millennium plugin** with our panel instead of CDP. Check it survives a Steam
+   update and does not collide with Vapor Forge's `LD_AUDIT`.
+3. **notify watcher** on `appmanifest_*.acf`: auto-fix on `StateFlags=4`.
+4. **steamlocate** replacing our own `libraryfolders.vdf` parser, tested against
+   a library on another disk.
+
+## What this changes
+
+- The Rust port keeps tokio out of the core; heavy pieces live behind features.
+- The Steam menu moves from CDP to a Millennium plugin.
+- Keys gain an "own account → PICS" path; Hubcap stays for everything else.
+- Artwork comes from SteamGridDB for games without a cover.
+- `steamdepot` is read, never linked, because of its LGPL terms.

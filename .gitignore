@@ -1,3 +1,40 @@
-target/
+# Build output
+/target/
+/build/
+/dist/
+*.rs.bk
+
+# Python
 __pycache__/
-*.pyc
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.pyright/
+
+# Local runtime state, logs, secrets
+*.log
+/state.json
+/diagnostics.json
+*.local.*
+.env
+.env.*
+
+# Archives pulled from the network
+*.zip
+*.tar.gz
+*.tgz
+
+# Editors and OS noise
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+desktop.ini
