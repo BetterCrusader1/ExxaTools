@@ -180,7 +180,7 @@ function resultCard(item) {
     art,
     h("div", { class: "card-body" },
       h("span", { class: "card-name", text: item.name }),
-      h("span", { class: "card-sub", text: item.price || `app ${item.appid}` })
+      h("span", { class: "card-sub", text: item.price || String(item.appid) })
     )
   );
 }
