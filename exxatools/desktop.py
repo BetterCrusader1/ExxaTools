@@ -10,7 +10,7 @@ import time
 from pathlib import Path
 
 PROJECT_DIR = Path(__file__).resolve().parent.parent
-ICON = PROJECT_DIR / "web" / "icon.svg"
+ICON = PROJECT_DIR / "web" / "logo.png"
 CONFIG_HOME = Path(os.environ.get("XDG_CONFIG_HOME") or Path.home() / ".config")
 DATA_HOME = Path(os.environ.get("XDG_DATA_HOME") or Path.home() / ".local" / "share")
 PROFILE_DIR = CONFIG_HOME / "exxatools" / "window"

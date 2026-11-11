@@ -22,12 +22,20 @@ PANEL_ID = "vd-menu-panel"
 ICON_ID = "vd-menu-icon"
 API_BASE = "http://127.0.0.1:8765"
 
-ICON_SVG = (
-    '<svg viewBox="0 0 24 24" fill="none" stroke="#E6B45C" stroke-width="1.9" '
-    'stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
-    '<path d="M4 6.5 7.5 18 11 6.5"/><path d="M13.5 6.5h2.4a5.75 5.75 0 0 1 0 11.5h-2.4z"/>'
-    "</svg>"
-)
+def _icon_markup() -> str:
+    """Our mark as a data URL, so Steam's page needs no network for it."""
+    import base64
+
+    try:
+        raw = (Path(__file__).resolve().parent.parent / "web" / "logo-48.png").read_bytes()
+    except OSError:
+        return ""
+    return (
+        '<img src="data:image/png;base64,'
+        + base64.b64encode(raw).decode()
+        + '" style="width:16px;height:16px;border-radius:50%;display:block" alt="">'
+    )
+
 
 SCRIPT = r"""
 window.__vdGlyphs = __GLYPHS__;
@@ -267,7 +275,7 @@ def _script() -> str:
     script = script.replace("__ROOT__", ROOT_ID)
     script = script.replace("__PANEL__", PANEL_ID)
     script = script.replace("__ICON__", ICON_ID)
-    return script.replace("ICON_ICON", json.dumps(ICON_SVG))
+    return script.replace("ICON_ICON", json.dumps(_icon_markup()))
 
 
 def status() -> dict:
