@@ -16,6 +16,7 @@ const state = {
   selected: new Set(),
   dlc: new Set(),
   pins: new Map(),
+  history: {},
   step: 0,
   searchSeq: 0,
 };
@@ -130,7 +131,7 @@ function renderPlans() {
   );
 }
 
-function dialog({ title, note, value, placeholder, confirmText = "Save", onConfirm }) {
+function dialog({ title, note, value, placeholder, confirmText = "Save", suggestions = [], onConfirm }) {
   const back = h("div", { class: "modal-back" });
   const input = h("input", { type: "text", value: value || "", placeholder: placeholder || "", spellcheck: "false" });
   const close = () => back.remove();
@@ -151,6 +152,22 @@ function dialog({ title, note, value, placeholder, confirmText = "Save", onConfi
       h("h3", { text: title }),
       h("p", { text: note || "" }),
       h("label", { class: "field" }, h("span", { text: "manifest id" }), input),
+      suggestions.length
+        ? h("div", { class: "modal-suggest" },
+            h("span", { class: "hint", text: "seen on this branch" }),
+            ...suggestions.map((item) =>
+              h("button", {
+                class: "chip",
+                text: item.label,
+                title: item.value,
+                onclick: () => {
+                  input.value = item.value;
+                  input.focus();
+                },
+              })
+            )
+          )
+        : null,
       h("div", { class: "modal-actions" },
         h("button", { class: "btn small ghost", text: "Cancel", onclick: close }),
         h("button", { class: "btn small", text: confirmText, onclick: submit })
@@ -171,6 +188,7 @@ async function loadPins() {
   try {
     const data = await api(`pins?appid=${state.app.appid}&branch=${encodeURIComponent(state.branch)}`);
     state.pins = new Map((data.items || []).map((item) => [item.depot_id, item]));
+    state.history = data.history || {};
   } catch {
     state.pins = new Map();
   }
@@ -476,12 +494,20 @@ function renderDepots() {
     text: pinState === "branch" ? "pin" : pinState,
     onclick: () => {
       const current = pin?.planned_gid || "";
+      const seen = (state.history?.[depot.depot_id] || [])
+        .filter((entry) => entry.gid && entry.gid !== current)
+        .slice(0, 3)
+        .map((entry) => ({
+          value: entry.gid,
+          label: `${String(entry.gid).slice(0, 10)}… ${new Date(Number(entry.seen_at) * 1000).toLocaleDateString()}`,
+        }));
       dialog({
         title: `Depot ${depot.depot_id}`,
         note: pin?.branch_gid ? `Branch build is ${pin.branch_gid}. A different value pins an older manifest.` : "This depot has no manifest on the selected branch.",
         value: current,
         placeholder: "manifest id",
         confirmText: "Pin",
+        suggestions: seen,
         onConfirm: async (value) => {
           await api("pin", { method: "POST", body: { appid: state.app.appid, depot_id: depot.depot_id, gid: value } });
           await loadPins();

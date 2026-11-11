@@ -313,7 +313,12 @@ fn get_route(path: &str, query: &[(String, String)]) -> Result<Value, (u16, Stri
         "/api/pins" => {
             let appid = need_u64(query, "appid")?;
             let branch = get(query, "branch").unwrap_or("public").to_string();
-            crate::pins::compare(&st, appid, &branch).map_err(|error| (502, error))
+            let mut st = state::load().map_err(|error| (500, error))?;
+            let result = crate::pins::compare(&mut st, appid, &branch).map_err(|error| (502, error))?;
+            if result.get("changed").and_then(Value::as_bool).unwrap_or(false) {
+                state::save(&st).map_err(|error| (500, error))?;
+            }
+            Ok(result)
         }
         "/api/watch" => Ok(crate::watch::sweep(false)),
         "/api/verify" => {

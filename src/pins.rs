@@ -41,7 +41,8 @@ pub fn classify(planned: Option<&str>, branch: Option<&str>, branch_build: Optio
     }
 }
 
-pub fn compare(st: &State, appid: u64, branch: &str) -> Result<Value, String> {
+pub fn compare(st: &mut State, appid: u64, branch: &str) -> Result<Value, String> {
+    let mut changed = false;
     let catalog = steam::catalog(appid)?;
     let record = st.apps.get(&appid.to_string());
     let planned: Vec<Value> = record
@@ -62,6 +63,9 @@ pub fn compare(st: &State, appid: u64, branch: &str) -> Result<Value, String> {
         let branch_size = manifest.as_ref().and_then(|value| value.get("size")).and_then(Value::as_u64);
         let planned_gid = entry.and_then(|value| value.get("gid")).and_then(Value::as_str).filter(|text| !text.is_empty());
         let planned_size = entry.and_then(|value| value.get("size")).and_then(Value::as_u64);
+        if let Some(gid) = branch_gid {
+            changed |= crate::state::record_gid(st, appid, depot_id, gid, branch_size, branch);
+        }
         let state = classify(planned_gid, branch_gid, None, None);
         match state {
             PinState::Pinned => pinned += 1,
@@ -80,12 +84,22 @@ pub fn compare(st: &State, appid: u64, branch: &str) -> Result<Value, String> {
             }));
         }
     }
+    let history = st
+        .build_history
+        .get(&appid.to_string())
+        .cloned()
+        .unwrap_or_default()
+        .into_iter()
+        .map(|(depot, entries)| (depot, Value::Array(entries)))
+        .collect::<serde_json::Map<String, Value>>();
     Ok(json!({
         "appid": appid,
         "branch": branch,
         "items": items,
         "pinned": pinned,
         "stale": stale,
+        "changed": changed,
+        "history": history,
     }))
 }
 

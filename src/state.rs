@@ -41,6 +41,8 @@ pub struct State {
     pub depot_keys: BTreeMap<String, String>,
     pub apps: BTreeMap<String, serde_json::Value>,
     pub codes: BTreeMap<String, u64>,
+    /// appid -> depot -> recent branch gids, newest first
+    pub build_history: BTreeMap<String, BTreeMap<String, Vec<serde_json::Value>>>,
     pub settings: Settings,
 }
 
@@ -51,6 +53,7 @@ impl Default for State {
             depot_keys: BTreeMap::new(),
             apps: BTreeMap::new(),
             codes: BTreeMap::new(),
+            build_history: BTreeMap::new(),
             settings: Settings::default(),
         }
     }
@@ -122,5 +125,60 @@ pub fn set_key(state: &mut State, depot_id: u64, key: Option<&str>) {
         None => {
             state.depot_keys.remove(&depot_id.to_string());
         }
+    }
+}
+/// Remember a branch gid we observed, newest first, deduplicated, capped.
+pub fn record_gid(state: &mut State, appid: u64, depot_id: u64, gid: &str, size: Option<u64>, branch: &str) -> bool {
+    if gid.is_empty() {
+        return false;
+    }
+    let depots = state.build_history.entry(appid.to_string()).or_default();
+    let entries = depots.entry(depot_id.to_string()).or_default();
+    if let Some(last) = entries.first() {
+        if last.get("gid").and_then(serde_json::Value::as_str) == Some(gid) {
+            return false;
+        }
+    }
+    entries.insert(
+        0,
+        serde_json::json!({
+            "gid": gid,
+            "size": size,
+            "branch": branch,
+            "seen_at": crate::vfsys::stamp(),
+        }),
+    );
+    entries.truncate(20);
+    true
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn records_and_dedupes() {
+        let mut state = State::default();
+        assert!(record_gid(&mut state, 620, 621, "111", Some(10), "public"));
+        assert!(!record_gid(&mut state, 620, 621, "111", Some(10), "public"));
+        assert!(record_gid(&mut state, 620, 621, "222", Some(11), "public"));
+        let entries = state.build_history["620"]["621"].clone();
+        assert_eq!(entries.len(), 2);
+        assert_eq!(entries[0].get("gid").and_then(serde_json::Value::as_str), Some("222"));
+    }
+
+    #[test]
+    fn caps_history() {
+        let mut state = State::default();
+        for index in 0..30 {
+            record_gid(&mut state, 1, 2, &format!("{index}"), None, "public");
+        }
+        assert_eq!(state.build_history["1"]["2"].len(), 20);
+    }
+
+    #[test]
+    fn rejects_empty_gid() {
+        let mut state = State::default();
+        assert!(!record_gid(&mut state, 1, 2, "", None, "public"));
     }
 }

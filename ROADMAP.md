@@ -84,9 +84,9 @@ game without opening a terminal.
 
 ## Phase 3 — versions and builds (2 days)
 
-- [ ] **Build history**: Hubcap exposes snapshots — list dates, pick one.
-- [ ] **Pin UI**: pin a specific manifest per depot, with the consequence spelled out.
-- [ ] **Export/import** plans as JSON, so they move between machines.
+- [x] **Build history**: observed branch gids per depot, newest first (Hubcap snapshots still to add)
+- [x] **Pin UI**: pin a specific manifest per depot, with the consequence spelled out.
+- [x] **Export/import** plans as JSON, so they move between machines.
 - [ ] **Diff** two snapshots: what changed per depot (size, gid).
 
 ## Phase 4 — Steam integration (2 days)
@@ -100,7 +100,7 @@ game without opening a terminal.
 
 ## Phase 5 — product (2 days)
 
-- [ ] Tray icon, autostart, start-minimised.
+- [x] Autostart entry (`exxa autostart`); tray icon still open.
 - [ ] Packaging: AUR `PKGBUILD`, refreshed `.desktop`, screenshots in the README.
 - [ ] `diagnostics.json`: last app errors, an export button.
 

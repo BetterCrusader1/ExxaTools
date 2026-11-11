@@ -72,6 +72,32 @@ pub fn uninstall_desktop_entry() -> Value {
     json!({ "removed": removed, "path": target.display().to_string() })
 }
 
+pub fn autostart_path() -> std::path::PathBuf {
+    paths::config_home().join("autostart/exxatools.desktop")
+}
+
+pub fn install_autostart() -> Result<Value, String> {
+    let target = autostart_path();
+    if let Some(parent) = target.parent() {
+        std::fs::create_dir_all(parent).map_err(|error| error.to_string())?;
+    }
+    let launcher = paths::project_dir().join("exxa");
+    let exe = if launcher.is_file() { launcher } else { std::env::current_exe().map_err(|error| error.to_string())? };
+    let content = format!(
+        "[Desktop Entry]\nType=Application\nName=ExxaTools\nComment=Steam depots and manifests on Vapor Forge\nExec={} serve --port 8765\nIcon={}\nTerminal=false\nX-GNOME-Autostart-enabled=true\n",
+        exe.display(),
+        paths::web_dir().join("logo.png").display()
+    );
+    std::fs::write(&target, content).map_err(|error| format!("cannot write {}: {error}", target.display()))?;
+    Ok(json!({ "path": target.display().to_string(), "enabled": true }))
+}
+
+pub fn remove_autostart() -> Value {
+    let target = autostart_path();
+    let removed = target.exists() && std::fs::remove_file(&target).is_ok();
+    json!({ "path": target.display().to_string(), "removed": removed })
+}
+
 /// `serve --window` has no toolkit: start the server and hand the URL to the
 /// browser, which is the same page the GTK helper shows.
 pub fn open_window(url: &str) -> Result<(), String> {

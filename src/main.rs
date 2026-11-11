@@ -69,6 +69,9 @@ fn main() {
                 "exxa steamui status|inject|remove|enable",
                 "exxa shortcut [install|remove]",
                 "exxa pins <appid> [--branch]",
+                "exxa autostart [install|remove]",
+                "exxa export <appid> > plan.json",
+                "exxa import-plan plan.json",
                 "exxa pin <appid> <depot> [gid|clear]",
                 "exxa doctor",
                 "exxa update",
@@ -288,9 +291,13 @@ fn main() {
             let Some(appid) = rest.first().and_then(|value| value.parse::<u64>().ok()) else {
                 fail("pins needs a numeric app id");
             };
-            let st = state::load().unwrap_or_else(|error| fail(error));
+            let mut st = state::load().unwrap_or_else(|error| fail(error));
             let branch = arg_value(rest, "--branch").unwrap_or_else(|| "public".into());
-            print_json(&pins::compare(&st, appid, &branch).unwrap_or_else(|error| fail(error)));
+            let result = pins::compare(&mut st, appid, &branch).unwrap_or_else(|error| fail(error));
+            if result.get("changed").and_then(Value::as_bool).unwrap_or(false) {
+                state::save(&st).unwrap_or_else(|error| fail(error));
+            }
+            print_json(&result);
         }
         "pin" => {
             let Some(appid) = rest.first().and_then(|value| value.parse::<u64>().ok()) else {
@@ -304,6 +311,35 @@ fn main() {
             let result = pins::set_pin(&mut st, appid, depot, gid.as_deref()).unwrap_or_else(|error| fail(error));
             state::save(&st).unwrap_or_else(|error| fail(error));
             print_json(&result);
+        }
+        "export" => {
+            let Some(appid) = rest.first().and_then(|value| value.parse::<u64>().ok()) else {
+                fail("export needs a numeric app id");
+            };
+            let st = state::load().unwrap_or_else(|error| fail(error));
+            let record = st.apps.get(&appid.to_string()).cloned().unwrap_or_else(|| fail("no saved plan"));
+            print_json(&record);
+        }
+        "import-plan" => {
+            let Some(path) = rest.first() else { fail("import-plan needs a file path") };
+            let text = std::fs::read_to_string(path).unwrap_or_else(|error| fail(error.to_string()));
+            let record: Value = serde_json::from_str(&text).unwrap_or_else(|error| fail(format!("that is not a plan: {error}")));
+            let appid = record.get("appid").and_then(Value::as_u64).unwrap_or_else(|| fail("plan has no appid"));
+            if record.get("depots").and_then(Value::as_array).is_none() {
+                fail("plan has no depots");
+            }
+            let mut st = state::load().unwrap_or_else(|error| fail(error));
+            st.apps.insert(appid.to_string(), record);
+            state::save(&st).unwrap_or_else(|error| fail(error));
+            print_json(&json!({ "imported": appid }));
+        }
+        "autostart" => {
+            let action = rest.first().cloned().unwrap_or_else(|| "install".into());
+            match action.as_str() {
+                "install" | "on" => print_json(&desktop::install_autostart().unwrap_or_else(|error| fail(error))),
+                "remove" | "off" => print_json(&desktop::remove_autostart()),
+                other => fail(format!("unknown autostart action {other}; use install or remove")),
+            }
         }
         "doctor" => print_json(&doctor::run()),
         "verify" => {
