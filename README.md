@@ -52,9 +52,8 @@ cargo build --release
 restarts Steam; `./exxa steamui inject` puts our mark next to **Help**. The panel
 lists saved plans with their state, opens the dashboard, restarts Steam and
 installs the provider. A watcher re-injects the menu after Steam re-renders, and
-Ctrl+Shift+E toggles it from anywhere in the client. The panel itself is a
-separate always-on-top window (`assets/overlay.py`), because Steam paints its
-store and library above the client's own DOM.
+Ctrl+Shift+E toggles it from anywhere in the client. The panel is injected into whichever Steam window is under the menu, so it stays
+inside the client and cannot float over other applications.
 
 ## Install as a package
 

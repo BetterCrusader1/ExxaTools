@@ -52,6 +52,15 @@ fn icon_markup() -> String {
     )
 }
 
+fn script_hash(text: &str) -> String {
+    let mut hash: u64 = 0xcbf29ce484222325;
+    for byte in text.as_bytes() {
+        hash ^= *byte as u64;
+        hash = hash.wrapping_mul(0x100000001b3);
+    }
+    format!("{hash:016x}")
+}
+
 fn script() -> String {
     let glyphs = serde_json::to_string(
         &GLYPHS
@@ -84,89 +93,114 @@ fn evaluate_on(target: &Value, expression: &str, timeout: std::time::Duration) -
     cdp::evaluate(ws, expression, timeout)
 }
 
-fn overlay_script() -> std::path::PathBuf {
-    crate::paths::project_dir().join("assets/overlay.py")
+#[derive(Debug, Clone)]
+struct Frame {
+    ws: String,
+    x: i64,
+    y: i64,
+    w: i64,
+    h: i64,
 }
 
-fn overlay_marker() -> String {
-    crate::paths::project_dir().join("assets/overlay.py").display().to_string()
+fn frame_of(target: &Value) -> Option<Frame> {
+    let ws = target.get("webSocketDebuggerUrl").and_then(Value::as_str)?.to_string();
+    let raw = cdp::evaluate(
+        &ws,
+        "JSON.stringify({x: window.screenX, y: window.screenY, w: window.innerWidth, h: window.innerHeight})",
+        std::time::Duration::from_secs(4),
+    )
+    .ok()?;
+    let text = raw.as_str()?;
+    let parsed: Value = serde_json::from_str(text).ok()?;
+    Some(Frame {
+        ws,
+        x: parsed.get("x").and_then(Value::as_i64).unwrap_or(0),
+        y: parsed.get("y").and_then(Value::as_i64).unwrap_or(0),
+        w: parsed.get("w").and_then(Value::as_i64).unwrap_or(0),
+        h: parsed.get("h").and_then(Value::as_i64).unwrap_or(0),
+    })
 }
 
-/// The overlay is tracked by its command line, not by a child handle: the
-/// handle dies with a server restart while the window keeps running.
-fn overlay_pids() -> Vec<i32> {
-    let marker = overlay_marker();
-    let Ok(entries) = std::fs::read_dir("/proc") else { return Vec::new() };
-    let mut pids = Vec::new();
-    for entry in entries.flatten() {
-        let name = entry.file_name();
-        let Some(pid) = name.to_str().and_then(|value| value.parse::<i32>().ok()) else { continue };
-        let Ok(raw) = std::fs::read(format!("/proc/{pid}/cmdline")) else { continue };
-        let cmdline = String::from_utf8_lossy(&raw);
-        if cmdline.contains(&marker) {
-            pids.push(pid);
-        }
+fn frames() -> Vec<Frame> {
+    page_targets().iter().filter_map(frame_of).filter(|frame| frame.w > 50 && frame.h > 50).collect()
+}
+
+/// The window the user is looking at is the smallest one that covers the point
+/// where the panel would appear: Steam layers the store and library above the
+/// shell, and both report the point.
+fn host_for(cx: i64, cy: i64) -> Option<Frame> {
+    frames()
+        .into_iter()
+        .filter(|frame| cx >= frame.x && cx <= frame.x + frame.w && cy >= frame.y && cy <= frame.y + frame.h)
+        .min_by_key(|frame| frame.w * frame.h)
+}
+
+fn ensure_panel(target: &Frame) -> Result<(), String> {
+    let script = script();
+    let build = script_hash(&script);
+    let query = format!("window.__vdBuild === {build:?}");
+    let current = cdp::evaluate(&target.ws, &query, std::time::Duration::from_secs(4))
+        .ok()
+        .and_then(|value| value.as_bool())
+        .unwrap_or(false);
+    if current {
+        return Ok(());
     }
-    pids
+    let bootstrap = format!("window.__vdNoIcon = true;\n{script}\nwindow.__vdBuild = {build:?};");
+    cdp::evaluate(&target.ws, &bootstrap, std::time::Duration::from_secs(8)).map(|_| ())
 }
 
-fn overlay_alive() -> bool {
-    !overlay_pids().is_empty()
-}
-
-fn stop_overlay() -> bool {
-    let pids = overlay_pids();
-    for pid in &pids {
-        let _ = std::process::Command::new("kill").arg(pid.to_string()).status();
+fn hide_everywhere() {
+    for frame in frames() {
+        let _ = cdp::evaluate(&frame.ws, "window.__vdPanel && window.__vdPanel({ open: false })", std::time::Duration::from_secs(3));
     }
-    for pid in &pids {
-        let deadline = std::time::Instant::now() + std::time::Duration::from_millis(600);
-        while std::time::Instant::now() < deadline {
-            if !std::path::Path::new(&format!("/proc/{pid}")).exists() {
-                break;
-            }
-            std::thread::sleep(std::time::Duration::from_millis(40));
-        }
-    }
-    !pids.is_empty()
 }
 
-/// Steam paints its store, library and Community windows above the main frame,
-/// so the panel is a real window that floats above Steam instead of a DOM node.
+static PANEL_SHOWN: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// The panel lives inside Steam: it is injected into whichever window sits under
+/// the menu, so it scrolls with that window and cannot float over other apps.
 pub fn panel(open: bool, toggle: bool, x: i64, y: i64, screen_x: i64, screen_y: i64) -> Result<Value, String> {
-    if toggle && overlay_alive() {
-        return Ok(json!({ "open": false, "stopped": stop_overlay() }));
-    }
-    if !open {
-        return Ok(json!({ "open": false, "stopped": stop_overlay() }));
+    use std::sync::atomic::Ordering;
+
+    if !open || (toggle && PANEL_SHOWN.load(Ordering::Relaxed)) {
+        hide_everywhere();
+        PANEL_SHOWN.store(false, Ordering::Relaxed);
+        return Ok(json!({ "open": false }));
     }
     if !steamctl::is_running() {
         return Err("Steam is not running".into());
     }
-    if overlay_alive() {
-        stop_overlay();
-    }
-    let script = overlay_script();
-    if !script.is_file() {
-        return Err(format!("overlay helper missing: {}", script.display()));
-    }
-    let python = if std::path::Path::new("/usr/bin/python3").exists() { "/usr/bin/python3" } else { "python3" };
+
     let width = 300i64;
     let plans = crate::state::load().map(|state| state.apps.len()).unwrap_or(0).min(4) as i64;
     let height = 300 + plans * 30;
-    let left = (screen_x + x - width + 24).max(0);
-    let top = (screen_y + y + 10).max(0);
-    let mut command = std::process::Command::new(python);
-    command
-        .arg(&script)
-        .args(["--port", &crate::server::port().to_string()])
-        .args(["--x", &left.to_string(), "--y", &top.to_string()])
-        .args(["--width", &width.to_string(), "--height", &height.to_string()])
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null());
-    crate::steamctl::apply_session_env(&mut command);
-    command.spawn().map_err(|error| format!("cannot start the overlay: {error}"))?;
-    Ok(json!({ "open": true, "x": left, "y": top, "width": width, "height": height }))
+    let icon_abs = screen_x + x;
+    let mut left = icon_abs - width + 24;
+    let top = screen_y + y + 10;
+    let host = host_for(left + width / 2, top + height / 2).ok_or("no Steam window covers that spot")?;
+
+    ensure_panel(&host)?;
+    // Right-aligning under the icon only works when there is room on its left;
+    // otherwise the panel hangs off the window and lands at the far edge.
+    if left < host.x + 8 {
+        left = icon_abs - 16;
+    }
+    let local_x = (left - host.x).clamp(8, (host.w - width - 8).max(8));
+    let local_y = (top - host.y).max(8);
+    let expression = format!("window.__vdPanel({{ open: true, x: {local_x}, y: {local_y} }})");
+    cdp::evaluate(&host.ws, &expression, std::time::Duration::from_secs(4))?;
+    PANEL_SHOWN.store(true, Ordering::Relaxed);
+
+    // Any other copy must go, otherwise the same panel shows twice.
+    for frame in frames() {
+        if frame.ws == host.ws {
+            continue;
+        }
+        let _ = cdp::evaluate(&frame.ws, "window.__vdPanel && window.__vdPanel({ open: false })", std::time::Duration::from_secs(3));
+    }
+
+    Ok(json!({ "open": true, "host": [host.x, host.y, host.w, host.h], "left": local_x, "top": local_y }))
 }
 
 pub fn debug_ready() -> bool {
@@ -226,7 +260,10 @@ pub fn inject() -> Result<Value, String> {
     }
     let target = main_target().ok_or("the Steam main window is not available over CDP".to_string())?;
     let ws = target.get("webSocketDebuggerUrl").and_then(Value::as_str).unwrap_or("");
-    let result = cdp::evaluate(ws, &script(), std::time::Duration::from_secs(20))?;
+    let script = script();
+    let build = script_hash(&script);
+    let body = format!("window.__vdNoIcon = false;\n{script}\nwindow.__vdBuild = {build:?};");
+    let result = cdp::evaluate(ws, &body, std::time::Duration::from_secs(20))?;
     let text = result.as_str().unwrap_or("");
     if text != "injected" && text != "present" {
         return Err(format!("injection failed: {text}"));
@@ -305,7 +342,6 @@ pub fn watch_loop() {
     loop {
         std::thread::sleep(std::time::Duration::from_secs(45));
         if !steamctl::is_running() {
-            stop_overlay();
             continue;
         }
         if !debug_ready() {
