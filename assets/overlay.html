@@ -1,0 +1,255 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>ExxaTools</title>
+<style>
+  @font-face {
+    font-family: "Montserrat";
+    src: url("../web/fonts/montserrat-latin.woff2") format("woff2");
+    font-weight: 400 800;
+    font-display: block;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; }
+  body {
+    background: transparent;
+    font-family: "Montserrat", "Motiva Sans", Arial, sans-serif;
+    color: #e9edf2;
+    -webkit-user-select: none;
+    user-select: none;
+  }
+  .panel {
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    background: #151a21;
+    border: 1px solid #2e3a49;
+    border-radius: 16px;
+    padding: 6px;
+    box-shadow: 0 24px 60px rgba(0, 0, 0, 0.62);
+    overflow: hidden;
+  }
+  .head { padding: 10px 12px 11px; }
+  .title {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: 0.01em;
+  }
+  .title .name { flex: 1; }
+  .close-x {
+    width: 22px; height: 22px; flex: none;
+    display: grid; place-items: center;
+    border-radius: 6px; border: 1px solid transparent;
+    background: transparent; color: #8b96a5; cursor: pointer;
+    font: 600 13px/1 "Montserrat", Arial, sans-serif;
+  }
+  .close-x:hover { background: #1f2733; color: #eff3f8; }
+  .ver { font: 400 10.5px ui-monospace, monospace; color: #8b96a5; }
+  .state {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    margin-top: 4px;
+    font-size: 11.5px;
+    color: #a9b4c3;
+  }
+  .dot { width: 7px; height: 7px; border-radius: 50%; background: #6b7686; flex: none; }
+  .state.ok .dot { background: #58b77e; box-shadow: 0 0 0 3px rgba(88, 183, 126, 0.14); }
+  .state.warn .dot { background: #d9a15a; box-shadow: 0 0 0 3px rgba(217, 161, 90, 0.14); }
+  .state.bad .dot { background: #d9655c; box-shadow: 0 0 0 3px rgba(217, 101, 92, 0.14); }
+  .sep { height: 1px; margin: 4px 6px; background: #222a35; }
+  .label {
+    padding: 6px 12px 4px;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: #8b96a5;
+  }
+  .plans { display: flex; flex-direction: column; padding: 0 4px 2px; }
+  .plan {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 8px;
+    border-radius: 9px;
+    font-size: 12px;
+    color: #9da8b7;
+  }
+  .plan b {
+    font-weight: 600;
+    color: #e9edf2;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .flag {
+    margin-left: auto;
+    font-size: 10px;
+    font-weight: 600;
+    padding: 2px 7px;
+    border-radius: 999px;
+    border: 1px solid #2e3a49;
+    color: #8b96a5;
+  }
+  .flag.ok { color: #7fcfa2; border-color: #2f5b45; }
+  .flag.warn { color: #d9a15a; border-color: #5b4a2f; }
+  .empty { padding: 8px 12px 10px; font-size: 11.5px; color: #8b96a5; }
+  .actions { display: flex; flex-direction: column; gap: 2px; padding: 2px 4px 4px; }
+  button.item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    width: 100%;
+    min-height: 34px;
+    padding: 7px 10px;
+    border-radius: 9px;
+    border: 1px solid transparent;
+    background: transparent;
+    color: #9da8b7;
+    font: 500 12.5px "Montserrat", "Motiva Sans", Arial, sans-serif;
+    text-align: left;
+    cursor: pointer;
+    transition: background 120ms ease, color 120ms ease;
+  }
+  button.item:hover { background: #1a212b; color: #e9edf2; }
+  button.item svg { width: 15px; height: 15px; flex: none; opacity: 0.9; }
+  .msg {
+    min-height: 15px;
+    padding: 4px 12px 8px;
+    font-size: 11.5px;
+    color: #9da8b7;
+  }
+</style>
+</head>
+<body>
+<div class="panel">
+  <div class="head">
+    <div class="title"><span class="name">ExxaTools</span><span class="ver" id="ver">—</span><button class="close-x" data-act="close" title="Close">×</button></div>
+    <div class="state" id="state"><span class="dot"></span><span id="stateText">checking engine</span></div>
+  </div>
+  <div class="sep"></div>
+  <div class="label">Plans</div>
+  <div class="plans" id="plans"><div class="empty">no plans yet</div></div>
+  <div class="sep"></div>
+  <div class="actions">
+    <button class="item" data-act="open">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 3.5h11v9h-11z"/><path d="M2.5 6.5h11"/></svg>
+      Open ExxaTools
+    </button>
+    <button class="item" data-act="restart">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M2.8 8a5.2 5.2 0 1 0 1.9-4"/><path d="M2.6 2.6v3.2h3.2"/></svg>
+      Restart Steam
+    </button>
+    <button class="item" data-act="provider">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="8" cy="8" r="2.1"/><path d="M8 1.5v3M8 11.5v3M1.5 8h3M11.5 8h3"/></svg>
+      Install provider
+    </button>
+  </div>
+  <div class="sep"></div>
+  <div class="actions">
+    <button class="item" data-act="close">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M4 4l8 8M12 4l-8 8"/></svg>
+      Close
+    </button>
+  </div>
+  <div class="msg" id="msg"></div>
+</div>
+<script>
+  const params = new URLSearchParams(location.search);
+  const API = "http://127.0.0.1:" + (params.get("port") || "8765");
+  const $ = (selector) => document.querySelector(selector);
+
+  const post = (path, body) =>
+    fetch(API + path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body || {}) })
+      .then((response) => response.json());
+
+  const msg = (text) => { $("#msg").textContent = text; };
+
+  function setState(engine) {
+    const state = $("#state");
+    const text = $("#stateText");
+    if (!engine) {
+      text.textContent = "ExxaTools is not answering";
+      state.className = "state bad";
+      return;
+    }
+    $("#ver").textContent = engine.version || "—";
+    let label = "engine not installed";
+    let kind = "bad";
+    if (engine.installed) {
+      if (!engine.steam_running) { label = "Steam is not running"; kind = "warn"; }
+      else if (engine.steam_engine_loaded) { label = "engine loaded in Steam"; kind = "ok"; }
+      else { label = "restart Steam to load the engine"; kind = "warn"; }
+    }
+    text.textContent = label;
+    state.className = "state " + kind;
+  }
+
+  function planRow(plan) {
+    const missing = (plan.missing_keys || []).length;
+    const flag = plan.installed
+      ? (missing ? { text: "keys", kind: "warn" } : { text: "ready", kind: "ok" })
+      : { text: "plan", kind: "" };
+    const row = document.createElement("div");
+    row.className = "plan";
+    const name = document.createElement("b");
+    name.textContent = plan.name || String(plan.appid);
+    const chip = document.createElement("span");
+    chip.className = "flag " + flag.kind;
+    chip.textContent = flag.text;
+    row.append(name, chip);
+    return row;
+  }
+
+  async function refresh() {
+    try {
+      const status = await fetch(API + "/api/status", { cache: "no-store" }).then((response) => response.json());
+      setState(status.engine);
+      const plans = status.apps || [];
+      const box = $("#plans");
+      if (!plans.length) box.innerHTML = '<div class="empty">no plans yet</div>';
+      else box.replaceChildren(...plans.slice(0, 4).map(planRow));
+    } catch (error) {
+      setState(null);
+    }
+  }
+
+  document.addEventListener("click", async (event) => {
+    const button = event.target.closest("[data-act]");
+    if (!button) return;
+    const action = button.dataset.act;
+    msg("");
+    try {
+      if (action === "open") {
+        const data = await post("/api/app/launch");
+        msg(data.started ? "opening the dashboard" : "dashboard already running");
+      } else if (action === "restart") {
+        msg("stopping Steam…");
+        await post("/api/steam/restart");
+        msg("Steam is restarting");
+      } else if (action === "provider") {
+        const data = await post("/api/provider");
+        msg(data.error ? data.error : "provider script written");
+      } else if (action === "close") {
+        await post("/api/steamui/panel", { open: false });
+      }
+    } catch (error) {
+      msg("ExxaTools is not answering");
+    }
+  });
+
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") post("/api/steamui/panel", { open: false });
+  });
+
+  refresh();
+  setInterval(refresh, 4000);
+</script>
+</body>
+</html>

@@ -84,35 +84,75 @@ fn evaluate_on(target: &Value, expression: &str, timeout: std::time::Duration) -
     cdp::evaluate(ws, expression, timeout)
 }
 
-/// Every Steam window gets its own copy of the panel; show the same state in all
-/// of them so the visible one always has it.
-pub fn panel(open: bool, x: i64, y: i64) -> Result<Value, String> {
+static OVERLAY: std::sync::Mutex<Option<std::process::Child>> = std::sync::Mutex::new(None);
+
+fn overlay_script() -> std::path::PathBuf {
+    crate::paths::project_dir().join("assets/overlay.py")
+}
+
+fn stop_overlay() -> bool {
+    let Ok(mut guard) = OVERLAY.lock() else { return false };
+    match guard.as_mut() {
+        Some(child) => {
+            let _ = child.kill();
+            let _ = child.wait();
+            *guard = None;
+            true
+        }
+        None => false,
+    }
+}
+
+fn overlay_alive() -> bool {
+    let Ok(mut guard) = OVERLAY.lock() else { return false };
+    if let Some(child) = guard.as_mut() {
+        if child.try_wait().ok().flatten().is_none() {
+            return true;
+        }
+    }
+    *guard = None;
+    false
+}
+
+/// Steam paints its store, library and Community windows above the main frame,
+/// so the panel is a real window that floats above Steam instead of a DOM node.
+pub fn panel(open: bool, toggle: bool, x: i64, y: i64, screen_x: i64, screen_y: i64) -> Result<Value, String> {
+    if toggle && overlay_alive() {
+        return Ok(json!({ "open": false, "stopped": stop_overlay() }));
+    }
+    if !open {
+        return Ok(json!({ "open": false, "stopped": stop_overlay() }));
+    }
     if !steamctl::is_running() {
         return Err("Steam is not running".into());
     }
-    if !debug_ready() {
-        return Err(format!("Steam has no debugging port: run `exxa steamui enable`"));
+    if overlay_alive() {
+        stop_overlay();
     }
-    let mut total = 0;
-    let mut painted = 0;
-    for target in page_targets() {
-        total += 1;
-        let has_panel = evaluate_on(&target, "Boolean(window.__vdPanel)", std::time::Duration::from_secs(4))
-            .ok()
-            .and_then(|value| value.as_bool())
-            .unwrap_or(false);
-        if !has_panel {
-            let bootstrap = format!("window.__vdNoIcon = true;\n{}", script());
-            if evaluate_on(&target, &bootstrap, std::time::Duration::from_secs(8)).is_err() {
-                continue;
-            }
-        }
-        let expression = format!("window.__vdPanel({{ open: {open}, x: {x}, y: {y} }})");
-        if evaluate_on(&target, &expression, std::time::Duration::from_secs(4)).is_ok() {
-            painted += 1;
-        }
+    let script = overlay_script();
+    if !script.is_file() {
+        return Err(format!("overlay helper missing: {}", script.display()));
     }
-    Ok(json!({ "open": open, "targets": total, "painted": painted }))
+    let python = if std::path::Path::new("/usr/bin/python3").exists() { "/usr/bin/python3" } else { "python3" };
+    let width = 300i64;
+    let plans = crate::state::load().map(|state| state.apps.len()).unwrap_or(0).min(4) as i64;
+    let height = 300 + plans * 30;
+    let left = (screen_x + x - width + 24).max(0);
+    let top = (screen_y + y + 10).max(0);
+    let mut command = std::process::Command::new(python);
+    command
+        .arg(&script)
+        .args(["--port", &crate::server::port().to_string()])
+        .args(["--x", &left.to_string(), "--y", &top.to_string()])
+        .args(["--width", &width.to_string(), "--height", &height.to_string()])
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null());
+    crate::steamctl::apply_session_env(&mut command);
+    let child = command.spawn().map_err(|error| format!("cannot start the overlay: {error}"))?;
+    if let Ok(mut guard) = OVERLAY.lock() {
+        *guard = Some(child);
+    }
+    Ok(json!({ "open": true, "x": left, "y": top, "width": width, "height": height }))
 }
 
 pub fn debug_ready() -> bool {
@@ -250,7 +290,11 @@ pub fn enable_debug() -> Result<Value, String> {
 pub fn watch_loop() {
     loop {
         std::thread::sleep(std::time::Duration::from_secs(45));
-        if !steamctl::is_running() || !debug_ready() {
+        if !steamctl::is_running() {
+            stop_overlay();
+            continue;
+        }
+        if !debug_ready() {
             continue;
         }
         let injected = status().get("injected").and_then(Value::as_bool).unwrap_or(false);
