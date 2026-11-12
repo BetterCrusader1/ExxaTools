@@ -272,3 +272,9 @@ State lives in `~/.config/exxatools/state.json`. Set `XDG_CONFIG_HOME` or
 `EXXATOOLS_HOME` to move it. The engine tarball cache lives in
 `~/.cache/exxatools/engine`; installed engine metadata is
 `~/.local/share/vapor-forge/exxatools-engine.json`.
+
+## Landscape research
+
+`docs/RESEARCH-COMPETITORS.md` maps the Steam depot/manifest ecosystem: Windows
+clients, Linux client mods, manifest providers, and where this project stands
+against each of them.
