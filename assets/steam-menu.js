@@ -20,6 +20,9 @@ window.__vdPanel = (opts) => {
         box-shadow: 0 24px 60px rgba(0,0,0,.62);
         font-family: Montserrat, "Motiva Sans", Arial, sans-serif;
         color: #E9EDF2; display: none;
+        max-height: calc(100vh - 16px);
+        overflow-y: auto;
+        overscroll-behavior: contain;
       }
       #${PANEL}.open { display: block; }
       #${PANEL} .vd-head { padding: 9px 11px 10px; }

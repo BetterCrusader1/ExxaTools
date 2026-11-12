@@ -138,6 +138,15 @@ fn host_for(cx: i64, cy: i64) -> Option<Frame> {
 /// A freshly created CEF window can report (0,0) for a moment while the window
 /// manager has not placed it yet. In that case lay the panel out against the
 /// shell's origin instead of the corner of the screen.
+/// Body height for layout decisions: header, an alert row, up to four plan rows,
+/// never taller than the space under the menu icon.
+pub fn panel_height(plans: i64, alert: bool, screen_height: i64) -> i64 {
+    let mut height = 300 + plans.clamp(0, 4) * 30 + if alert { 46 } else { 0 };
+    let room = if screen_height > 0 { screen_height - 80 } else { 900 };
+    height = height.min(room.max(240));
+    height.max(240)
+}
+
 fn panel_origin(host: &Frame, reference: Option<&Frame>) -> (i64, i64) {
     if host.x == 0 && host.y == 0 {
         if let Some(main) = reference.filter(|main| main.ws != host.ws && main.x + main.y > 0) {
@@ -298,8 +307,13 @@ pub fn panel(open: bool, toggle: bool, x: i64, y: i64, screen_x: i64, screen_y: 
     }
 
     let width = 300i64;
-    let plans = crate::state::load().map(|state| state.apps.len()).unwrap_or(0).min(4) as i64;
-    let height = 300 + plans * 30;
+    let plans = crate::state::load().map(|state| state.apps.len()).unwrap_or(0) as i64;
+    let alerts = crate::diagnose::from_files()
+        .get("incidents")
+        .and_then(Value::as_array)
+        .map(|list| !list.is_empty())
+        .unwrap_or(false);
+    let height = panel_height(plans, alerts, screen_y.max(0));
     let icon_abs = screen_x + x;
     let mut left = icon_abs - width + 24;
     let top = screen_y + y + 10;
@@ -615,5 +629,33 @@ mod origin_tests {
     fn no_reference_keeps_zero() {
         let host = frame(0, 0, 1278, 657, "host");
         assert_eq!(panel_origin(&host, None), (0, 0));
+    }
+}
+
+
+#[cfg(test)]
+mod height_tests {
+    use super::panel_height;
+
+    #[test]
+    fn height_grows_with_plans() {
+        assert_eq!(panel_height(0, false, 0), 300);
+        assert_eq!(panel_height(2, false, 0), 360);
+    }
+
+    #[test]
+    fn alert_adds_a_row() {
+        assert_eq!(panel_height(0, true, 0), 346);
+    }
+
+    #[test]
+    fn plans_are_capped_at_four() {
+        assert_eq!(panel_height(9, false, 0), 420);
+    }
+
+    #[test]
+    fn short_screens_clamp() {
+        assert_eq!(panel_height(4, true, 400), 320);
+        assert_eq!(panel_height(0, false, 200), 240);
     }
 }
