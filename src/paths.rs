@@ -75,7 +75,10 @@ pub fn state_path() -> PathBuf {
 }
 
 pub fn vf_config_dir() -> PathBuf {
-    config_home().join("vapor-forge")
+    match env::var("EXXATOOLS_VF_HOME") {
+        Ok(value) if !value.trim().is_empty() => PathBuf::from(value),
+        _ => config_home().join("vapor-forge"),
+    }
 }
 
 pub fn vf_config() -> PathBuf {

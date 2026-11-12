@@ -1,38 +1,31 @@
 //! ExxaTools: Steam depots and manifests for the Linux client, on Vapor Forge.
 
-mod appmanifest;
-mod steamui;
-mod window;
-mod desktop;
-mod cdp;
-mod diagnose;
-mod doctor;
-mod engine;
-mod http;
-mod lua;
-mod paths;
-mod pins;
-mod plans;
-mod providers;
-mod selftest;
-mod server;
-mod sources;
-mod verify;
-mod state;
-mod storage;
-mod steam;
-mod hubcap;
-mod steamctl;
-mod vfsys;
-mod watch;
-mod vdf;
+use exxa::{
+    appmanifest,
+    steamui,
+    window,
+    desktop,
+    diagnose,
+    doctor,
+    engine,
+    lua,
+    paths,
+    pins,
+    plans,
+    providers,
+    selftest,
+    server,
+    sources,
+    verify,
+    state,
+    storage,
+    steam,
+    steamctl,
+    vfsys,
+    watch,
+};
 
 use serde_json::{json, Value};
-
-pub fn base64_encode(bytes: &[u8]) -> String {
-    use base64::Engine;
-    base64::engine::general_purpose::STANDARD.encode(bytes)
-}
 
 fn arg_value(args: &[String], flag: &str) -> Option<String> {
     args.iter().position(|arg| arg == flag).and_then(|index| args.get(index + 1)).cloned()

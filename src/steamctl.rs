@@ -4,6 +4,12 @@ use std::path::PathBuf;
 use std::process::{Command, Stdio};
 
 pub fn root() -> Option<PathBuf> {
+    if let Ok(value) = std::env::var("EXXATOOLS_STEAM_ROOT") {
+        let path = PathBuf::from(value);
+        if path.is_dir() {
+            return Some(path);
+        }
+    }
     if let Ok(steam) = steamlocate::SteamDir::locate() {
         return Some(steam.path().to_path_buf());
     }

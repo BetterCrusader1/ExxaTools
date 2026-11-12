@@ -173,6 +173,7 @@ fn app_view(appid: u64, branch: &str) -> Result<Value, (u16, String)> {
         "source": st.settings.default_source,
         "sources": crate::sources::catalog(&st.settings),
         "launch_options": Value::Null,
+        "catalog": catalog,
     }))
 }
 
@@ -201,7 +202,10 @@ fn record_from_body(body: &Value) -> Result<Value, (u16, String)> {
     let fixes = body.get("fixes").cloned().filter(Value::is_object).unwrap_or_else(|| {
         json!({ "ticket": "forge", "steam_id": "", "avatar": 0, "purchase_time": 0, "online_fix": false })
     });
-    Ok(json!({
+    // A catalog snapshot travels with the plan so a refresh still works when the
+    // Steam API is unreachable.
+    let catalog = body.get("catalog").cloned().filter(Value::is_object);
+    let mut record = json!({
         "appid": appid,
         "name": body.get("name").and_then(Value::as_str).unwrap_or("").trim(),
         "branch": body.get("branch").and_then(Value::as_str).unwrap_or("public"),
@@ -210,7 +214,11 @@ fn record_from_body(body: &Value) -> Result<Value, (u16, String)> {
         "source": body.get("source").and_then(Value::as_str).unwrap_or("auto"),
         "fixes": fixes,
         "updated": vfsys::stamp(),
-    }))
+    });
+    if let Some(catalog) = catalog {
+        record["catalog"] = catalog;
+    }
+    Ok(record)
 }
 
 fn get_route(path: &str, query: &[(String, String)]) -> Result<Value, (u16, String)> {

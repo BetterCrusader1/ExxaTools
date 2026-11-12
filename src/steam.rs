@@ -104,6 +104,10 @@ pub fn app_info(appid: u64) -> Result<Value, String> {
 
 /// Normalised description of an app: name, branches, depots, dlc.
 pub fn catalog(appid: u64) -> Result<Value, String> {
+    // A test and an offline machine must take the same path: no silent network.
+    if std::env::var("EXXATOOLS_OFFLINE").is_ok_and(|value| !value.trim().is_empty()) {
+        return Err("offline mode: the Steam API is not called".into());
+    }
     let info = app_info(appid)?;
     let name = info
         .pointer("/common/name")
