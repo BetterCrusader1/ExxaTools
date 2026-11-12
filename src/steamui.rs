@@ -180,19 +180,7 @@ fn status_snapshot() -> Value {
     let apps: Vec<Value> = st
         .apps
         .values()
-        .map(|record| {
-            let appid = record.get("appid").and_then(Value::as_u64).unwrap_or(0);
-            let depots = record.get("depots").and_then(Value::as_array).cloned().unwrap_or_default();
-            let missing: Vec<u64> = depots
-                .iter()
-                .filter_map(|depot| depot.get("depot_id").and_then(Value::as_u64))
-                .filter(|id| !st.depot_keys.contains_key(&id.to_string()))
-                .collect();
-            let mut view = record.clone();
-            view["installed"] = json!(crate::vfsys::script_path(appid).exists());
-            view["missing_keys"] = json!(missing);
-            view
-        })
+        .map(|record| crate::state::app_summary(&st, record))
         .collect();
     let incidents = crate::diagnose::from_files();
     json!({

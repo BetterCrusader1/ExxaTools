@@ -233,17 +233,12 @@ fn get_route(path: &str, query: &[(String, String)]) -> Result<Value, (u16, Stri
             },
             "engine": engine::detect(),
             "apps": st.apps.values().map(|record| {
-                let appid = record.get("appid").and_then(Value::as_u64).unwrap_or(0);
-                let depots = record.get("depots").and_then(Value::as_array).cloned().unwrap_or_default();
-                let missing: Vec<u64> = depots
-                    .iter()
-                    .filter_map(|depot| depot.get("depot_id").and_then(Value::as_u64))
-                    .filter(|id| !st.depot_keys.contains_key(&id.to_string()))
-                    .collect();
                 let mut view = record.clone();
-                view["installed"] = json!(vfsys::script_path(appid).exists());
-                view["depot_count"] = json!(depots.len());
-                view["missing_keys"] = json!(missing);
+                if let Some(summary) = state::app_summary(&st, record).as_object() {
+                    for (key, value) in summary {
+                        view[key] = value.clone();
+                    }
+                }
                 view
             }).collect::<Vec<_>>(),
             "settings": st.settings,
@@ -333,26 +328,12 @@ fn get_route(path: &str, query: &[(String, String)]) -> Result<Value, (u16, Stri
                 .apps
                 .values()
                 .map(|record| {
-                    let appid = record.get("appid").and_then(Value::as_u64).unwrap_or(0);
-                    let depots = record.get("depots").and_then(Value::as_array).cloned().unwrap_or_default();
-                    let missing: Vec<u64> = depots
-                        .iter()
-                        .filter_map(|depot| depot.get("depot_id").and_then(Value::as_u64))
-                        .filter(|id| !st.depot_keys.contains_key(&id.to_string()))
-                        .collect();
-                    json!({
-                        "appid": appid,
-                        "name": record.get("name").cloned().unwrap_or(Value::Null),
-                        "installed": vfsys::script_path(appid).exists(),
-                        "enabled": vfsys::script_path(appid).exists(),
-                        "depot_count": depots.len(),
-                        "missing_keys": missing,
-                        "dlc": record.get("dlc").cloned().unwrap_or_else(|| json!([])),
-                        "branch": record.get("branch").cloned().unwrap_or_else(|| json!("public")),
-                        "updated": record.get("updated").cloned().unwrap_or(Value::Null),
-                        "launch_options": steamctl::read_launch_options(appid),
-                        "cloud": steamctl::cloud_state(appid),
-                    })
+                    let mut view = state::app_summary(&st, record);
+                    let appid = view.get("appid").and_then(Value::as_u64).unwrap_or(0);
+                    view["enabled"] = view.get("installed").cloned().unwrap_or(json!(false));
+                    view["launch_options"] = json!(steamctl::read_launch_options(appid));
+                    view["cloud"] = steamctl::cloud_state(appid);
+                    view
                 })
                 .collect();
             Ok(json!({

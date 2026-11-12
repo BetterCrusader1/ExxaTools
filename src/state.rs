@@ -138,6 +138,28 @@ pub fn save(state: &State) -> Result<(), String> {
     std::fs::rename(&temp, &path).map_err(|error| format!("cannot replace {}: {error}", path.display()))
 }
 
+/// One shape for an app as every surface shows it: the library route, the status
+/// route and the Steam panel all read these fields, so they cannot drift apart.
+pub fn app_summary(state: &State, record: &serde_json::Value) -> serde_json::Value {
+    let appid = record.get("appid").and_then(serde_json::Value::as_u64).unwrap_or(0);
+    let depots = record.get("depots").and_then(serde_json::Value::as_array).cloned().unwrap_or_default();
+    let missing: Vec<u64> = depots
+        .iter()
+        .filter_map(|depot| depot.get("depot_id").and_then(serde_json::Value::as_u64))
+        .filter(|id| !state.depot_keys.contains_key(&id.to_string()))
+        .collect();
+    serde_json::json!({
+        "appid": appid,
+        "name": record.get("name").cloned().unwrap_or(serde_json::Value::Null),
+        "branch": record.get("branch").cloned().unwrap_or_else(|| serde_json::json!("public")),
+        "installed": crate::vfsys::script_path(appid).exists(),
+        "depot_count": depots.len(),
+        "missing_keys": missing,
+        "dlc": record.get("dlc").cloned().unwrap_or_else(|| serde_json::json!([])),
+        "updated": record.get("updated").cloned().unwrap_or(serde_json::Value::Null),
+    })
+}
+
 /// A depot key is 64 hex characters; anything else is not a key.
 pub fn valid_key(value: &str) -> Option<String> {
     let text: String = value.trim().to_lowercase().chars().filter(|ch| !ch.is_whitespace()).collect();
@@ -211,5 +233,34 @@ mod tests {
     fn rejects_empty_gid() {
         let mut state = State::default();
         assert!(!record_gid(&mut state, 1, 2, "", None, "public"));
+    }
+}
+
+
+#[cfg(test)]
+mod summary_tests {
+    use super::{app_summary, State};
+    use serde_json::json;
+
+    #[test]
+    fn summary_reports_missing_keys_and_count() {
+        let mut state = State::default();
+        state.depot_keys.insert("621".into(), "a".repeat(64));
+        let record = json!({
+            "appid": 620,
+            "name": "Portal 2",
+            "branch": "public",
+            "depots": [
+                {"depot_id": 621, "gid": "1"},
+                {"depot_id": 622, "gid": "2"}
+            ],
+            "dlc": [323180],
+        });
+        let view = app_summary(&state, &record);
+        assert_eq!(view["appid"], 620);
+        assert_eq!(view["depot_count"], 2);
+        assert_eq!(view["missing_keys"], json!([622]));
+        assert_eq!(view["dlc"], json!([323180]));
+        assert_eq!(view["branch"], "public");
     }
 }
