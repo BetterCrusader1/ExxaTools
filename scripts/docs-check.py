@@ -27,7 +27,7 @@ def usage() -> set[str]:
 
 def documented() -> dict[str, str]:
     found: dict[str, str] = {}
-    pattern = re.compile(r"^\s*(?:\./target/release/|/usr/bin/)?exxa\s+([a-z][a-z-]*)", re.MULTILINE)
+    pattern = re.compile(r"^\s*(?:\S*/)?exxa\s+([a-z][a-z-]*)", re.MULTILINE)
     for name in DOCS:
         text = (ROOT / name).read_text()
         for match in pattern.finditer(text):

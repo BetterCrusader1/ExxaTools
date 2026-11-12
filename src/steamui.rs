@@ -180,7 +180,12 @@ fn status_snapshot() -> Value {
     let apps: Vec<Value> = st
         .apps
         .values()
-        .map(|record| crate::state::app_summary(&st, record))
+        .map(|record| {
+            let appid = record.get("appid").and_then(Value::as_u64).unwrap_or(0);
+            let mut view = crate::state::app_summary(&st, record);
+            view["launch_options"] = json!(crate::steamctl::read_launch_options(appid));
+            view
+        })
         .collect();
     let incidents = crate::diagnose::from_files();
     json!({
@@ -199,12 +204,27 @@ fn run_action(action: &str) -> String {
             Err(error) => error,
         };
     }
-    if action.starts_with("rebuild:") {
-        return match crate::plans::refresh_manifests() {
+    if let Some(rest) = action.strip_prefix("rebuild:") {
+        let Ok(appid) = rest.parse::<u64>() else { return "bad app id".into() };
+        return match crate::plans::refresh_plan(appid) {
             Ok(report) => format!(
-                "{} plan(s) rebuilt",
+                "plan {appid} rebuilt ({} depot set(s))",
                 report.get("updated").and_then(Value::as_u64).unwrap_or(0)
             ),
+            Err(error) => error,
+        };
+    }
+    if let Some(rest) = action.strip_prefix("launch:") {
+        let Ok(appid) = rest.parse::<u64>() else { return "bad app id".into() };
+        let current = crate::steamctl::read_launch_options(appid).unwrap_or_default();
+        let has = current.split_whitespace().any(|part| part == "-onlinefix");
+        let next = if has {
+            current.split_whitespace().filter(|part| *part != "-onlinefix").collect::<Vec<_>>().join(" ")
+        } else {
+            crate::verify::merge_launch_option(Some(&current), "-onlinefix")
+        };
+        return match crate::steamctl::set_launch_options(appid, &next) {
+            Ok(_) => format!("-onlinefix {}", if has { "removed" } else { "added" }),
             Err(error) => error,
         };
     }

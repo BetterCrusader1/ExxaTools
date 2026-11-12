@@ -10,7 +10,8 @@ downloading.
 
 ![ExxaTools](docs/game.png)
 
-Rust, one binary, no runtime dependencies. `./exxa` builds it on first use and
+Rust, one binary; the GTK/WebKit window needs `gtk3` and `webkit2gtk-4.1` at
+runtime. `./exxa` builds it on first use and
 execs it; the old Python implementation is kept under `legacy/` as a reference.
 
 ## Window and menu
@@ -51,7 +52,7 @@ cargo build --release
 ./exxa app 730 --branch public
 ./exxa key 731 <64-hex-key>
 ./exxa code 730 731 7643209663222864337
-./exxa install 730
+./exxa plan 730 --write      # write the plan into the Vapor Forge scripts folder
 ./exxa check 730              # parse the plan with luac, the way the runtime does
 ./exxa fix 730                # Stop Steam, patch appmanifest flags, start Steam
 ./exxa provider --write       # install the request-code provider script
@@ -193,12 +194,13 @@ and the manifest ids of the build it archived. That is the half Steam never
 gives you: keys.
 
 ```sh
-./exxa hubcap key smm_…          # validate and store the key
-./exxa hubcap stats              # daily usage, whether you can still request
-./exxa hubcap search cyberpunk   # what Hubcap actually has
-./exxa hubcap fetch 1091500      # import every depot key into the store
-./exxa hubcap fetch 1091500 --pin --plan   # also pin its manifests, create a plan
+./exxa sources                    # which plan sources are configured
+./exxa plan fetch 620             # ask each source in order, store keys, write the plan
+./exxa plan fetch 620 --name "Portal 2"
 ```
+
+The Hubcap key itself is entered in **Settings → Hubcap key**; Ryuu uses an
+`X-Auth-Key`, and a custom source is a URL containing `{appid}`.
 
 Keys always import. Manifest ids only move with `--pin`, because Hubcap archives
 a snapshot and that snapshot is not necessarily the branch you selected — pinning
@@ -234,7 +236,9 @@ Details that matter:
 * A `MutationObserver` inside the page re-adds the icon when Steam re-renders
   its menu bar.
 * `fetch` from the Steam page to `http://127.0.0.1:8765` works (loopback is a
-  trustworthy origin); the API answers with permissive CORS headers anyway.
+  trustworthy origin). Writes need the token from `GET /api/session`, a foreign
+  `Origin` is refused, and no CORS header is emitted at all — the dashboard is
+  same-origin and the Steam panel talks over CDP instead of HTTP.
 * The panel is plain DOM: status line from `/api/engine`, then Open ExxaTools,
   Restart Steam, Install provider, About.
 * An OS-level window grab can miss the CEF overlay; `Page.captureScreenshot`
@@ -294,28 +298,26 @@ newest kept, so an import mistake never costs collected keys.
 ## Layout
 
 ```
-exxatools/
-  http.py        urllib transport with client identity
-  steam.py       store search, appinfo, depot/manifest normalisation
-  providers.py   manifest request-code providers, rate limited per service
-  hubcap.py      Hubcap Manifest client: stats, search, fetch, lua parse, import
-  lua.py         plan rendering and the provider Lua template
-  vfsys.py       Vapor Forge install detection and script directory
-  engine.py      engine install/update/uninstall, plan parse, engine log
-  appmanifest.py steamapps appmanifest reads and update-flag patches
-  steamctl.py    Steam roots, accounts, launch options, restart, LD_AUDIT probe
-  configfile.py  config.toml injection for tickets, DLC, steam id overrides
-  store.py       state file: keys, plans, cached codes, settings
-  server.py      JSON API + static front end
-  desktop.py     GTK/WebKit window, chromium/firefox fallbacks, menu entry
-web/             single-page UI
-vd               launcher
+src/
+  main.rs        command dispatch
+  lib.rs         the same modules, exported for tests
+  server.rs      loopback HTTP server and JSON API
+  plans.rs       plan sources, fetch, refresh, script writing
+  lua.rs         plan rendering, ids, comments
+  steam.rs       appinfo, catalog, manifests
+  steamctl.rs    Steam process, accounts, launch options
+  steamui.rs     CDP injection, the in-client panel
+  appmanifest.rs appmanifest reading and repair
+  engine.rs      Vapor Forge install and detection
+  diagnostics.rs support bundle with masked keys
+  doctor.rs      twelve checks with fixes
+  state.rs       keys, plans, token, backups
+tests/           integration tests against a temporary Steam tree
+web/             dashboard
+assets/          injected panel script
+packaging/       PKGBUILD and desktop entry
+legacy/          the Python prototype, reference only
 ```
-
-State lives in `~/.config/exxatools/state.json`. Set `XDG_CONFIG_HOME` or
-`EXXATOOLS_HOME` to move it. The engine tarball cache lives in
-`~/.cache/exxatools/engine`; installed engine metadata is
-`~/.local/share/vapor-forge/exxatools-engine.json`.
 
 ## Landscape research
 

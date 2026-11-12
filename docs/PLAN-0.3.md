@@ -51,7 +51,7 @@ through the surface a user or caller reaches, not through a layer.
 Depends on: none. Writes: `src/lib.rs`, `src/main.rs`, `Cargo.toml`.
 Move the module list into `src/lib.rs`, keep `main.rs` a thin dispatcher.
 Done check: `cargo build --release` and `cargo test --release` both pass with the
-same 72 tests, and a one-line `tests/import.rs` that calls `exxa::lua` compiles.
+unit suite unchanged, and `tests/import.rs` calls `exxa::lua` and passes.
 
 ### T2 — a Steam tree the tests own
 
@@ -61,33 +61,33 @@ Add `EXXATOOLS_STEAM_ROOT` and `EXXATOOLS_VF_HOME` overrides next to the existin
 `EXXATOOLS_HOME`, and a helper that builds a temporary tree: `steamapps/libraryfolders.vdf`,
 `steamapps/appmanifest_620.acf`, `userdata/12345/config/localconfig.vdf`,
 `vapor-forge/scripts`, `vapor-forge/config.toml`.
-Done check: `cargo test --test support` prints the tree root and asserts every path
-resolves inside it while the real home is untouched.
+Done check: `cargo test --test fixture` prints nothing but asserts that the Steam
+root, the scripts dir and the state file all resolve inside the temporary tree.
 
 ### T3 — plan pipeline end to end, without the network
 
 Depends on: T2. Writes: `src/plans.rs`, `tests/plan_flow.rs`.
 A test serves one `.lua` from a `TcpListener` on a random port as a plan source,
 fetches a plan for 620, and walks the result through to an installed script.
-Done check: the test asserts one key stored, one depot pinned, the script exists on
-disk, and `verify` reports `script ok` and `keys ok`.
+Done check: `cargo test --test plan_flow` asserts one key stored, the script on disk
+with the key line, and `verify` reporting `script`, `keys` and `lua` as ok.
 
 ### T4 — appmanifest repair on a real file
 
 Depends on: T2. Writes: `src/appmanifest.rs`, `tests/manifest_fix.rs`.
 Run the repair against the fixture `appmanifest_620.acf` in the states Steam leaves
 behind: interrupted update, `StateFlags` 4 with a partial byte count, missing keys.
-Done check: the test asserts the resulting keys and values, that a `.bak` file holds
-the original bytes, and that a second run changes nothing.
+Done check: `cargo test --test manifest_fix` asserts `StateFlags` 4, matching byte
+counters, a `.bak` with the original bytes, and an unchanged file after a second run.
 
 ### T5 — refresh without Steam online
 
 Depends on: T3. Writes: `src/plans.rs`, `src/steam.rs`, `tests/refresh_offline.rs`.
 Store the catalog snapshot with the plan when it is fetched; refresh rebuilds from
 that snapshot when the Steam API does not answer.
-Done check: with the API pointed at a dead port the test refreshes a saved plan,
-the script is rewritten byte for byte from the snapshot, and the report says the
-snapshot was used.
+Done check: `cargo test --test refresh_offline` sets `EXXATOOLS_OFFLINE`, refreshes a
+saved plan, and asserts the report counts one snapshot, the depot gid becomes the
+snapshot's, the disabled flag survives and the script carries the new pin.
 
 ### T6 — a token and an origin check for writes
 
@@ -96,9 +96,9 @@ Depends on: T1. Writes: `src/server.rs`, `src/state.rs`, `web/app.js`,
 Generate a token on first run, keep it in state, require it on POST/PUT/DELETE,
 reject a write whose `Origin` is present and not `http://127.0.0.1:8765`, and have
 the UI send the token on every call.
-Done check: route-level tests prove 403 without the token, 200 with it, 403 for a
-foreign origin, while GET stays open; the dashboard still loads and one write works
-over the real server.
+Done check: `cargo test --test api_auth` covers the rule (GET open, write without or
+with a wrong token refused, foreign origin refused, local origin accepted), and a
+live pass on the running server shows POST 403 without the token and 200 with it.
 
 ### T7 — the drawer finishes the job
 
@@ -106,19 +106,20 @@ Depends on: T3. Writes: `web/app.js`, `web/style.css`, `src/server.rs`,
 `tests/launch_options.rs`.
 Add the per-game toggles the roadmap still lists as open: `-onlinefix` launch
 option, and key coverage per depot as `18 of 20 keyed` with the missing ids listed.
-Done check: an integration test sets and reads the launch option through the HTTP
-layer against the fixture `localconfig.vdf`, and the dashboard shows the coverage
-line for a plan with one key missing.
+Done check: `cargo test --test launch_options` sets, reads and clears the flag on a
+fixture `localconfig.vdf`, checks the merge helper, and a browser pass shows the
+drawer's `N of M depots keyed` line and the `-onlinefix` row.
 
 ### T8 — the Steam panel acts, not just reports
 
 Depends on: T6, T7. Writes: `assets/steam-menu.js`, `src/steamui.rs`,
 `src/server.rs`.
-Each saved plan row gains its own actions: rebuild the plan, install keys again,
-toggle the launch option, open the dashboard. The panel keeps its alert block.
-Done check: over CDP the panel shows one row per plan, clicking a row action issues
-the request that the server log records, and a plan removed in the dashboard leaves
-the panel after the next refresh.
+Each saved plan row (up to eight) gains its own actions: install or sync the plan,
+rebuild that one plan, and toggle `-onlinefix`. The global actions and the alert block
+stay as they are.
+Done check: over CDP the panel shows the plan row with its three actions, clicking
+Install runs `plans::write_script` and reports `plan <id> installed`, and a plan
+removed in the dashboard disappears after the next refresh.
 
 ### T9 — a support bundle that never carries keys
 
@@ -134,8 +135,9 @@ the expected sections are present and parse as JSON.
 Depends on: T1. Writes: `src/server.rs`, `tests/static_paths.rs`.
 Reject `..`, absolute paths and symlinks that leave the web root, and serve `.lua`
 with a text type.
-Done check: the test asks for `../Cargo.toml`, an absolute path and a planted
-symlink; each answers 404 and the real file is never returned.
+Done check: `cargo test --test static_paths` asks `static_file` for `../secret.txt`,
+absolute paths and a planted symlink; each returns `None`, which the server answers as
+404, while `/` serves the index.
 
 ### T11 — documentation that matches the binary
 
@@ -144,15 +146,16 @@ Depends on: T6, T9. Writes: `README.md`, `ROADMAP.md`, `scripts/docs-check.sh`,
 Rewrite the roadmap's state table for 0.3, drop every command the binary no longer
 has, bump to 0.3.0, and add a script that checks each `exxa …` command in the docs
 against `exxa --help`.
-Done check: `scripts/docs-check.sh` exits 0, `cargo test` and CI stay green, and
-`exxa version` prints 0.3.0.
+Done check: `scripts/docs-check.sh` (a wrapper over `scripts/docs-check.py`) exits 0,
+`cargo test` and CI stay green, and `exxa version` prints 0.3.0.
 
 ### T12 — closing gate
 
 Depends on: T1–T11. Writes: nothing.
 A reviewer other than the agent that built the work runs `cargo test --release`,
 `cargo clippy --release`, `node --check web/app.js`, `exxa selftest`,
-`scripts/docs-check.sh`, and a smoke pass on the real Steam: menu present, panel
+`scripts/docs-check.sh`, `exxa diagnostics` scanned for 64-hex runs, and a smoke pass
+on the real Steam: menu present, panel
 opens, one plan installed, dashboard shows it.
 Done check: every command green and the smoke pass observed in a screenshot or CDP
 output. A review that is not clean adds a fix task with its own id and done check,
@@ -167,8 +170,8 @@ Inputs the requirements imply that no planned test covers, likeliest first:
    message, not a hang (T8).
 2. Two ExxaTools windows on different ports sharing one state file — concurrent
    save must not lose a plan (T6).
-3. A plan whose catalog snapshot predates a depot removal — refresh must keep the
-   depot rather than delete the user's pinned manifest (T5).
+3. A plan whose catalog snapshot predates a depot removal — refresh rebuilds from the
+   snapshot, so a depot missing there is dropped (T5).
 4. Names with right-to-left or emoji characters in the panel row (T8).
 5. A machine with no `luac` installed — verify must downgrade to a warning (T3).
 

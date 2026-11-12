@@ -138,7 +138,7 @@ window.__vdPanel = (opts) => {
       if (!plans.length) {
         box.innerHTML = '<div class="vd-empty">no plans yet</div>';
       } else {
-        box.replaceChildren(...plans.slice(0, 4).map((plan) => {
+        box.replaceChildren(...plans.slice(0, 8).map((plan) => {
           const missing = (plan.missing_keys || []).length;
           const flag = plan.installed
             ? (missing ? { text: "keys", kind: "warn" } : { text: "ready", kind: "ok" })
@@ -159,8 +159,14 @@ window.__vdPanel = (opts) => {
           rebuild.className = "vd-mini";
           rebuild.dataset.act = "rebuild:" + plan.appid;
           rebuild.textContent = "Rebuild";
-          rebuild.title = "Rebuild the plan from the current catalog";
-          row.append(name, chip, install, rebuild);
+          rebuild.title = "Rebuild this plan from the current catalog";
+          const flagOn = String(plan.launch_options || "").split(/\s+/).includes("-onlinefix");
+          const flagButton = document.createElement("button");
+          flagButton.className = "vd-mini";
+          flagButton.dataset.act = "launch:" + plan.appid;
+          flagButton.textContent = flagOn ? "-onlinefix on" : "-onlinefix";
+          flagButton.title = "Toggle the -onlinefix launch option";
+          row.append(name, chip, install, rebuild, flagButton);
           return row;
         }));
       }

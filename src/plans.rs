@@ -121,8 +121,25 @@ pub fn fetch_plan(appid: u64, name_hint: Option<&str>) -> Result<Value, String> 
 /// the enabled flags and sizes a person chose. This is the repair for a plan whose
 /// manifests point at a build that no longer exists.
 pub fn refresh_manifests() -> Result<Value, String> {
+    refresh_filtered(None)
+}
+
+/// Rebuilds one plan, for the per-row action in the Steam panel.
+pub fn refresh_plan(appid: u64) -> Result<Value, String> {
+    refresh_filtered(Some(appid))
+}
+
+fn refresh_filtered(only: Option<u64>) -> Result<Value, String> {
     let mut st = state::load()?;
-    let appids: Vec<u64> = st.apps.values().filter_map(|record| record.get("appid").and_then(Value::as_u64)).collect();
+    let appids: Vec<u64> = st
+        .apps
+        .values()
+        .filter_map(|record| record.get("appid").and_then(Value::as_u64))
+        .filter(|appid| only.map(|value| value == *appid).unwrap_or(true))
+        .collect();
+    if appids.is_empty() {
+        return Ok(json!({ "updated": 0, "scripts": 0, "snapshots": 0, "failures": [] }));
+    }
     let mut updated = 0;
     let mut rewritten = 0;
     let mut snapshots = 0;

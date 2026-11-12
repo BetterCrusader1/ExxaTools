@@ -1,5 +1,27 @@
 mod support;
 
+/// Any 64-character hex run, found without a regex crate.
+fn regex_like(text: &str) -> Vec<String> {
+    let mut hits = Vec::new();
+    let bytes = text.as_bytes();
+    let mut start = 0usize;
+    while start < bytes.len() {
+        if bytes[start].is_ascii_hexdigit() {
+            let mut end = start;
+            while end < bytes.len() && bytes[end].is_ascii_hexdigit() {
+                end += 1;
+            }
+            if end - start == 64 {
+                hits.push(text[start..end].to_string());
+            }
+            start = end;
+        } else {
+            start += 1;
+        }
+    }
+    hits
+}
+
 const KEY: &str = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
 
 #[test]
@@ -29,6 +51,8 @@ fn the_bundle_names_plans_and_never_carries_a_key() {
     let bundle = exxa::diagnostics::build();
     let text = serde_json::to_string(&bundle).expect("json");
     assert!(!text.contains(KEY), "the bundle leaked a depot key");
+    let hex_scan = regex_like(&text);
+    assert!(hex_scan.is_empty(), "the bundle carries hex run(s): {hex_scan:?}");
     assert!(text.contains("012345…cdef"), "the masked key is missing");
     assert_eq!(bundle["version"], env!("CARGO_PKG_VERSION"));
     assert_eq!(bundle["keys"], 1);
