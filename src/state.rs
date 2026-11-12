@@ -15,6 +15,8 @@ pub struct Settings {
     pub default_source: String,
     pub sources: BTreeMap<String, serde_json::Value>,
     pub hubcap_key: String,
+    pub ryuu_key: String,
+    pub plan_sources: BTreeMap<String, serde_json::Value>,
 }
 
 impl Default for Settings {
@@ -30,6 +32,8 @@ impl Default for Settings {
             default_source: "auto".into(),
             sources: BTreeMap::new(),
             hubcap_key: String::new(),
+            ryuu_key: String::new(),
+            plan_sources: BTreeMap::new(),
         }
     }
 }

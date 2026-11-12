@@ -65,6 +65,28 @@ pub fn get_with(url: &str, user_agent: Option<&str>, timeout: Option<Duration>) 
     Ok(body)
 }
 
+/// Same as `get_with`, with request headers. Used for token-authenticated plan
+/// sources that refuse anonymous requests.
+pub fn get_with_headers(url: &str, headers: &[(&str, &str)]) -> Result<Vec<u8>, HttpError> {
+    let config = ureq::Agent::config_builder()
+        .timeout_global(Some(TIMEOUT))
+        .user_agent(USER_AGENT)
+        .build();
+    let agent: ureq::Agent = config.into();
+    let mut request = agent.get(url);
+    for (name, value) in headers {
+        request = request.header(*name, *value);
+    }
+    let mut response = request.call().map_err(HttpError::from)?;
+    let mut body = Vec::new();
+    response
+        .body_mut()
+        .as_reader()
+        .read_to_end(&mut body)
+        .map_err(HttpError::from)?;
+    Ok(body)
+}
+
 pub fn get_text_with(url: &str, user_agent: Option<&str>, timeout: Option<Duration>) -> Result<String, HttpError> {
     let body = get_with(url, user_agent, timeout)?;
     Ok(String::from_utf8_lossy(&body).into_owned())

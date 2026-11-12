@@ -199,7 +199,8 @@ fn record_from_body(body: &Value) -> Result<Value, (u16, String)> {
             return Err((400, format!("depot {depot_id}: gid must be decimal")));
         }
         let size = item.get("size").and_then(Value::as_u64);
-        depots.push(json!({ "depot_id": depot_id, "gid": gid, "size": size }));
+        let enabled = item.get("enabled").and_then(Value::as_bool).unwrap_or(true);
+        depots.push(json!({ "depot_id": depot_id, "gid": gid, "size": size, "enabled": enabled }));
     }
     let dlc: Vec<u64> = body
         .get("dlc")
@@ -427,6 +428,36 @@ fn post_route(path: &str, body: &Value, query: &[(String, String)]) -> Result<Va
             engine::install(tag).map_err(|error| (500, error))
         }
         "/api/engine/uninstall" => engine::uninstall().map_err(|error| (500, error)),
+        "/api/depot" => {
+            let appid = body_u64(body, "appid")?;
+            let depot_id = body_u64(body, "depot_id")?;
+            let mut st = state::load().map_err(|error| (500, error))?;
+            let record = st.apps.get_mut(&appid.to_string()).ok_or((404, "no saved plan".to_string()))?;
+            let list = record.get_mut("depots").and_then(Value::as_array_mut).ok_or((409, "plan has no depots".to_string()))?;
+            let mut found = false;
+            for depot in list.iter_mut() {
+                if depot.get("depot_id").and_then(Value::as_u64) != Some(depot_id) { continue }
+                if let Some(enabled) = body.get("enabled").and_then(Value::as_bool) {
+                    depot["enabled"] = json!(enabled);
+                }
+                if let Some(gid) = body.get("gid").and_then(Value::as_str) {
+                    depot["gid"] = json!(gid.trim());
+                }
+                found = true;
+            }
+            if !found {
+                return Err((404, format!("depot {depot_id} is not in this plan")));
+            }
+            record["updated"] = json!(crate::vfsys::stamp());
+            state::save(&st).map_err(|error| (500, error))?;
+            let installed = crate::plans::write_script(appid).unwrap_or(false);
+            Ok(json!({ "appid": appid, "depot_id": depot_id, "installed": installed }))
+        }
+        "/api/plan/fetch" => {
+            let appid = body_u64(body, "appid")?;
+            let name = body.get("name").and_then(Value::as_str);
+            crate::plans::fetch_plan(appid, name).map_err(|error| (502, error))
+        }
         "/api/plan" => {
             let record = record_from_body(body)?;
             let appid = record.get("appid").and_then(Value::as_u64).unwrap_or(0);

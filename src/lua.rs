@@ -32,7 +32,11 @@ pub fn render_plan(
     dlc: &[u64],
     source: &str,
 ) -> String {
-    let depot_ids: Vec<String> = depots
+    let active: Vec<&Value> = depots
+        .iter()
+        .filter(|depot| depot.get("enabled").and_then(Value::as_bool).unwrap_or(true))
+        .collect();
+    let depot_ids: Vec<String> = active
         .iter()
         .filter_map(|depot| depot.get("depot_id").and_then(value_to_id))
         .collect();
@@ -48,8 +52,9 @@ pub fn render_plan(
         format!("addappid({appid})"),
     ];
 
-    let keyed: Vec<&Value> = depots
+    let keyed: Vec<&Value> = active
         .iter()
+        .copied()
         .filter(|depot| {
             depot
                 .get("depot_id")
@@ -70,8 +75,9 @@ pub fn render_plan(
         }
     }
 
-    let pinned: Vec<&Value> = depots
+    let pinned: Vec<&Value> = active
         .iter()
+        .copied()
         .filter(|depot| depot.get("gid").and_then(value_to_gid).is_some())
         .collect();
     if !pinned.is_empty() {
@@ -192,5 +198,22 @@ mod tests {
         assert!(text.contains("kind = \"json\""));
         assert!(text.contains("field = \"content\""));
         assert!(!text.contains("__SOURCES__"));
+    }
+
+    #[test]
+    fn disabled_depot_disappears() {
+        let depots = vec![json!({ "depot_id": 621, "gid": "9044256803759256265", "size": 1200, "enabled": false })];
+        let text = render_plan(620, "Portal 2", "public", &depots, &keys(), &[], "auto");
+        assert!(!text.contains("addappid(621"));
+        assert!(!text.contains("setmanifestid(621"));
+        assert!(text.contains("addappid(620)"));
+    }
+
+    #[test]
+    fn enabled_depot_stays() {
+        let depots = vec![json!({ "depot_id": 621, "gid": "9044256803759256265", "enabled": true })];
+        let text = render_plan(620, "Portal 2", "public", &depots, &keys(), &[], "auto");
+        assert!(text.contains("addappid(621, 1, \""));
+        assert!(text.contains("setmanifestid(621"));
     }
 }

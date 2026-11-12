@@ -280,6 +280,25 @@ async function runImport() {
   }
 }
 
+async function getPlan(appid, name, button) {
+  if (button) { button.disabled = true; button.textContent = "Fetching…"; }
+  try {
+    const result = await post("/api/plan/fetch", { appid, name });
+    const summary = result.summary || {};
+    const keys = summary.keys || 0;
+    const created = summary.created_plan ? "plan created" : "keys updated";
+    toast(`${created} by ${result.provider}: ${keys} key${keys === 1 ? "" : "s"}`, {
+      action: { label: "Restart Steam", run: restartSteam },
+    });
+    await loadLibrary();
+    closeDrawer();
+  } catch (error) {
+    fail(error);
+  } finally {
+    if (button) { button.disabled = false; button.textContent = "Get plan"; }
+  }
+}
+
 /* ---------- fixes ---------- */
 
 async function restartSteam() {
@@ -420,6 +439,12 @@ function resultRow(item) {
     document.getElementById("results").hidden = true;
     document.getElementById("q").value = "";
   });
+  row.style.cursor = "pointer";
+  row.addEventListener("click", (event) => {
+    if (event.target.closest(".result-add")) return;
+    document.getElementById("results").hidden = true;
+    openGame(item.appid);
+  });
   row.append(img, text, add);
   return row;
 }
@@ -467,6 +492,13 @@ async function openGame(appid) {
   body.append(facts);
 
   const actions = el("div", "drawer-actions");
+  const needsKeys = !app || !app.plan || (item.missing_keys || []).length > 0;
+  if (needsKeys) {
+    const fetchPlan = el("button", "btn primary", "Get plan");
+    fetchPlan.title = "Fetch keys and manifests from the configured sources";
+    fetchPlan.addEventListener("click", () => getPlan(appid, name, fetchPlan));
+    actions.append(fetchPlan);
+  }
   if (item.installed) {
     const installed = el("button", "btn ghost", "In Steam");
     installed.disabled = true;
@@ -560,18 +592,46 @@ async function openGame(appid) {
   if (app) {
     const details = document.createElement("details");
     details.className = "advanced";
-    details.append(el("summary", "", "Depots and DLC"));
-    const table = el("table", "depot-table");
-    for (const depot of app.depots || []) {
-      const tr = document.createElement("tr");
-      tr.append(el("td", "", String(depot.depot_id)));
-      tr.append(el("td", "", depot.gid ? `manifest ${depot.gid}` : "no manifest"));
-      tr.append(el("td", "", depot.has_key ? "key" : "no key"));
-      table.append(tr);
+    details.append(el("summary", "", "Depots"));
+    const planDepots = (app.plan && app.plan.depots) || [];
+    const catalogByid = new Map((app.depots || []).map((depot) => [depot.depot_id, depot]));
+    if (!planDepots.length) {
+      details.append(el("p", "hint", "No plan yet: a depot editor appears once the game is added."));
     }
-    details.append(table);
-    if ((app.dlc_names || []).length) {
-      details.append(el("p", "hint", `${app.dlc_names.length} DLC: ` + app.dlc_names.slice(0, 8).map((entry) => entry.name).join(", ")));
+    for (const depot of planDepots) {
+      const depotId = Number(depot.depot_id);
+      const catalog = catalogByid.get(depotId) || {};
+      const row = el("div", "depot-row");
+
+      const box = document.createElement("input");
+      box.type = "checkbox";
+      box.checked = depot.enabled !== false;
+      box.title = "Include this depot in the script";
+      box.addEventListener("change", async () => {
+        try {
+          await post("/api/depot", { appid, depot_id: depotId, enabled: box.checked });
+          toast(`Depot ${depotId} ${box.checked ? "enabled" : "disabled"}`);
+        } catch (error) { fail(error); box.checked = !box.checked; }
+      });
+
+      const label = el("span", "depot-id", String(depotId));
+      label.title = catalog.oslist && catalog.oslist.length ? `only for ${catalog.oslist.join(", ")}` : "";
+
+      const gid = document.createElement("input");
+      gid.className = "depot-gid";
+      gid.value = depot.gid || "";
+      gid.placeholder = "manifest id";
+      gid.spellcheck = false;
+      gid.addEventListener("change", async () => {
+        try {
+          await post("/api/depot", { appid, depot_id: depotId, gid: gid.value.trim() });
+          toast(`Depot ${depotId} pinned`);
+        } catch (error) { fail(error); }
+      });
+
+      const key = el("span", `depot-key ${catalog.has_key ? "ok" : ""}`.trim(), catalog.has_key ? "key" : "no key");
+      row.append(box, label, gid, key);
+      details.append(row);
     }
     body.append(details);
   }
@@ -684,6 +744,24 @@ async function openSettings() {
   hubcap.append(keyRow);
   body.append(hubcap);
 
+  const ryuu = el("label", "field");
+  ryuu.append(el("span", "", "Ryuu auth key (plan source)"));
+  const ryuuInput = document.createElement("input");
+  ryuuInput.type = "password";
+  ryuuInput.placeholder = settings.ryuu_key ? "saved" : "from generator.ryuu.lol";
+  const saveRyuu = el("button", "btn tiny", "Save");
+  saveRyuu.addEventListener("click", async () => {
+    try {
+      await post("/api/settings", { ryuu_key: ryuuInput.value.trim() });
+      toast("Ryuu key saved");
+      ryuuInput.value = "";
+    } catch (error) { fail(error); }
+  });
+  const ryuuRow = el("div", "field-row");
+  ryuuRow.append(ryuuInput, saveRyuu);
+  ryuu.append(ryuuRow);
+  body.append(ryuu);
+
   body.append(el("div", "divider"));
   body.append(el("h3", "", "Health"));
 
@@ -768,6 +846,7 @@ async function boot() {
     document.getElementById("footVersion").textContent = `ExxaTools ${status.version || ""}`.trim();
   } catch { /* footer keeps its default */ }
 
+  document.body.dataset.ready = "1";
   setInterval(() => { loadLibrary().catch(() => {}); }, 30000);
 }
 

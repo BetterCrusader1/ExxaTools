@@ -11,6 +11,7 @@ mod http;
 mod lua;
 mod paths;
 mod pins;
+mod plans;
 mod providers;
 mod server;
 mod sources;
@@ -138,6 +139,14 @@ fn main() {
             print_json(&steam::catalog(appid).unwrap_or_else(|error| fail(error)));
         }
         "plan" => {
+            if rest.first().map(String::as_str) == Some("fetch") {
+                let Some(appid) = rest.get(1).and_then(|value| value.parse::<u64>().ok()) else {
+                    fail("plan fetch needs a numeric app id");
+                };
+                let name = arg_value(rest, "--name");
+                print_json(&plans::fetch_plan(appid, name.as_deref()).unwrap_or_else(|error| fail(error)));
+                return;
+            }
             let Some(appid) = rest.first().and_then(|value| value.parse::<u64>().ok()) else {
                 fail("plan needs a numeric app id");
             };
