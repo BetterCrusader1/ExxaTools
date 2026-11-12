@@ -28,6 +28,11 @@ pub fn run(url: &str) -> Result<(), String> {
     });
 
     let view = webkit2gtk::WebView::new();
+    // A native select opens a GTK menu, and GTK ignores the page palette. Asking
+    // for a dark theme keeps that popup from turning white on a dark dashboard.
+    if let Some(settings) = gtk::Settings::default() {
+        settings.set_gtk_application_prefer_dark_theme(true);
+    }
     let settings = WebViewExt::settings(&view);
     if let Some(settings) = settings {
         settings.set_hardware_acceleration_policy(webkit2gtk::HardwareAccelerationPolicy::Never);
