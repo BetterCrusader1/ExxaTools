@@ -293,10 +293,8 @@ fn manual_uninstall() -> Vec<String> {
     for arch in ARCHES {
         for name in LIBS {
             let path = paths::vf_data().join(arch).join(name);
-            if path.exists() {
-                if std::fs::remove_file(&path).is_ok() {
-                    done.push(format!("removed {}", path.display()));
-                }
+            if path.exists() && std::fs::remove_file(&path).is_ok() {
+                done.push(format!("removed {}", path.display()));
             }
         }
     }

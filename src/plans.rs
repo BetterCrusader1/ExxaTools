@@ -78,7 +78,7 @@ impl PlanSource {
 /// Fetches a plan, stores its keys and writes the script. Returns the provider
 /// that answered plus what it contributed.
 pub fn fetch_plan(appid: u64, name_hint: Option<&str>) -> Result<Value, String> {
-    let settings = state::load().map_err(|error| error)?;
+    let settings = state::load()?;
     let list = sources(&settings.settings);
     if list.is_empty() {
         return Err("no plan source configured: add a Hubcap or Ryuu key in Settings".into());
@@ -97,9 +97,9 @@ pub fn fetch_plan(appid: u64, name_hint: Option<&str>) -> Result<Value, String> 
                         .ok()
                         .and_then(|catalog| catalog.get("name").and_then(Value::as_str).map(str::to_string))
                 });
-                let mut fresh = state::load().map_err(|error| error)?;
+                let mut fresh = state::load()?;
                 let summary = crate::hubcap::apply_to_state(&mut fresh, &parsed, &crate::vfsys::stamp(), resolved.as_deref(), false, true);
-                state::save(&fresh).map_err(|error| error)?;
+                state::save(&fresh)?;
                 let installed = write_script(appid).unwrap_or(false);
                 return Ok(json!({
                     "provider": source.name,
@@ -121,7 +121,7 @@ pub fn fetch_plan(appid: u64, name_hint: Option<&str>) -> Result<Value, String> 
 /// the enabled flags and sizes a person chose. This is the repair for a plan whose
 /// manifests point at a build that no longer exists.
 pub fn refresh_manifests() -> Result<Value, String> {
-    let mut st = state::load().map_err(|error| error)?;
+    let mut st = state::load()?;
     let appids: Vec<u64> = st.apps.values().filter_map(|record| record.get("appid").and_then(Value::as_u64)).collect();
     let mut updated = 0;
     let mut rewritten = 0;
@@ -178,14 +178,14 @@ pub fn refresh_manifests() -> Result<Value, String> {
             rewritten += 1;
         }
     }
-    state::save(&st).map_err(|error| error)?;
+    state::save(&st)?;
     Ok(json!({ "updated": updated, "scripts": rewritten, "failures": failures }))
 }
 
 /// Rewrites the installed script from the saved plan, so keys that arrived after
 /// the plan was created are picked up too.
 pub fn write_script(appid: u64) -> Result<bool, String> {
-    let st = state::load().map_err(|error| error)?;
+    let st = state::load()?;
     let Some(record) = st.apps.get(&appid.to_string()) else { return Ok(false) };
     let name = record.get("name").and_then(Value::as_str).unwrap_or("");
     let branch = record.get("branch").and_then(Value::as_str).unwrap_or("public");

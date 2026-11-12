@@ -324,7 +324,7 @@ fn main() {
                     let built = build.map(|status| status.success()).unwrap_or(false);
                     print_json(&json!({ "updated": true, "git": before, "rebuilt": built }));
                 }
-                Ok(output) => fail(String::from_utf8_lossy(&output.stderr).trim().to_string()),
+                Ok(output) => fail(String::from_utf8_lossy(&output.stderr).trim()),
                 Err(error) => fail(error.to_string()),
             }
         }

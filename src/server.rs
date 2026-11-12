@@ -152,7 +152,7 @@ fn app_view(appid: u64, branch: &str) -> Result<Value, (u16, String)> {
                 "depot_id": depot_id,
                 "oslist": depot.get("oslist").cloned().unwrap_or_else(|| json!([])),
                 "osarch": depot.get("osarch").cloned().unwrap_or_else(|| json!("")),
-                "shared_install": depot.get("shared_install").cloned().unwrap_or_else(|| json!(false)),
+                "shared_install": depot.get("shared_install").cloned().unwrap_or(json!(false)),
                 "dlc_appid": depot.get("dlc_appid").cloned().unwrap_or(Value::Null),
                 "gid": manifest.as_ref().and_then(|value| value.get("gid")).cloned().unwrap_or_else(|| json!("")),
                 "size": manifest.as_ref().and_then(|value| value.get("size")).cloned().unwrap_or(Value::Null),
@@ -560,14 +560,14 @@ fn post_route(path: &str, body: &Value, query: &[(String, String)]) -> Result<Va
                         let id = record.get("appid").and_then(Value::as_u64).unwrap_or(0);
                         if appid != 0 && id != appid { continue; }
                         let text = render_record(record, &st);
-                        if vfsys::script_path(id).exists() {
-                            if vfsys::write_script(id, &text, true).is_ok() { written += 1; }
+                        if vfsys::script_path(id).exists() && vfsys::write_script(id, &text, true).is_ok() {
+                            written += 1;
                         }
                     }
                     let order: Vec<Value> = st.settings.manifest_providers.iter().map(|name| json!(name)).collect();
-                    let provider = lua::render_provider(&order).and_then(|text| vfsys::write_provider(&text).map(|_| ()))
+                    lua::render_provider(&order)
+                        .and_then(|text| vfsys::write_provider(&text).map(|_| ()))
                         .map_err(|error| (500, error))?;
-                    let _ = provider;
                     Ok(json!({ "ok": true, "message": format!("{written} script(s) refreshed with the keys on disk") }))
                 }
                 "provider" => {
