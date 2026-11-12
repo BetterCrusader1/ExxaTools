@@ -256,7 +256,10 @@ pub fn pick_manifest(depot: &Value, branch: &str) -> Option<Value> {
     manifests.get(branch).or_else(|| manifests.get("public")).cloned()
 }
 
-static DISCOVER_CACHE: Mutex<Option<(Instant, Vec<Value>)>> = Mutex::new(None);
+/// Discovery results, keyed by the store country they were fetched for.
+type DiscoverCache = Mutex<Option<(String, Instant, Vec<Value>)>>;
+
+static DISCOVER_CACHE: DiscoverCache = Mutex::new(None);
 
 fn rng(seed: &mut u64) -> u64 {
     *seed ^= *seed << 13;
@@ -318,11 +321,11 @@ fn discover_pool(cc: &str) -> Vec<Value> {
 pub fn discover(cc: &str, limit: usize) -> Vec<Value> {
     let cached = DISCOVER_CACHE.lock().ok().and_then(|guard| guard.clone());
     let mut items = match cached {
-        Some((at, items)) if at.elapsed() < Duration::from_secs(900) && !items.is_empty() => items,
+        Some((key, at, items)) if key == cc && at.elapsed() < Duration::from_secs(900) && !items.is_empty() => items,
         _ => {
             let items = discover_pool(cc);
             if let Ok(mut guard) = DISCOVER_CACHE.lock() {
-                *guard = Some((Instant::now(), items.clone()));
+                *guard = Some((cc.to_string(), Instant::now(), items.clone()));
             }
             items
         }
@@ -331,14 +334,17 @@ pub fn discover(cc: &str, limit: usize) -> Vec<Value> {
     items.truncate(limit.max(1));
     items
 }
-static DLC_CACHE: Mutex<Option<(Instant, Vec<Value>)>> = Mutex::new(None);
+/// DLC titles, keyed by app and store country: two games must never share a row.
+type DlcCache = Mutex<Option<(u64, String, Instant, Vec<Value>)>>;
+
+static DLC_CACHE: DlcCache = Mutex::new(None);
 
 /// Names for an app's DLC list. The store only returns ids on the app itself,
 /// so each id costs one small request; the result is cached for fifteen minutes.
 pub fn dlc_names(appid: u64, cc: &str) -> Vec<Value> {
     if let Ok(guard) = DLC_CACHE.lock() {
-        if let Some((at, items)) = guard.as_ref() {
-            if at.elapsed() < Duration::from_secs(900) && !items.is_empty() {
+        if let Some((cached_app, cached_cc, at, items)) = guard.as_ref() {
+            if *cached_app == appid && cached_cc == cc && at.elapsed() < Duration::from_secs(900) && !items.is_empty() {
                 return items.clone();
             }
         }
@@ -357,7 +363,7 @@ pub fn dlc_names(appid: u64, cc: &str) -> Vec<Value> {
         out.push(json!({ "appid": id, "name": name }));
     }
     if let Ok(mut guard) = DLC_CACHE.lock() {
-        *guard = Some((Instant::now(), out.clone()));
+        *guard = Some((appid, cc.to_string(), Instant::now(), out.clone()));
     }
     out
 }

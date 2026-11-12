@@ -140,9 +140,24 @@ pub fn backup_dir() -> PathBuf {
 
 /// Serialises writers so two requests cannot interleave read-modify-write.
 static WRITE_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+static TEMP_SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
 pub fn save(state: &State) -> Result<(), String> {
     let _guard = WRITE_LOCK.lock().map_err(|_| "state lock is poisoned".to_string())?;
+    save_locked(state)
+}
+
+/// One transaction: the write lock covers the read, the change and the write, so
+/// two requests cannot interleave read-modify-write.
+pub fn update<T>(f: impl FnOnce(&mut State) -> Result<T, String>) -> Result<T, String> {
+    let _guard = WRITE_LOCK.lock().map_err(|_| "state lock is poisoned".to_string())?;
+    let mut state = load()?;
+    let out = f(&mut state)?;
+    save_locked(&state)?;
+    Ok(out)
+}
+
+fn save_locked(state: &State) -> Result<(), String> {
     let path = state_path();
     let _ = snapshot(&path);
     let parent = path.parent().ok_or_else(|| "state path has no parent".to_string())?;
@@ -154,7 +169,8 @@ pub fn save(state: &State) -> Result<(), String> {
         .duration_since(std::time::UNIX_EPOCH)
         .map(|delta| delta.as_nanos())
         .unwrap_or(0);
-    let temp = parent.join(format!(".state-{}-{nanos}.tmp", std::process::id()));
+    let seq = TEMP_SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let temp = parent.join(format!(".state-{}-{nanos}-{seq}.tmp", std::process::id()));
     std::fs::write(&temp, format!("{text}\n")).map_err(|error| format!("cannot write {}: {error}", temp.display()))?;
     lock_down(&temp, 0o600)?;
     if let Err(error) = std::fs::rename(&temp, &path) {
@@ -187,6 +203,16 @@ pub fn app_summary(state: &State, record: &serde_json::Value) -> serde_json::Val
         .filter_map(|depot| depot.get("depot_id").and_then(serde_json::Value::as_u64))
         .filter(|id| !state.depot_keys.contains_key(&id.to_string()))
         .collect();
+    let script = crate::vfsys::script_path(appid);
+    let status = if crate::vfsys::disabled_path(appid).exists() && !script.exists() {
+        "disabled"
+    } else if !script.exists() {
+        "planned"
+    } else if missing.is_empty() {
+        "ready"
+    } else {
+        "keys_missing"
+    };
     serde_json::json!({
         "appid": appid,
         "name": record.get("name").cloned().unwrap_or(serde_json::Value::Null),
@@ -196,6 +222,7 @@ pub fn app_summary(state: &State, record: &serde_json::Value) -> serde_json::Val
         "missing_keys": missing,
         "dlc": record.get("dlc").cloned().unwrap_or_else(|| serde_json::json!([])),
         "updated": record.get("updated").cloned().unwrap_or(serde_json::Value::Null),
+        "state": status,
     })
 }
 

@@ -116,7 +116,14 @@ function renderHeader() {
 /* ---------- library ---------- */
 
 function gameBadge(item) {
-  return item.installed ? { text: "in Steam", kind: "ok" } : { text: "not installed", kind: "" };
+  switch (item.state) {
+    case "ready": return { text: "ready", kind: "ok" };
+    case "keys_missing": return { text: "needs keys", kind: "warn" };
+    case "disabled": return { text: "disabled", kind: "" };
+    case "planned": return { text: "plan saved", kind: "" };
+    default:
+      return item.installed ? { text: "in Steam", kind: "ok" } : { text: "not installed", kind: "" };
+  }
 }
 
 function gameCard(item) {
@@ -565,6 +572,8 @@ async function openGame(appid) {
 
   let app = null;
   try { app = await api(`/api/app?appid=${appid}`); } catch (error) { fail(error); }
+  // A slow answer for a game the person already closed must not paint this drawer.
+  if (drawerFor !== appid) return;
 
   const item = state.items.find((entry) => entry.appid === appid) || { appid, depot_count: 0 };
   const name = (app && app.name) || item.name || String(appid);

@@ -138,7 +138,9 @@ pub fn detect() -> Value {
     }
     let loaded = audit.get("loaded").and_then(Value::as_bool).unwrap_or(false);
     json!({
-        "installed": has("x86_64") && has("i686"),
+        // A directory with one stray file is not an installation: every library
+        // for both architectures has to be present.
+        "installed": missing.is_empty(),
         "partial": has("x86_64") != has("i686"),
         "missing": missing,
         "version": info.get("tag").cloned().unwrap_or(Value::Null),

@@ -319,15 +319,18 @@ fn get_route(path: &str, query: &[(String, String)]) -> Result<Value, (u16, Stri
                     let depot_id = depot.get("depot_id").and_then(Value::as_u64).unwrap_or(0);
                     let oslist: Vec<String> = depot.get("oslist").and_then(Value::as_array).map(|list| list.iter().filter_map(Value::as_str).map(str::to_string).collect()).unwrap_or_default();
                     let shared = depot.get("shared_install").and_then(Value::as_bool).unwrap_or(false);
+                    let osarch = depot.get("osarch").and_then(Value::as_str).unwrap_or("");
                     let manifest = steam::pick_manifest(depot, &branch);
                     let (selected, reason) = if manifest.is_none() {
                         (false, format!("no manifest in {branch}"))
                     } else if !oslist.is_empty() && !oslist.iter().any(|value| value == &os) {
                         (false, format!("only for {}", oslist.join(", ")))
+                    } else if osarch == "32" {
+                        (false, "32-bit only".to_string())
                     } else if shared {
                         (true, "shared depot".to_string())
                     } else {
-                        (true, if oslist.is_empty() { format!("platform-neutral, {branch}") } else { format!("{os} build, {branch}") })
+                        (true, if oslist.is_empty() { format!("platform-neutral, {branch}") } else if osarch == "64" { format!("{os} 64-bit build, {branch}") } else { format!("{os} build, {branch}") })
                     };
                     out.push(json!({ "depot_id": depot_id, "selected": selected, "reason": reason }));
                 }
@@ -456,9 +459,11 @@ fn post_route(path: &str, body: &Value, query: &[(String, String)]) -> Result<Va
         "/api/plan" => {
             let record = record_from_body(body)?;
             let appid = record.get("appid").and_then(Value::as_u64).unwrap_or(0);
-            let mut st = state::load().map_err(|error| (500, error))?;
-            st.apps.insert(appid.to_string(), record.clone());
-            state::save(&st).map_err(|error| (500, error))?;
+            state::update(|st| {
+                st.apps.insert(appid.to_string(), record.clone());
+                Ok(())
+            })
+            .map_err(|error| (500, error))?;
             Ok(record)
         }
         "/api/install" => {
@@ -495,9 +500,11 @@ fn post_route(path: &str, body: &Value, query: &[(String, String)]) -> Result<Va
             let depot_id = body_u64(body, "depot_id")?;
             let raw = body.get("key").and_then(Value::as_str).unwrap_or("");
             let key = state::valid_key(raw).ok_or((400, "a depot key is 64 hex characters".to_string()))?;
-            let mut st = state::load().map_err(|error| (500, error))?;
-            state::set_key(&mut st, depot_id, Some(&key));
-            state::save(&st).map_err(|error| (500, error))?;
+            state::update(|st| {
+                state::set_key(st, depot_id, Some(&key));
+                Ok(())
+            })
+            .map_err(|error| (500, error))?;
             Ok(json!({ "depot_id": depot_id, "has_key": true }))
         }
         "/api/script/check" => {
@@ -815,18 +822,23 @@ fn post_route(path: &str, body: &Value, query: &[(String, String)]) -> Result<Va
 }
 
 fn delete_route(path: &str, query: &[(String, String)]) -> Result<Value, (u16, String)> {
-    let mut st = state::load().map_err(|error| (500, error))?;
     match path {
         "/api/key" => {
             let depot_id = need_u64(query, "depot_id")?;
-            state::set_key(&mut st, depot_id, None);
-            state::save(&st).map_err(|error| (500, error))?;
-            Ok(json!({ "depot_id": depot_id, "key": null }))
+            state::update(|st| {
+                state::set_key(st, depot_id, None);
+                Ok(())
+            })
+            .map_err(|error| (500, error))?;
+            Ok(json!({ "depot_id": depot_id, "has_key": false }))
         }
         "/api/plan" => {
             let appid = need_u64(query, "appid")?;
-            st.apps.remove(&appid.to_string());
-            state::save(&st).map_err(|error| (500, error))?;
+            state::update(|st| {
+                st.apps.remove(&appid.to_string());
+                Ok(())
+            })
+            .map_err(|error| (500, error))?;
             vfsys::remove_script(appid);
             Ok(json!({ "removed": appid }))
         }
