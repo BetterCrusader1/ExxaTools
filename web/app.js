@@ -588,6 +588,30 @@ async function openGame(appid) {
     install.addEventListener("click", async () => { await installGame(appid, name, install, [...selectedDlc]); closeDrawer(); });
     actions.append(install);
   }
+  if (item.installed) {
+    const exportPlan = el("button", "btn ghost", "Export .lua");
+    exportPlan.title = "Save this plan as a .lua file";
+    exportPlan.addEventListener("click", async () => {
+      try {
+        const response = await fetch(`/api/script?appid=${appid}`);
+        const data = await response.json();
+        if (!response.ok || !data.script) throw new Error(data.error || "nothing to export");
+        const blob = new Blob([data.script], { type: "text/x-lua" });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = `exxatools-${appid}.lua`;
+        document.body.append(link);
+        link.click();
+        link.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 2000);
+        toast(`Saved exxatools-${appid}.lua`);
+      } catch (error) {
+        toast(String(error.message || error), { error: true });
+      }
+    });
+    actions.append(exportPlan);
+  }
   const restart = el("button", "btn", "Restart Steam");
   restart.addEventListener("click", restartSteam);
   actions.append(restart);
