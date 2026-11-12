@@ -194,6 +194,12 @@ fn page_targets() -> Vec<Value> {
     cdp::targets(DEBUG_PORT)
         .into_iter()
         .filter(|target| target.get("type").and_then(Value::as_str) == Some("page"))
+        .filter(|target| {
+            // Skip the dashboard's own frames: injecting there would nest a panel
+            // inside the dashboard and answer its own requests.
+            let url = target.get("url").and_then(Value::as_str).unwrap_or("");
+            !url.contains("127.0.0.1:")
+        })
         .collect()
 }
 
@@ -387,6 +393,14 @@ fn run_action(action: &str) -> String {
                 Err(error) => error,
             }
         }
+        "dashboard" => match open_dashboard() {
+            Ok(()) => "dashboard opened in Steam".into(),
+            Err(error) => error,
+        },
+        "settings" => match open_dashboard_at("/#settings") {
+            Ok(()) => "settings opened in Steam".into(),
+            Err(error) => error,
+        },
         "close" => {
             hide_panel();
             String::new()
@@ -405,6 +419,75 @@ pub fn start_pump() {
     }
 }
 
+/// Answers the store-page card: a probe reports whether the app is in the library,
+/// Add fetches a plan through the configured sources, Sync refreshes manifests.
+fn handle_page_request(ws: &str, request: &Value) {
+    let appid = request.get("appid").and_then(Value::as_u64).unwrap_or(0);
+    if appid == 0 {
+        return;
+    }
+    let want = request.get("want").and_then(Value::as_str).unwrap_or("");
+    let name = crate::steam::catalog(appid)
+        .ok()
+        .and_then(|catalog| catalog.get("name").and_then(Value::as_str).map(str::to_string))
+        .unwrap_or_else(|| format!("App {appid}"));
+    let planned = crate::state::load()
+        .map(|state| state.apps.contains_key(&appid.to_string()))
+        .unwrap_or(false);
+    let (status, can_add, can_sync, can_setup) = match want {
+        "dashboard" => {
+            let message = match open_dashboard() {
+                Ok(()) => "Dashboard opened in Steam".to_string(),
+                Err(error) => error,
+            };
+            (message, false, planned, false)
+        }
+        "settings" => {
+            let message = match open_dashboard_at("/#settings") {
+                Ok(()) => "Settings opened in Steam".to_string(),
+                Err(error) => error,
+            };
+            (message, false, planned, false)
+        }
+        "add" => match crate::plans::fetch_plan(appid, Some(&name)) {
+            Ok(_) => (
+                format!("{name} added — restart Steam to install it"),
+                false,
+                true,
+                false,
+            ),
+            Err(error) => {
+                let setup = error.contains("plan source");
+                (error, true, planned, setup)
+            }
+        },
+        "sync" => match crate::plans::refresh_plan(appid) {
+            Ok(_) => (format!("{name} manifests synced"), false, true, false),
+            Err(error) => (error, false, true, false),
+        },
+        _ => (
+            if planned {
+                "In your library. Sync to pick up the newest manifests.".to_string()
+            } else {
+                "Not in your library yet.".to_string()
+            },
+            !planned,
+            planned,
+            false,
+        ),
+    };
+    let payload = json!({
+        "appid": appid,
+        "name": name,
+        "status": status,
+        "can_add": can_add,
+        "can_sync": can_sync,
+        "can_setup": can_setup,
+    });
+    let expression = format!("window.__vdPageState = {payload};");
+    let _ = cdp::evaluate(ws, &expression, std::time::Duration::from_secs(2));
+}
+
 fn pump() {
     loop {
         std::thread::sleep(std::time::Duration::from_millis(400));
@@ -419,6 +502,19 @@ fn pump() {
         // The icon opens and closes the panel inside the page; the pump only
         // refreshes what is on screen and turns clicks into Rust calls.
         let _ = cdp::evaluate(ws, "window.__vdWantPanel = null", std::time::Duration::from_millis(600));
+        for target in page_targets() {
+            let page_ws = target.get("webSocketDebuggerUrl").and_then(Value::as_str).unwrap_or("");
+            if page_ws.is_empty() {
+                continue;
+            }
+            let request = cdp::evaluate(page_ws, "window.__vdPageRequest || null", std::time::Duration::from_millis(600))
+                .ok()
+                .unwrap_or(Value::Null);
+            if request.is_object() {
+                let _ = cdp::evaluate(page_ws, "window.__vdPageRequest = null", std::time::Duration::from_millis(600));
+                handle_page_request(page_ws, &request);
+            }
+        }
         let open = cdp::evaluate(ws, "Boolean(window.__vdPanelOpen)", std::time::Duration::from_millis(800))
             .ok()
             .and_then(|value| value.as_bool())
@@ -433,6 +529,9 @@ fn pump() {
         if !action.is_empty() {
             let _ = cdp::evaluate(ws, "window.__vdAction = ''", std::time::Duration::from_secs(2));
             let message = run_action(&action);
+        if action == "dashboard" || action == "settings" {
+            let _ = cdp::evaluate(ws, "window.__vdPanel && window.__vdPanel({open:false})", std::time::Duration::from_millis(800));
+        }
             let state = status_snapshot();
             let payload = json!({ "engine": state["engine"], "apps": state["apps"], "msg": message });
             let expression = format!("window.__vdUpdate({payload})");
@@ -561,26 +660,28 @@ pub fn status() -> Value {
 /// desktop window (the panel button, an older injected panel) go through here so
 /// the app never splits into a second application.
 pub fn open_dashboard() -> Result<(), String> {
+    open_dashboard_at("/")
+}
+
+pub fn open_dashboard_at(route: &str) -> Result<(), String> {
     if !steamctl::is_running() {
         return Err("Steam is not running".into());
     }
     if !debug_ready() {
         return Err(format!("Steam has no debugging port: restart Steam with {FLAG}"));
     }
-    let mut shown = 0;
-    for target in page_targets() {
-        let ws = target.get("webSocketDebuggerUrl").and_then(Value::as_str).unwrap_or("");
-        if ws.is_empty() {
-            continue;
-        }
-        let script = "window.__vdOpenDashboard ? (window.__vdOpenDashboard(), 'opened') : 'missing'";
-        if let Ok(value) = cdp::evaluate(ws, script, std::time::Duration::from_secs(4)) {
-            if value.as_str() == Some("opened") {
-                shown += 1;
-            }
-        }
+    // Only the shell window can host the dashboard: store and community pages
+    // refuse a loopback iframe with their CSP, which reads as "content blocked".
+    let target = main_target().ok_or_else(|| "the Steam menu is not injected yet".to_string())?;
+    let ws = target.get("webSocketDebuggerUrl").and_then(Value::as_str).unwrap_or("");
+    if ws.is_empty() {
+        return Err("the Steam menu is not injected yet".into());
     }
-    if shown == 0 {
+    let script = format!(
+        "window.__vdOpenDashboard ? (window.__vdOpenDashboard({route:?}), 'opened') : 'missing'"
+    );
+    let value = cdp::evaluate(ws, &script, std::time::Duration::from_secs(4))?;
+    if value.as_str() != Some("opened") {
         return Err("the Steam menu is not injected yet".into());
     }
     Ok(())

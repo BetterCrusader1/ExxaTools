@@ -9,7 +9,7 @@ window.__vdPanel = (opts) => {
   const PANEL = "__PANEL__";
   const glyph = (name) => (window.__vdGlyphs || {})[name] || "";
 
-  const openDashboard = () => {
+  const openDashboard = (route) => {
     let shell = document.getElementById(PANEL + "-dash");
     if (!shell) {
       shell = document.createElement("div");
@@ -17,15 +17,17 @@ window.__vdPanel = (opts) => {
       shell.innerHTML = '<div class="vd-dash-bar">ExxaTools<span>dashboard</span>'
         + '<button class="vd-dash-x" title="Close">×</button></div>'
         + '<iframe title="ExxaTools dashboard"></iframe>';
-      shell.querySelector("iframe").src = API + "/";
+      shell.querySelector("iframe").src = API + (typeof route === "string" && route ? route : "/");
       shell.querySelector(".vd-dash-x").addEventListener("click", () => shell.classList.remove("open"));
       document.body.appendChild(shell);
+    }
+    if (typeof route === "string" && route) {
+      const frame = shell.querySelector("iframe");
+      if (frame) frame.src = API + route;
     }
     shell.classList.add("open");
     return true;
   };
-  window.__vdOpenDashboard = openDashboard;
-
   const POS_KEY = "exxa.panel.pos";
   const readPos = () => {
     try {
@@ -378,8 +380,10 @@ window.__vdPanel = (opts) => {
         return;
       }
       if (button.dataset.act === "open") {
-        openDashboard();
-        msg("");
+        // A store page blocks loopback iframes, so ask Rust to open the dashboard
+        // overlay in the Steam shell window instead.
+        window.__vdAction = "dashboard";
+        msg("opening…");
         return;
       }
       window.__vdAction = button.dataset.act;
@@ -522,5 +526,137 @@ if (!window.__vdWatcher) {
   });
   window.__vdWatcher.observe(document.body, { childList: true, subtree: true });
 }
+
+
+// A small card on Steam store pages for the game being viewed. It asks Rust for
+// the app state over the same push channel the panel uses, so no CSP applies.
+window.__vdAppPage = () => {
+  const match = (window.location.pathname || "").match(/^\/app\/(\d+)/);
+  if (!match) return false;
+  if (!/(^|\.)store\.steampowered\.com$/.test(window.location.hostname || "")) return false;
+  const appid = Number(match[1]);
+  if (window.__vdAppDismissed === appid) return false;
+  if (window.__vdAppWidgetId !== appid) {
+    const old = document.getElementById("vd-app-card");
+    if (old) old.remove();
+    window.__vdPageState = null;
+  }
+  const stale = document.getElementById("vd-app-card");
+  if (stale && stale.dataset.build !== (window.__vdBuild || "")) stale.remove();
+  if (window.__vdAppWidgetId === appid && document.getElementById("vd-app-card")) return true;
+  window.__vdAppWidgetId = appid;
+
+  let style = document.getElementById("vd-app-style");
+  if (!style) {
+    style = document.createElement("style");
+    style.id = "vd-app-style";
+    style.textContent = `
+      #vd-app-card { position: fixed; right: 18px; bottom: 64px; z-index: 2147483000;
+        width: 268px; padding: 12px; border-radius: 12px; background: #0A0B0D;
+        border: 1px solid #2E333B; box-shadow: 0 16px 40px rgba(0,0,0,.55);
+        font-family: Montserrat, "Motiva Sans", Arial, sans-serif; color: #F4F5F7; }
+      #vd-app-card .t { display: flex; align-items: center; gap: 8px; font-size: 11.5px;
+        font-weight: 700; letter-spacing: .02em; color: #C9CFD6; }
+      #vd-app-card .t span { flex: 1; }
+      #vd-app-card .n { margin-top: 6px; font-size: 13.5px; font-weight: 600;
+        overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      #vd-app-card .s { margin-top: 3px; font-size: 11.5px; color: #A9AFB7; line-height: 1.35; }
+      #vd-app-card .a { display: flex; gap: 6px; margin-top: 10px; flex-wrap: wrap; }
+      #vd-app-card button { height: 28px; padding: 0 10px; border-radius: 7px; white-space: nowrap;
+        border: 1px solid #2B3037; background: #16191E; color: #E2E7EC;
+        font: 600 11.5px Montserrat, Arial, sans-serif; cursor: pointer; }
+      #vd-app-card button.primary { background: #F2F3F5; border-color: #F2F3F5; color: #0A0B0D; }
+      #vd-app-card button:hover { border-color: #3A424C; }
+      #vd-app-card button[disabled] { opacity: .55; cursor: default; }
+    `;
+    document.head.appendChild(style);
+  }
+
+  let card = document.getElementById("vd-app-card");
+  if (card && card.dataset.build !== (window.__vdBuild || "")) {
+    card.remove();
+    card = null;
+  }
+  if (!card) {
+    card = document.createElement("div");
+    card.id = "vd-app-card";
+    card.dataset.build = window.__vdBuild || "";
+    card.innerHTML = '<div class="t"><span>ExxaTools</span></div>'
+      + '<div class="n" data-name>App ' + appid + '</div>'
+      + '<div class="s" data-status>Looking up this game…</div>'
+      + '<div class="a"><button class="primary" data-want="add" hidden>Add to library</button>'
+      + '<button data-want="sync" hidden>Sync manifests</button>'
+      + '<button data-want="settings" hidden>Setup source</button>'
+      + '<button data-want="dashboard">Dashboard</button>'
+      + '<button data-want="close" title="Hide">×</button></div>';
+    card.addEventListener("click", (event) => {
+      const button = event.target.closest("button[data-want]");
+      if (!button) return;
+      const want = button.dataset.want;
+      if (want === "close") {
+        window.__vdAppDismissed = appid;
+        card.remove();
+        window.__vdAppWidgetId = null;
+        return;
+      }
+      window.__vdPageState = null;
+      window.__vdPageRequest = { appid: appid, want: want };
+      card.querySelectorAll("button").forEach((node) => { node.disabled = true; });
+    });
+    document.body.appendChild(card);
+  }
+
+  const render = (state) => {
+    if (!state || Number(state.appid) !== appid) return;
+    const name = card.querySelector("[data-name]");
+    const status = card.querySelector("[data-status]");
+    const add = card.querySelector('[data-want="add"]');
+    const sync = card.querySelector('[data-want="sync"]');
+    if (state.name) name.textContent = state.name;
+    status.textContent = state.status || "";
+    add.hidden = !state.can_add;
+    sync.hidden = !state.can_sync;
+    const setup = card.querySelector('[data-want="settings"]');
+    if (setup) setup.hidden = !state.can_setup;
+    card.querySelectorAll("button").forEach((node) => { node.disabled = false; });
+  };
+
+  window.__vdAppCardRender = render;
+  if (!window.__vdAppPoll) {
+    window.__vdAppPoll = setInterval(() => {
+      const state = window.__vdPageState;
+      if (state && window.__vdAppCardRender) window.__vdAppCardRender(state);
+    }, 400);
+  }
+  window.__vdPageState = null;
+  window.__vdPageRequest = { appid: appid, want: "probe" };
+  return true;
+};
+
+if (!window.__vdAppWatcher) {
+  window.__vdAppWatcher = setInterval(() => { try { window.__vdAppPage(); } catch (error) { } }, 1200);
+}
+
+
+// Top-level so a fresh injection repairs the route without rebuilding the panel.
+window.__vdOpenDashboard = (route) => {
+  const API = "__API__";
+  const id = "__PANEL__-dash";
+  let shell = document.getElementById(id);
+  if (!shell) {
+    shell = document.createElement("div");
+    shell.id = id;
+    shell.innerHTML = '<div class="vd-dash-bar">ExxaTools<span>dashboard</span>'
+      + '<button class="vd-dash-x" title="Close">×</button></div>'
+      + '<iframe title="ExxaTools dashboard"></iframe>';
+    shell.querySelector(".vd-dash-x").addEventListener("click", () => shell.classList.remove("open"));
+    document.body.appendChild(shell);
+  }
+  const frame = shell.querySelector("iframe");
+  const url = API + (typeof route === "string" && route ? route : "/");
+  if (frame && frame.src !== url) frame.src = url;
+  shell.classList.add("open");
+  return true;
+};
 
 window.__vdInject();

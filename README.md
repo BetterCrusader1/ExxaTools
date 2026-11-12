@@ -81,6 +81,13 @@ installs the provider. A watcher re-injects the menu after Steam re-renders, and
 Ctrl+Shift+E toggles it from anywhere in the client. The panel is injected into whichever Steam window is under the menu, so it stays
 inside the client and cannot float over other applications.
 
+Opening a game's store page adds a small ExxaTools card there. It reports
+whether the game is already in the library, offers **Add to library** (fetch a
+plan from the configured source), **Sync manifests** for a planned game, and
+**Dashboard**, which opens inside Steam. The card talks to Rust over the same
+injection channel as the panel, so page CSP never blocks it. Without a plan
+source it shows **Setup source** and opens Settings.
+
 ## Install as a package
 
 ```sh
