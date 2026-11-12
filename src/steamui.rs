@@ -173,11 +173,27 @@ fn status_snapshot() -> Value {
             view
         })
         .collect();
-    json!({ "engine": crate::engine::detect(), "apps": apps })
+    let incidents = crate::diagnose::from_files();
+    json!({
+        "engine": crate::engine::detect(),
+        "apps": apps,
+        "diagnose": incidents.get("incidents").cloned().unwrap_or_else(|| json!([])),
+    })
 }
 
 fn run_action(action: &str) -> String {
     match action {
+        "keys" => {
+            let st = crate::state::load().unwrap_or_default();
+            let mut refreshed = 0;
+            for record in st.apps.values() {
+                let appid = record.get("appid").and_then(Value::as_u64).unwrap_or(0);
+                if crate::vfsys::script_path(appid).exists() && crate::plans::write_script(appid).unwrap_or(false) {
+                    refreshed += 1;
+                }
+            }
+            format!("{refreshed} script(s) refreshed")
+        }
         "open" => match crate::desktop::launch_app().get("error").and_then(Value::as_str) {
             Some(error) => error.to_string(),
             None => "opening the dashboard".into(),

@@ -49,6 +49,10 @@ window.__vdPanel = (opts) => {
         padding: 2px 7px; border-radius: 999px; border: 1px solid #2E3A49; color: #8B96A5; }
       #${PANEL} .vd-flag.ok { color: #7FCFA2; border-color: #2F5B45; }
       #${PANEL} .vd-flag.warn { color: #D9A15A; border-color: #5B4A2F; }
+      #${PANEL} .vd-alert { display: flex; align-items: center; gap: 8px; padding: 8px 10px; margin: 2px 4px; border: 1px solid rgba(237,180,95,.32); border-radius: 9px; background: rgba(237,180,95,.08); font-size: 11.5px; color: #F0C887; }
+      #${PANEL} .vd-alert-text { flex: 1; line-height: 1.3; }
+      #${PANEL} .vd-mini { height: 24px; padding: 0 9px; border: 1px solid rgba(237,180,95,.4); border-radius: 7px; background: transparent; color: #F0C887; font: 600 11px Montserrat, Arial, sans-serif; cursor: pointer; }
+      #${PANEL} .vd-mini:hover { background: rgba(237,180,95,.16); }
       #${PANEL} .vd-empty { padding: 8px 11px 10px; font-size: 11.5px; color: #8B96A5; }
       #${PANEL} .vd-actions { display: flex; flex-direction: column; gap: 2px; padding: 2px 4px 4px; }
       #${PANEL} .vd-item { display: flex; align-items: center; width: 100%; min-height: 34px;
@@ -67,6 +71,11 @@ window.__vdPanel = (opts) => {
       <div class="vd-head">
         <div class="vd-title"><span class="name">ExxaTools</span><span class="vd-ver" id="vd-ver">—</span><button class="vd-x" data-act="close" title="Close">×</button></div>
         <div class="vd-state" id="vd-state"><span class="vd-dot"></span><span id="vd-state-text">checking engine</span></div>
+      </div>
+      <div class="vd-sep"></div>
+      <div class="vd-alert" id="vd-alert" hidden>
+        <span class="vd-alert-text" id="vd-alert-text"></span>
+        <button class="vd-mini" data-act="keys">Fix</button>
       </div>
       <div class="vd-sep"></div>
       <div class="vd-label">Plans</div>
@@ -138,6 +147,16 @@ window.__vdPanel = (opts) => {
           row.append(name, chip);
           return row;
         }));
+      }
+      const alerts = state.diagnose || [];
+      const alertBox = panel.querySelector("#vd-alert");
+      if (alertBox) {
+        if (alerts.length) {
+          alertBox.hidden = false;
+          panel.querySelector("#vd-alert-text").textContent = alerts[0].title;
+        } else {
+          alertBox.hidden = true;
+        }
       }
       if (state.msg !== undefined) msg(state.msg || "");
     };
