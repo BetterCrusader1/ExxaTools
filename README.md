@@ -62,7 +62,15 @@ cargo build --release
 ./exxa fix 730                # Stop Steam, patch appmanifest flags, start Steam
 ./exxa provider --write       # install the request-code provider script
 ./exxa shortcut                # re-inject the Steam menu (hidden desktop entry)
+./exxa plugins list            # installed plugins and their state
 ```
+
+## Plugins
+
+The panel is a host: plugins are folders with an `exxa-plugin.json` manifest and a
+JavaScript entry, listed in Settings and injected into their own isolated world inside
+the Steam window. See [docs/PLUGINS.md](docs/PLUGINS.md) and `examples/plugins/hello`;
+management is `exxa plugins list|enable|disable|remove`.
 
 ## In the Steam client
 

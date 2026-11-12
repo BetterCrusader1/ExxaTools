@@ -49,6 +49,12 @@ pub struct State {
     /// appid -> depot -> recent branch gids, newest first
     pub build_history: BTreeMap<String, BTreeMap<String, Vec<serde_json::Value>>>,
     pub settings: Settings,
+    /// Plugin id -> enabled. Missing ids default to enabled.
+    #[serde(default)]
+    pub plugins: BTreeMap<String, bool>,
+    /// Plugin id -> its small key/value store, written through the host bridge.
+    #[serde(default)]
+    pub plugin_config: BTreeMap<String, BTreeMap<String, serde_json::Value>>,
     /// Shared secret for the local API; empty until the server first runs.
     #[serde(default)]
     pub token: String,
@@ -63,6 +69,8 @@ impl Default for State {
             codes: BTreeMap::new(),
             build_history: BTreeMap::new(),
             settings: Settings::default(),
+            plugins: BTreeMap::new(),
+            plugin_config: BTreeMap::new(),
             token: String::new(),
         }
     }

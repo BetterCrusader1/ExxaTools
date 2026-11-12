@@ -67,3 +67,85 @@ pub fn evaluate(ws_url: &str, expression: &str, timeout: std::time::Duration) ->
         return Ok(result.pointer("/result/value").cloned().unwrap_or(Value::Null));
     }
 }
+
+/// Evaluate inside a named isolated world of the page. The world is created on the
+/// current document, so it shares the DOM with Steam's UI but not its JavaScript
+/// globals; a plugin cannot see or overwrite the page's own objects.
+pub fn evaluate_isolated(
+    ws_url: &str,
+    world_name: &str,
+    expression: &str,
+    timeout: std::time::Duration,
+) -> Result<Value, String> {
+    use tungstenite::stream::MaybeTlsStream;
+    use tungstenite::Message;
+
+    let (mut socket, _) = tungstenite::connect(ws_url).map_err(|error| format!("cannot connect to CDP: {error}"))?;
+    if let MaybeTlsStream::Plain(stream) = socket.get_mut() {
+        let _ = stream.set_read_timeout(Some(timeout));
+    }
+
+    let mut next_id = 0i64;
+    let mut send = |socket: &mut tungstenite::WebSocket<MaybeTlsStream<std::net::TcpStream>>,
+                    method: &str,
+                    params: Value|
+     -> Result<Value, String> {
+        next_id += 1;
+        let id = next_id;
+        let request = json!({ "id": id, "method": method, "params": params });
+        socket
+            .send(Message::Text(request.to_string().into()))
+            .map_err(|error| format!("cannot send to CDP: {error}"))?;
+        let deadline = std::time::Instant::now() + timeout;
+        loop {
+            if std::time::Instant::now() > deadline {
+                return Err(format!("CDP timed out waiting for {method}"));
+            }
+            let message = match socket.read() {
+                Ok(message) => message,
+                Err(error) => return Err(format!("CDP read failed: {error}")),
+            };
+            let text = match message {
+                Message::Text(text) => text.to_string(),
+                Message::Close(_) => return Err("CDP closed the connection".into()),
+                _ => continue,
+            };
+            let Ok(parsed) = serde_json::from_str::<Value>(&text) else { continue };
+            if parsed.get("id").and_then(Value::as_i64) != Some(id) {
+                continue;
+            }
+            if let Some(error) = parsed.get("error") {
+                return Err(error.to_string());
+            }
+            return Ok(parsed.get("result").cloned().unwrap_or_else(|| json!({})));
+        }
+    };
+
+    // Page.enable is best-effort: some windows answer it with an error and still
+    // accept the rest.
+    let _ = send(&mut socket, "Page.enable", json!({}));
+    let tree = send(&mut socket, "Page.getFrameTree", json!({}))?;
+    let frame = tree
+        .pointer("/frameTree/frame/id")
+        .and_then(Value::as_str)
+        .ok_or("no frame to attach to")?
+        .to_string();
+    let world = send(
+        &mut socket,
+        "Page.createIsolatedWorld",
+        json!({ "frameId": frame, "worldName": world_name, "grantUniversalAccess": false }),
+    )?;
+    let context = world
+        .get("executionContextId")
+        .and_then(Value::as_i64)
+        .ok_or("CDP did not return an isolated world")?;
+    let result = send(
+        &mut socket,
+        "Runtime.evaluate",
+        json!({ "expression": expression, "contextId": context, "returnByValue": true, "awaitPromise": true }),
+    )?;
+    if let Some(details) = result.get("exceptionDetails") {
+        return Err(details.to_string());
+    }
+    Ok(result.pointer("/result/value").cloned().unwrap_or(Value::Null))
+}

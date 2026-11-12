@@ -227,6 +227,7 @@ fn get_route(path: &str, query: &[(String, String)]) -> Result<Value, (u16, Stri
     match path {
         "/api/session" => Ok(json!({ "token": token(), "version": env!("CARGO_PKG_VERSION") })),
         "/api/diagnostics" => Ok(crate::diagnostics::build()),
+        "/api/plugins" => Ok(crate::plugins::list_json()),
         "/api/status" => Ok(json!({
             "version": env!("CARGO_PKG_VERSION"),
             "steam": {
@@ -421,6 +422,19 @@ fn get_route(path: &str, query: &[(String, String)]) -> Result<Value, (u16, Stri
 fn post_route(path: &str, body: &Value, query: &[(String, String)]) -> Result<Value, (u16, String)> {
     let _ = query;
     match path {
+        "/api/plugins/toggle" => {
+            let id = body.get("id").and_then(Value::as_str).unwrap_or("").to_string();
+            let enabled = body.get("enabled").and_then(Value::as_bool).unwrap_or(false);
+            crate::plugins::set_enabled(&id, enabled).map_err(|error| (400, error))
+        }
+        "/api/plugins/remove" => {
+            let id = body.get("id").and_then(Value::as_str).unwrap_or("").to_string();
+            crate::plugins::remove(&id).map_err(|error| (400, error))
+        }
+        "/api/plugins/inject" => {
+            let _ = crate::steamui::inject();
+            Ok(crate::plugins::list_json())
+        }
         "/api/engine/install" => {
             let tag = body.get("tag").and_then(Value::as_str).filter(|value| !value.trim().is_empty());
             engine::install(tag).map_err(|error| (500, error))

@@ -1100,6 +1100,9 @@ async function openSettings() {
   selfTestRow.append(selfTest, diagnosticsButton);
   body.append(selfTestRow, selfTestBox);
 
+  const pluginData = await loadPlugins();
+  renderPlugins(body, pluginData);
+
   body.append(el("div", "divider"));
   body.append(el("h3", "", "Health"));
 
@@ -1118,6 +1121,59 @@ async function openSettings() {
   } else {
     body.append(el("p", "hint", "Could not read the health checks."));
   }
+}
+
+/* ---------- plugins ---------- */
+
+async function loadPlugins() {
+  try { return await api("/api/plugins"); } catch { return null; }
+}
+
+function renderPlugins(body, data) {
+  const section = el("div", "plugins-section");
+  section.append(el("div", "divider"));
+  section.append(el("h3", "", "Plugins"));
+  const dir = (data && data.dir) || "";
+  section.append(el("p", "hint", dir
+    ? `A plugin is a folder in ${dir} with an exxa-plugin.json manifest and a JavaScript entry.`
+    : "Could not read the plugins folder."));
+  const plugins = (data && data.plugins) || [];
+  if (!plugins.length) {
+    section.append(el("p", "hint", "No plugins installed yet."));
+  } else {
+    const list = el("div", "plugins");
+    for (const plugin of plugins) {
+      const row = el("div", "plugin-row");
+      const text = el("div", "plugin-text");
+      const title = el("b", "", plugin.name || plugin.id);
+      const meta = plugin.valid
+        ? `${plugin.id} ${plugin.version || ""} · ${(plugin.permissions || []).join(", ") || "no permissions"}`
+        : `${plugin.id} — ${plugin.error || "invalid"}`;
+      const line = el("span", "", meta);
+      if (!plugin.valid) line.classList.add("bad");
+      text.append(title, line);
+      const toggle = el("button", `btn small${plugin.enabled ? "" : " ghost"}`, plugin.enabled ? "Disable" : "Enable");
+      toggle.disabled = !plugin.valid;
+      toggle.addEventListener("click", async () => {
+        toggle.disabled = true;
+        try {
+          const next = await post("/api/plugins/toggle", { id: plugin.id, enabled: !plugin.enabled });
+          const replacement = el("div");
+          renderPlugins(replacement, next);
+          const fresh = replacement.querySelector(".plugins-section") || replacement.firstChild;
+          section.replaceWith(fresh);
+          toast(plugin.enabled ? "Plugin disabled" : "Plugin enabled");
+        } catch (error) {
+          fail(error);
+          toggle.disabled = false;
+        }
+      });
+      row.append(text, toggle);
+      list.append(row);
+    }
+    section.append(list);
+  }
+  body.append(section);
 }
 
 /* ---------- boot ---------- */

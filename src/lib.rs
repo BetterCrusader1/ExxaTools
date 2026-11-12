@@ -14,6 +14,7 @@ pub mod lua;
 pub mod paths;
 pub mod pins;
 pub mod plans;
+pub mod plugins;
 pub mod providers;
 pub mod selftest;
 pub mod server;

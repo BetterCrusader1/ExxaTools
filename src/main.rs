@@ -13,6 +13,7 @@ use exxa::{
     paths,
     pins,
     plans,
+    plugins,
     providers,
     selftest,
     server,
@@ -77,6 +78,7 @@ fn main() {
                 "exxa selftest",
                 "exxa diagnostics",
                 "exxa storage",
+                "exxa plugins [list|enable <id>|disable <id>|remove <id>]",
                 "exxa window",
                 "exxa update",
                 "exxa version",
@@ -273,6 +275,22 @@ fn main() {
         }
         "diagnostics" => print_json(&diagnostics::build()),
         "diagnose" => print_json(&diagnose::from_files()),
+        "plugins" => {
+            let action = rest.first().map(String::as_str).unwrap_or("list");
+            let result = match action {
+                "list" | "status" => Ok(plugins::list_json()),
+                "enable" | "disable" => {
+                    let id = rest.get(1).cloned().unwrap_or_default();
+                    plugins::set_enabled(&id, action == "enable")
+                }
+                "remove" => {
+                    let id = rest.get(1).cloned().unwrap_or_default();
+                    plugins::remove(&id)
+                }
+                other => Err(format!("unknown plugins action: {other}")),
+            };
+            print_json(&result.unwrap_or_else(|error| fail(error)));
+        }
         "storage" => print_json(&storage::report()),
         "selftest" => {
             let report = selftest::run();

@@ -52,6 +52,115 @@ fn icon_markup() -> String {
     )
 }
 
+const PLUGIN_BUS_JS: &str = r#"(() => {
+  if (!document.getElementById("exxa-queue")) {
+    const queue = document.createElement("script");
+    queue.type = "application/json";
+    queue.id = "exxa-queue";
+    queue.hidden = true;
+    queue.textContent = "[]";
+    document.body.appendChild(queue);
+  }
+  if (!document.getElementById("exxa-results")) {
+    const results = document.createElement("script");
+    results.type = "application/json";
+    results.id = "exxa-results";
+    results.hidden = true;
+    results.textContent = "{}";
+    document.body.appendChild(results);
+  }
+  if (!document.getElementById("exxa-plugin-root")) {
+    const root = document.createElement("div");
+    root.id = "exxa-plugin-root";
+    document.body.appendChild(root);
+  }
+  return "bus";
+})()"#;
+
+/// The `exxa` object a plugin sees. Calls go into a DOM queue that the Rust bridge
+/// drains; results come back the same way. The page's own globals are untouched.
+fn plugin_bootstrap(plugin: &crate::plugins::Plugin) -> String {
+    let meta = serde_json::to_string(&json!({
+        "id": plugin.id,
+        "name": plugin.name,
+        "version": plugin.version,
+        "permissions": plugin.permissions,
+    }))
+    .unwrap_or_else(|_| "{}".into());
+    format!(
+        r#"(() => {{
+  const PLUGIN = {meta};
+  const host = (id) => document.getElementById(id);
+  let seq = 0;
+  const pending = new Map();
+  const call = (method, params) => new Promise((resolve, reject) => {{
+    const id = PLUGIN.id + ":" + (++seq) + ":" + Math.random().toString(36).slice(2, 8);
+    pending.set(id, {{ resolve, reject }});
+    const queue = host("exxa-queue");
+    if (!queue) {{ pending.delete(id); reject(new Error("host is not ready")); return; }}
+    let list = [];
+    try {{ list = JSON.parse(queue.textContent || "[]"); }} catch (error) {{ list = []; }}
+    list.push({{ id: id, plugin: PLUGIN.id, method: method, params: params || {{}} }});
+    queue.textContent = JSON.stringify(list);
+  }});
+  setInterval(() => {{
+    const box = host("exxa-results");
+    if (!box || !pending.size) return;
+    let map = {{}};
+    try {{ map = JSON.parse(box.textContent || "{{}}"); }} catch (error) {{ return; }}
+    const ids = Object.keys(map);
+    if (!ids.length) return;
+    for (const id of ids) {{
+      const entry = pending.get(id);
+      if (!entry) {{ delete map[id]; continue; }}
+      pending.delete(id);
+      const outcome = map[id] || {{}};
+      (outcome.ok ? entry.resolve : entry.reject)(outcome.value);
+      delete map[id];
+    }}
+    box.textContent = JSON.stringify(map);
+  }}, 150);
+  const toast = (text) => {{
+    const node = document.createElement("div");
+    node.textContent = String(text);
+    node.style.cssText = "position:fixed;right:18px;bottom:18px;z-index:2147483647;padding:10px 14px;border-radius:10px;background:#151A21;border:1px solid #2E3A49;color:#E9EDF2;font:500 12.5px Montserrat,Arial,sans-serif";
+    document.body.appendChild(node);
+    setTimeout(() => node.remove(), 2600);
+  }};
+  const section = (title, build) => {{
+    const root = host("exxa-plugin-root");
+    if (!root) return false;
+    const wrap = document.createElement("section");
+    wrap.setAttribute("data-exxa-plugin", PLUGIN.id);
+    wrap.style.cssText = "padding:2px 10px 6px";
+    if (title) {{
+      const label = document.createElement("div");
+      label.className = "vd-label";
+      label.textContent = String(title);
+      wrap.append(label);
+    }}
+    let node = null;
+    try {{ node = typeof build === "function" ? build() : build; }} catch (error) {{ return false; }}
+    if (node) wrap.append(node);
+    root.append(wrap);
+    return true;
+  }};
+  window.exxa = {{
+    version: "1",
+    plugin: {{ id: PLUGIN.id, name: PLUGIN.name, version: PLUGIN.version }},
+    config: {{
+      get: (key) => call("config.get", {{ key: key }}),
+      set: (key, value) => call("config.set", {{ key: key, value: value }}),
+    }},
+    steam: {{ status: () => call("steam.status") }},
+    ui: {{ section: section, toast: toast }},
+    log: (...args) => console.log("[" + PLUGIN.id + "]", ...args),
+  }};
+  return PLUGIN.id;
+}})()"#
+    )
+}
+
 fn script_hash(text: &str) -> String {
     let mut hash: u64 = 0xcbf29ce484222325;
     for byte in text.as_bytes() {
@@ -480,6 +589,71 @@ pub fn open_dashboard() -> Result<(), String> {
     Ok(())
 }
 
+/// Puts the bus into the page and one isolated world per enabled plugin into the
+/// main window. A plugin that throws is reported and skipped; it cannot stop the
+/// others or the page.
+pub fn inject_plugins(ws: &str) -> Result<usize, String> {
+    cdp::evaluate(ws, PLUGIN_BUS_JS, std::time::Duration::from_secs(5))?;
+    let mut loaded = 0;
+    for (plugin, source) in crate::plugins::frontends() {
+        let body = format!(
+            "{}\ntry {{\n{}\n}} catch (error) {{ console.error('[exxa] plugin {} failed', error); }}\n",
+            plugin_bootstrap(&plugin),
+            source,
+            plugin.id
+        );
+        match cdp::evaluate_isolated(ws, &format!("exxa-{}", plugin.id), &body, std::time::Duration::from_secs(20)) {
+            Ok(_) => loaded += 1,
+            Err(error) => eprintln!("steamui: plugin {}: {error}", plugin.id),
+        }
+    }
+    Ok(loaded)
+}
+
+/// Drains queued plugin calls, checks permissions in Rust and writes the answers
+/// back. Runs on a slow tick; the page is never asked to trust plugin input.
+pub fn bridge_tick() {
+    if !steamctl::is_running() || !debug_ready() {
+        return;
+    }
+    let Some(target) = main_target() else { return };
+    let ws = target.get("webSocketDebuggerUrl").and_then(Value::as_str).unwrap_or("");
+    if ws.is_empty() {
+        return;
+    }
+    let drain = r#"(() => { const q = document.getElementById("exxa-queue"); if (!q) return "[]"; const text = q.textContent || "[]"; q.textContent = "[]"; return text; })()"#;
+    let Ok(Value::String(raw)) = cdp::evaluate(ws, drain, std::time::Duration::from_secs(3)) else {
+        return;
+    };
+    let calls: Vec<Value> = serde_json::from_str(&raw).unwrap_or_default();
+    if calls.is_empty() {
+        return;
+    }
+    let mut answers = serde_json::Map::new();
+    for call in calls {
+        let id = call.get("id").and_then(Value::as_str).unwrap_or("").to_string();
+        let plugin = call.get("plugin").and_then(Value::as_str).unwrap_or("");
+        let method = call.get("method").and_then(Value::as_str).unwrap_or("");
+        let params = call.get("params").cloned().unwrap_or_else(|| json!({}));
+        if id.is_empty() {
+            continue;
+        }
+        let answer = match crate::plugins::dispatch(plugin, method, &params) {
+            Ok(value) => json!({ "ok": true, "value": value }),
+            Err(error) => json!({ "ok": false, "value": error }),
+        };
+        answers.insert(id, answer);
+    }
+    if answers.is_empty() {
+        return;
+    }
+    let add = Value::Object(answers).to_string();
+    let expression = format!(
+        r#"(() => {{ const box = document.getElementById("exxa-results"); if (!box) return 0; let map = {{}}; try {{ map = JSON.parse(box.textContent || "{{}}"); }} catch (error) {{ map = {{}}; }} Object.assign(map, {add}); box.textContent = JSON.stringify(map); return Object.keys(map).length; }})()"#
+    );
+    let _ = cdp::evaluate(ws, &expression, std::time::Duration::from_secs(3));
+}
+
 pub fn inject() -> Result<Value, String> {
     if !steamctl::is_running() {
         return Err("Steam is not running".into());
@@ -524,6 +698,12 @@ pub fn inject() -> Result<Value, String> {
             "injection failed: {}",
             if text.is_empty() { "no page window answered" } else { &text }
         ));
+    }
+    if !main_ws.is_empty() {
+        match inject_plugins(&main_ws) {
+            Ok(count) => eprintln!("steamui: {count} plugin(s) loaded"),
+            Err(error) => eprintln!("steamui: plugin injection: {error}"),
+        }
     }
     let mut out = status();
     out["injected"] = json!(true);
@@ -627,6 +807,13 @@ static WATCHER: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::n
 /// restart and drops whatever was injected, so the icon has to be put back.
 pub fn ensure_started() {
     use std::sync::atomic::Ordering;
+    static BRIDGE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+    if !BRIDGE.swap(true, Ordering::Relaxed) {
+        std::thread::spawn(|| loop {
+            std::thread::sleep(std::time::Duration::from_millis(900));
+            bridge_tick();
+        });
+    }
     if WATCHER.swap(true, Ordering::Relaxed) {
         return;
     }

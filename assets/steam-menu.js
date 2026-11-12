@@ -84,6 +84,7 @@ window.__vdPanel = (opts) => {
       #${PANEL} .vd-item:hover { background: #1A212B; color: #E9EDF2; }
       #${PANEL} .vd-item svg { width: 15px; height: 15px; flex: none; opacity: .9; }
       #${PANEL} .vd-msg { min-height: 15px; padding: 4px 11px 8px; font-size: 11.5px; color: #A9B4C3; }
+      #${PANEL} .vd-plugins { display: flex; flex-direction: column; gap: 4px; padding-bottom: 4px; }
       #${PANEL}-dash {
         position: fixed; inset: 0; z-index: 2147483647;
         display: none; flex-direction: column; background: #0c0f13;
@@ -136,6 +137,9 @@ window.__vdPanel = (opts) => {
       <div class="vd-actions">
         <button class="vd-item" data-act="about">ICON_GLYPH_ABOUT About</button>
       </div>
+      <div class="vd-sep"></div>
+      <div class="vd-label">Plugins</div>
+      <div class="vd-plugins" id="vd-plugins-host"></div>
       <div class="vd-msg" id="vd-msg"></div>
     `
       .replace("ICON_GLYPH_APP", glyph("app"))
@@ -143,6 +147,18 @@ window.__vdPanel = (opts) => {
       .replace("ICON_GLYPH_PROVIDER", glyph("provider"))
       .replace("ICON_GLYPH_ABOUT", glyph("about"));
     document.body.appendChild(panel);
+    panel.dataset.build = window.__vdBuild || "";
+    // Plugin sections live in their own root; move it into the panel so a rebuild
+    // keeps whatever plugins already rendered instead of dropping it.
+    const pluginHost = panel.querySelector("#vd-plugins-host");
+    if (pluginHost) {
+      let root = document.getElementById("exxa-plugin-root");
+      if (!root) {
+        root = document.createElement("div");
+        root.id = "exxa-plugin-root";
+      }
+      pluginHost.appendChild(root);
+    }
 
     const msg = (text) => {
       const node = panel.querySelector("#vd-msg");
@@ -254,10 +270,15 @@ window.__vdPanel = (opts) => {
     return panel;
   };
 
-  // Rebuild on every injection: a stale panel would keep the handlers of the
-  // previous build, and new actions would then do nothing.
-  document.getElementById(PANEL)?.remove();
-  const panel = build();
+  // Rebuild only when a new build was injected: the old panel's handlers would
+  // otherwise survive, but rebuilding on every toggle would drop plugin sections.
+  const existing = document.getElementById(PANEL);
+  if (existing && existing.dataset.build === (window.__vdBuild || "")) {
+    // keep the current panel
+  } else if (existing) {
+    existing.remove();
+  }
+  const panel = document.getElementById(PANEL) || build();
   if (!panel) return false;
 
   if (opts && opts.open === false) {
