@@ -54,8 +54,8 @@ const RULES: &[Rule] = &[
     Rule {
         id: "manifest-missing",
         title: "Manifest is missing for a depot",
-        detail: "The plan has a depot without a manifest id; pin one or fetch the plan again.",
-        action: "manifest",
+        detail: "The plan points at a build Steam no longer lists; rebuild it from the current catalog.",
+        action: "plan",
         needles: &["manifest not found", "missing manifest", "no manifest"],
     },
 ];

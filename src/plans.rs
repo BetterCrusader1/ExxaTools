@@ -117,6 +117,71 @@ pub fn fetch_plan(appid: u64, name_hint: Option<&str>) -> Result<Value, String> 
     ))
 }
 
+/// Rebuilds every saved plan's depot list from the current Steam catalog, keeping
+/// the enabled flags and sizes a person chose. This is the repair for a plan whose
+/// manifests point at a build that no longer exists.
+pub fn refresh_manifests() -> Result<Value, String> {
+    let mut st = state::load().map_err(|error| error)?;
+    let appids: Vec<u64> = st.apps.values().filter_map(|record| record.get("appid").and_then(Value::as_u64)).collect();
+    let mut updated = 0;
+    let mut rewritten = 0;
+    let mut failures: Vec<Value> = Vec::new();
+    for appid in appids {
+        let Some(record) = st.apps.get(&appid.to_string()).cloned() else { continue };
+        let branch = record.get("branch").and_then(Value::as_str).unwrap_or("public").to_string();
+        let catalog = match crate::steam::catalog(appid) {
+            Ok(catalog) => catalog,
+            Err(error) => {
+                failures.push(json!({ "appid": appid, "error": error }));
+                continue;
+            }
+        };
+        let mut planned: Vec<Value> = Vec::new();
+        let previous = record.get("depots").and_then(Value::as_array).cloned().unwrap_or_default();
+        if let Some(list) = catalog.get("depots").and_then(Value::as_array) {
+            for depot in list {
+                let Some(depot_id) = depot.get("depot_id").and_then(Value::as_u64) else { continue };
+                let Some(manifest) = crate::steam::pick_manifest(depot, &branch) else { continue };
+                let gid = manifest.get("gid").and_then(Value::as_str).unwrap_or("");
+                if gid.is_empty() {
+                    continue;
+                }
+                let old = previous.iter().find(|entry| entry.get("depot_id").and_then(Value::as_u64) == Some(depot_id));
+                let mut entry = json!({
+                    "depot_id": depot_id,
+                    "gid": gid,
+                    "size": manifest.get("size").cloned().unwrap_or(Value::Null),
+                });
+                if let Some(old) = old {
+                    if let Some(enabled) = old.get("enabled") {
+                        entry["enabled"] = enabled.clone();
+                    }
+                    if entry["size"].is_null() {
+                        if let Some(size) = old.get("size") {
+                            entry["size"] = size.clone();
+                        }
+                    }
+                }
+                planned.push(entry);
+            }
+        }
+        if planned.is_empty() {
+            failures.push(json!({ "appid": appid, "error": "the catalog lists no downloadable depots" }));
+            continue;
+        }
+        if let Some(fresh) = st.apps.get_mut(&appid.to_string()) {
+            fresh["depots"] = Value::Array(planned);
+            fresh["updated"] = json!(crate::vfsys::stamp());
+            updated += 1;
+        }
+        if crate::vfsys::script_path(appid).exists() && write_script(appid).unwrap_or(false) {
+            rewritten += 1;
+        }
+    }
+    state::save(&st).map_err(|error| error)?;
+    Ok(json!({ "updated": updated, "scripts": rewritten, "failures": failures }))
+}
+
 /// Rewrites the installed script from the saved plan, so keys that arrived after
 /// the plan was created are picked up too.
 pub fn write_script(appid: u64) -> Result<bool, String> {

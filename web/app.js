@@ -140,9 +140,24 @@ function gameCard(item) {
   return card;
 }
 
+const dismissedKey = (incident) => `${incident.id}:${(incident.line || "").slice(0, 60)}`;
+
+function dismissed() {
+  try { return new Set(JSON.parse(localStorage.getItem("exxa.dismissed") || "[]")); } catch { return new Set(); }
+}
+
+function dismiss(incident) {
+  const set = dismissed();
+  set.add(dismissedKey(incident));
+  localStorage.setItem("exxa.dismissed", JSON.stringify([...set].slice(-40)));
+  renderDiagnose();
+}
+
 function renderDiagnose() {
   const banner = document.getElementById("diagnoseBanner");
-  const incidents = (state.diagnose && state.diagnose.incidents) || [];
+  const known = dismissed();
+  const incidents = ((state.diagnose && state.diagnose.incidents) || []).filter((incident) => !known.has(dismissedKey(incident)));
+  state.shownIncidents = incidents;
   if (!incidents.length) { banner.hidden = true; return; }
   banner.hidden = false;
   banner.replaceChildren(el("div", "diagnose-head", `Steam reported ${incidents.length} problem${incidents.length === 1 ? "" : "s"}`));
@@ -154,6 +169,18 @@ function renderDiagnose() {
     if (incident.action === "keys") {
       const run = el("button", "btn tiny", "Refresh keys");
       run.addEventListener("click", () => fixGame(0, "keys", "Refreshing keys…"));
+      row.append(run);
+    } else if (incident.action === "plan") {
+      const run = el("button", "btn tiny", "Rebuild plan");
+      run.addEventListener("click", async () => {
+        run.disabled = true;
+        try {
+          const result = await post("/api/fix", { action: "plan" });
+          toast(result.message || "plans rebuilt");
+          await loadDiagnose();
+        } catch (error) { fail(error); }
+        finally { run.disabled = false; }
+      });
       row.append(run);
     } else if (incident.action === "disk") {
       const run = el("button", "btn tiny", "Check space");
@@ -179,6 +206,9 @@ function renderDiagnose() {
       open.addEventListener("click", () => document.getElementById("fixes").scrollIntoView({ behavior: "smooth" }));
       row.append(open);
     }
+    const hide = el("button", "btn tiny ghost", "Dismiss");
+    hide.addEventListener("click", () => dismiss(incident));
+    row.append(hide);
     banner.append(row);
   }
 }
@@ -365,6 +395,7 @@ async function fixGame(appid, action, label) {
     toast(result.message || "done");
     if (action === "remove") { closeDrawer(); }
     await loadLibrary();
+    await loadDiagnose();
     return result;
   } catch (error) {
     if (/Steam is running/i.test(error.message)) {

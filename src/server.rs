@@ -605,6 +605,15 @@ fn post_route(path: &str, body: &Value, query: &[(String, String)]) -> Result<Va
                     steamctl::set_launch_options(appid, "").map_err(|error| (409, error))?;
                     Ok(json!({ "ok": true, "message": "launch options cleared" }))
                 }
+                "plan" => {
+                    let result = crate::plans::refresh_manifests().map_err(|error| (500, error))?;
+                    let updated = result.get("updated").and_then(Value::as_u64).unwrap_or(0);
+                    Ok(json!({
+                        "ok": true,
+                        "message": format!("{updated} plan(s) rebuilt from the current catalog"),
+                        "result": result,
+                    }))
+                }
                 "disk" => {
                     let report = crate::storage::report();
                     let lowest = report.get("lowest").cloned().unwrap_or(Value::Null);
