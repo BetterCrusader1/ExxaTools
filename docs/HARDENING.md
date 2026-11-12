@@ -51,8 +51,10 @@ card, modal, toast and check row already existed and are reused. Layout was chec
 1080, 900 and 620 pixels with no horizontal overflow, `prefers-reduced-motion` is
 honoured, and the nav is a row of buttons reachable by Tab.
 
-Still open from Phase 2: a full keyboard pass over the drawer and forms, and folding
-the remaining ad-hoc styles into named components.
+Keyboard pass done: a card is a focusable button with an aria-label, Enter or Space
+opens the drawer, focus moves to the drawer's close button, and Escape closes it and
+returns focus to the card that opened it. Still open: folding the remaining ad-hoc
+styles into named components.
 
 ## Not in this program
 

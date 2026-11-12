@@ -157,7 +157,16 @@ function gameCard(item) {
   attachArt(art, item.appid, item.name);
   const badge = gameBadge(item);
   art.append(el("span", `card-badge ${badge.kind}`.trim(), badge.text));
+  art.setAttribute("role", "button");
+  art.setAttribute("tabindex", "0");
+  art.setAttribute("aria-label", `Open ${item.name || item.appid}`);
   art.addEventListener("click", () => openGame(item.appid));
+  art.addEventListener("keydown", (event) => {
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      openGame(item.appid);
+    }
+  });
 
   const body = el("div", "card-body");
   const name = el("h3", "card-name", item.name || String(item.appid));
@@ -628,9 +637,11 @@ async function planText(appid) {
 /* ---------- drawer ---------- */
 
 let drawerFor = null;
+let drawerReturnFocus = null;
 
 async function openGame(appid) {
   drawerFor = appid;
+  drawerReturnFocus = document.activeElement;
   const drawer = document.getElementById("drawer");
   const inner = document.getElementById("drawerInner");
   document.getElementById("scrim").hidden = false;
@@ -653,6 +664,7 @@ async function openGame(appid) {
   close.innerHTML = '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"></path></svg>';
   close.addEventListener("click", closeDrawer);
   top.append(close);
+
 
   const body = el("div", "drawer-body");
   body.append(el("h3", "", name));
@@ -907,10 +919,17 @@ async function openGame(appid) {
   }
 
   inner.append(top, body);
+  // The drawer is modal for the keyboard too: focus lands inside it, and Escape
+  // returns focus to the card that opened it.
+  if (drawerFor === appid) close.focus();
 }
 
 function closeDrawer() {
   drawerFor = null;
+  if (drawerReturnFocus && typeof drawerReturnFocus.focus === "function") {
+    try { drawerReturnFocus.focus(); } catch { /* the card may be gone */ }
+  }
+  drawerReturnFocus = null;
   document.getElementById("drawer").hidden = true;
   document.getElementById("drawer").setAttribute("aria-hidden", "true");
   document.getElementById("scrim").hidden = true;
