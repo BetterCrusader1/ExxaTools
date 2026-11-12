@@ -88,6 +88,68 @@ pub fn scan(text: &str) -> Vec<Value> {
     out
 }
 
+/// Engine-specific signals that need arithmetic rather than a substring: the
+/// pattern summary says how many hooks found their target, and repeated
+/// "pattern match failed" lines mean the client build moved under the engine.
+fn engine_incidents(text: &str) -> Vec<Value> {
+    let mut out = Vec::new();
+    let mut short: Vec<String> = Vec::new();
+    for line in text.lines() {
+        if !line.contains("pattern summary") {
+            continue;
+        }
+        let field = |name: &str| -> Option<i64> {
+            let start = line.find(&format!("{name}="))? + name.len() + 1;
+            let rest = &line[start..];
+            let end = rest.find(|ch: char| !ch.is_ascii_digit()).unwrap_or(rest.len());
+            rest[..end].parse().ok()
+        };
+        let found = field("found").unwrap_or(0);
+        let total = field("total").unwrap_or(0);
+        let missing = field("missing").unwrap_or(0);
+        if missing > 0 || (total > 0 && found < total) {
+            let module = line
+                .split("module=")
+                .nth(1)
+                .and_then(|rest| rest.split_whitespace().next())
+                .unwrap_or("client");
+            short.push(format!("{module}: {found}/{total}"));
+        }
+    }
+    if !short.is_empty() {
+        out.push(json!({
+            "id": "engine-patterns",
+            "title": "Vapor Forge could not patch the client",
+            "detail": "The engine's signatures do not match this Steam build; install the current engine release.",
+            "action": "engine",
+            "line": short.join(", "),
+        }));
+    }
+    let failures = text.matches("pattern match failed").count();
+    if failures >= 3 {
+        out.push(json!({
+            "id": "engine-hooks",
+            "title": "Vapor Forge hooks keep missing",
+            "detail": format!("{failures} hook patterns did not match; the client build probably changed."),
+            "action": "engine",
+            "line": format!("{failures} pattern match failures in this log"),
+        }));
+    }
+    out
+}
+
+/// Full analysis: literal rules plus the arithmetic engine checks.
+pub fn analyse(text: &str) -> Vec<Value> {
+    let mut out = scan(text);
+    for incident in engine_incidents(text) {
+        let id = incident.get("id").cloned();
+        if !out.iter().any(|seen| seen.get("id") == id.as_ref()) {
+            out.push(incident);
+        }
+    }
+    out
+}
+
 /// Scans the Steam console log and the engine log, newest lines first.
 pub fn from_files() -> Value {
     let mut sources: Vec<Value> = Vec::new();
@@ -98,7 +160,7 @@ pub fn from_files() -> Value {
             let lines: Vec<&str> = text.lines().rev().take(4000).collect();
             lines.into_iter().rev().collect::<Vec<&str>>().join("\n")
         };
-        let found = scan(&tail);
+        let found = analyse(&tail);
         sources.push(json!({
             "path": path.display().to_string(),
             "bytes": text.len(),
@@ -166,6 +228,34 @@ mod tests {
         assert!(ids("").is_empty());
         assert!(ids("\u{0}\u{1}\u{2} random bytes \u{ff}").is_empty());
         assert!(ids("downloading 42% of depot 621").is_empty());
+    }
+
+    #[test]
+    fn healthy_pattern_summary_stays_quiet() {
+        let text = "[vapor-forge][INFO] Diagnostics: pattern summary module=steamclient.so found=30 missing=0 total=30";
+        assert!(super::engine_incidents(text).is_empty());
+    }
+
+    #[test]
+    fn missing_patterns_raise_an_engine_incident() {
+        let text = "[vapor-forge][INFO] Diagnostics: pattern summary module=steamui.so found=6 missing=3 total=9";
+        let found = super::engine_incidents(text);
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0]["id"], "engine-patterns");
+        assert!(found[0]["line"].as_str().unwrap_or("").contains("steamui.so: 6/9"));
+    }
+
+    #[test]
+    fn repeated_hook_failures_raise_an_incident() {
+        let text = "pattern match failed\npattern match failed\npattern match failed";
+        let found = super::engine_incidents(text);
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0]["id"], "engine-hooks");
+    }
+
+    #[test]
+    fn two_hook_failures_are_noise() {
+        assert!(super::engine_incidents("pattern match failed\npattern match failed").is_empty());
     }
 
     #[test]

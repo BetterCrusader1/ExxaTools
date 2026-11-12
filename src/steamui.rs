@@ -183,6 +183,10 @@ fn status_snapshot() -> Value {
 
 fn run_action(action: &str) -> String {
     match action {
+        "engine" => match crate::engine::install(None) {
+            Ok(report) => format!("engine {} installed", report.get("version").and_then(Value::as_str).unwrap_or("")),
+            Err(error) => error,
+        },
         "keys" => {
             let st = crate::state::load().unwrap_or_default();
             let mut refreshed = 0;

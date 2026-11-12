@@ -154,6 +154,8 @@ window.__vdPanel = (opts) => {
         if (alerts.length) {
           alertBox.hidden = false;
           panel.querySelector("#vd-alert-text").textContent = alerts[0].title;
+          const fix = alertBox.querySelector(".vd-mini");
+          if (fix) fix.dataset.act = alerts[0].action || "keys";
         } else {
           alertBox.hidden = true;
         }

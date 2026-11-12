@@ -155,6 +155,16 @@ function renderDiagnose() {
       const run = el("button", "btn tiny", "Refresh keys");
       run.addEventListener("click", () => fixGame(0, "keys", "Refreshing keys…"));
       row.append(run);
+    } else if (incident.action === "engine") {
+      const run = el("button", "btn tiny", "Update engine");
+      run.addEventListener("click", async () => {
+        run.disabled = true;
+        run.textContent = "Installing…";
+        try { await post("/api/engine/install", {}); toast("Engine installed"); await loadDiagnose(); }
+        catch (error) { fail(error); }
+        finally { run.disabled = false; run.textContent = "Update engine"; }
+      });
+      row.append(run);
     } else if (incident.action) {
       const open = el("button", "btn tiny ghost", "Open fixes");
       open.addEventListener("click", () => document.getElementById("fixes").scrollIntoView({ behavior: "smooth" }));
