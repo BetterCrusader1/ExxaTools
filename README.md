@@ -35,6 +35,7 @@ cargo build --release
 ./target/release/exxa doctor           # twelve checks with the fix for each
 ./target/release/exxa diagnose         # name the failure found in the Steam log
 ./target/release/exxa selftest         # prove the plan pipeline on a local fixture
+./target/release/exxa storage          # free space for every Steam library
 ./target/release/exxa watch --once     # what still needs the flag repair
 ```
 
@@ -203,9 +204,9 @@ a snapshot and that snapshot is not necessarily the branch you selected — pinn
 is a deliberate step, not a side effect of fetching. A plan is only created with
 `--plan`, so a fetch never replaces a depot list you tuned by hand.
 
-In the UI: **Settings → Hubcap API key**, then **Hubcap keys** in the app
-toolbar. The daily quota is shown next to the field; Hubcap rejects cyrillic
-search terms with 400 and that is upstream, not this tool.
+In the UI: **Settings → Hubcap key**, then **Get plan** on any game. Hubcap rejects
+cyrillic search terms with 400 and that is upstream, not this tool. Ryuu and a
+custom URL are alternative sources — see **Plan sources** below.
 
 ## Steam menu icon
 
@@ -237,6 +238,46 @@ Details that matter:
   Restart Steam, Install provider, About.
 * An OS-level window grab can miss the CEF overlay; `Page.captureScreenshot`
   over CDP shows what the client actually renders.
+
+## Diagnosis and repairs
+
+`./exxa diagnose` reads the tail of Steam's console log, where Vapor Forge also
+writes, and names what it recognises: no internet connection (a missing licence,
+not the network), an update that never finishes, content still encrypted, a disk
+write error, a missing licence, or a manifest that no longer exists. It also reads
+Vapor Forge's own pattern summary, so an engine that could not patch the client
+says so instead of failing quietly.
+
+Every incident carries the repair that fits it, and the same list drives the
+dashboard banner and the row inside the Steam panel:
+
+| Incident | Action |
+| --- | --- |
+| no internet connection, missing licence | rewrite every installed script from the keys on disk |
+| update required, missing manifest | rebuild the plan from the current catalog, or repair appmanifest flags |
+| content still encrypted | fetch keys again |
+| disk write error | report free space per library with `./exxa storage` |
+| engine patterns missing | install the current engine release |
+
+A line that matches no rule produces nothing. A banner can be dismissed, and it
+returns only when the same line shows up again.
+
+## Plan sources
+
+A plan is a `.lua` with depot keys and pinned manifests. Three kinds of source
+feed it:
+
+- **Hubcap** — free key from the Hubcap Discord, valid for seven days.
+- **Ryuu** — `X-Auth-Key` from generator.ryuu.lol, roughly fifty downloads a day.
+- **Custom** — any URL with `{appid}` in it, configured under `plan_sources` in
+  settings; a header can be attached for token-protected mirrors.
+
+`./exxa plan fetch 620` asks each configured source in order, stores whatever keys
+it finds, creates the plan and writes the script. The dashboard's **Get plan**
+button does the same, and failures name the provider that refused.
+
+Every state save keeps the previous file under `~/.config/exxatools/backups`, five
+newest kept, so an import mistake never costs collected keys.
 
 ## Troubleshooting
 
