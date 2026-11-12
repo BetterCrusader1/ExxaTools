@@ -9,6 +9,23 @@ window.__vdPanel = (opts) => {
   const PANEL = "__PANEL__";
   const glyph = (name) => (window.__vdGlyphs || {})[name] || "";
 
+  const openDashboard = () => {
+    let shell = document.getElementById(PANEL + "-dash");
+    if (!shell) {
+      shell = document.createElement("div");
+      shell.id = PANEL + "-dash";
+      shell.innerHTML = '<div class="vd-dash-bar">ExxaTools<span>dashboard</span>'
+        + '<button class="vd-dash-x" title="Close">×</button></div>'
+        + '<iframe title="ExxaTools dashboard"></iframe>';
+      shell.querySelector("iframe").src = API + "/";
+      shell.querySelector(".vd-dash-x").addEventListener("click", () => shell.classList.remove("open"));
+      document.body.appendChild(shell);
+    }
+    shell.classList.add("open");
+    return true;
+  };
+  window.__vdOpenDashboard = openDashboard;
+
   const build = () => {
     if (!document.body) return null;
     const style = document.createElement("style");
@@ -67,7 +84,30 @@ window.__vdPanel = (opts) => {
       #${PANEL} .vd-item:hover { background: #1A212B; color: #E9EDF2; }
       #${PANEL} .vd-item svg { width: 15px; height: 15px; flex: none; opacity: .9; }
       #${PANEL} .vd-msg { min-height: 15px; padding: 4px 11px 8px; font-size: 11.5px; color: #A9B4C3; }
+      #${PANEL}-dash {
+        position: fixed; inset: 0; z-index: 2147483647;
+        display: none; flex-direction: column; background: #0c0f13;
+        font-family: Montserrat, "Motiva Sans", Arial, sans-serif;
+      }
+      #${PANEL}-dash.open { display: flex; }
+      #${PANEL}-dash .vd-dash-bar {
+        display: flex; align-items: center; gap: 10px; height: 38px; flex: none;
+        padding: 0 10px 0 14px; background: #151A21; border-bottom: 1px solid #2E3A49;
+        color: #E9EDF2; font-size: 12.5px; font-weight: 600; letter-spacing: .01em;
+      }
+      #${PANEL}-dash .vd-dash-bar span { flex: 1; color: #8B96A5; font-weight: 400; }
+      #${PANEL}-dash .vd-dash-x {
+        width: 26px; height: 26px; display: grid; place-items: center;
+        border: 1px solid #2E3A49; border-radius: 7px; background: transparent;
+        color: #8B96A5; font: 600 14px/1 Montserrat, Arial, sans-serif; cursor: pointer;
+      }
+      #${PANEL}-dash .vd-dash-x:hover { background: #1F2733; color: #EFF3F8; }
+      #${PANEL}-dash iframe { flex: 1; width: 100%; border: 0; background: #0c0f13; }
     `;
+    // Refresh the stylesheet instead of skipping it: a panel injected by an
+    // older build leaves a style node behind, and new rules would never apply.
+    const stale = document.getElementById(PANEL + "-style");
+    if (stale) stale.remove();
     document.head.appendChild(style);
 
     const panel = document.createElement("div");
@@ -203,13 +243,21 @@ window.__vdPanel = (opts) => {
         window.__vdAction = "";
         return;
       }
+      if (button.dataset.act === "open") {
+        openDashboard();
+        msg("");
+        return;
+      }
       window.__vdAction = button.dataset.act;
       msg("working…");
     });
     return panel;
   };
 
-  const panel = document.getElementById(PANEL) || build();
+  // Rebuild on every injection: a stale panel would keep the handlers of the
+  // previous build, and new actions would then do nothing.
+  document.getElementById(PANEL)?.remove();
+  const panel = build();
   if (!panel) return false;
 
   if (opts && opts.open === false) {
@@ -289,6 +337,8 @@ window.__vdInject = () => {
       toggle();
     }
     if (event.key === "Escape") {
+      const shell = document.getElementById(PANEL + "-dash");
+      if (shell && shell.classList.contains("open")) { shell.classList.remove("open"); return; }
       window.__vdWantPanel = { close: true };
     }
   });
