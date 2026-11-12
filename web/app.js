@@ -529,6 +529,13 @@ function resultRow(item) {
   return row;
 }
 
+async function planText(appid) {
+  const response = await fetch(`/api/script?appid=${appid}`);
+  const data = await response.json();
+  if (!response.ok || !data.script) throw new Error(data.error || "nothing to export");
+  return data.script;
+}
+
 /* ---------- drawer ---------- */
 
 let drawerFor = null;
@@ -589,14 +596,25 @@ async function openGame(appid) {
     actions.append(install);
   }
   if (item.installed) {
+    const copyPlan = el("button", "btn ghost", "Copy");
+    copyPlan.title = "Copy this plan to the clipboard";
+    copyPlan.addEventListener("click", async () => {
+      try {
+        const text = await planText(appid);
+        await navigator.clipboard.writeText(text);
+        toast(`Copied ${text.length} bytes of Lua`);
+      } catch (error) {
+        toast(String(error.message || error), { error: true });
+      }
+    });
+    actions.append(copyPlan);
+
     const exportPlan = el("button", "btn ghost", "Export .lua");
     exportPlan.title = "Save this plan as a .lua file";
     exportPlan.addEventListener("click", async () => {
       try {
-        const response = await fetch(`/api/script?appid=${appid}`);
-        const data = await response.json();
-        if (!response.ok || !data.script) throw new Error(data.error || "nothing to export");
-        const blob = new Blob([data.script], { type: "text/x-lua" });
+        const script = await planText(appid);
+        const blob = new Blob([script], { type: "text/x-lua" });
         const url = URL.createObjectURL(blob);
         const link = document.createElement("a");
         link.href = url;
