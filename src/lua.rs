@@ -35,6 +35,9 @@ fn comment_value(text: &str) -> String {
     cleaned.trim().to_string()
 }
 
+// A pure template: the arguments are the plan fields, and grouping them into a
+// struct would only move the same list one line up at every call site.
+#[allow(clippy::too_many_arguments)]
 pub fn render_plan(
     appid: u64,
     name: &str,
