@@ -72,6 +72,7 @@ pub fn render_plan(
                 .get("depot_id")
                 .and_then(value_to_id)
                 .and_then(|id| keys.get(&id))
+                .and_then(|key| crate::state::valid_key(key))
                 .is_some()
         })
         .collect();
@@ -119,24 +120,29 @@ pub fn render_plan(
 }
 
 /// Depot and app ids arrive as numbers from appinfo and as strings from state.
+/// Ids reach the script as bare digits; anything else would produce a call the
+/// runtime cannot parse, so it is dropped instead of quoted and hoped for.
 pub fn value_to_id(value: &Value) -> Option<String> {
     match value {
-        Value::Number(number) => Some(number.to_string()),
-        Value::String(text) => Some(text.trim().to_string()),
+        Value::Number(number) => number.as_u64().map(|id| id.to_string()),
+        Value::String(text) => {
+            let trimmed = text.trim();
+            let digits = !trimmed.is_empty() && trimmed.len() <= 20 && trimmed.chars().all(|ch| ch.is_ascii_digit());
+            digits.then(|| trimmed.to_string())
+        }
         _ => None,
     }
 }
 
+/// Manifest ids are decimal and fit in u64; a quoted string here would pin a
+/// build that cannot exist.
 pub fn value_to_gid(value: &Value) -> Option<String> {
     match value {
-        Value::Number(number) => Some(number.to_string()),
+        Value::Number(number) => number.as_u64().map(|gid| gid.to_string()),
         Value::String(text) => {
             let trimmed = text.trim();
-            if trimmed.is_empty() {
-                None
-            } else {
-                Some(trimmed.to_string())
-            }
+            let digits = !trimmed.is_empty() && trimmed.len() <= 20 && trimmed.chars().all(|ch| ch.is_ascii_digit());
+            digits.then(|| trimmed.to_string())
         }
         _ => None,
     }
@@ -261,5 +267,48 @@ mod comment_tests {
         let script = render(&"x".repeat(400));
         let name_line = script.lines().find(|line| line.starts_with("-- @name")).unwrap_or("");
         assert!(name_line.len() <= "-- @name ".len() + 120);
+    }
+}
+
+
+#[cfg(test)]
+mod id_tests {
+    use super::{render_plan, value_to_gid, value_to_id};
+    use serde_json::json;
+    use std::collections::BTreeMap;
+
+    #[test]
+    fn ids_must_be_digits() {
+        assert_eq!(value_to_id(&json!(621)), Some("621".into()));
+        assert_eq!(value_to_id(&json!("621")), Some("621".into()));
+        assert_eq!(value_to_id(&json!("621abc")), None);
+        assert_eq!(value_to_id(&json!("")), None);
+        assert_eq!(value_to_id(&json!(-5)), None);
+    }
+
+    #[test]
+    fn gids_must_be_decimal() {
+        assert_eq!(value_to_gid(&json!("9044256803759256265")), Some("9044256803759256265".into()));
+        assert_eq!(value_to_gid(&json!("42")), Some("42".into()));
+        assert_eq!(value_to_gid(&json!("42; os.execute('x')")), None);
+        assert_eq!(value_to_gid(&json!("")), None);
+    }
+
+    #[test]
+    fn non_numeric_depot_is_not_written() {
+        let depots = vec![json!({ "depot_id": "62x1", "gid": "123" })];
+        let script = render_plan(620, "Test", "public", &depots, &BTreeMap::new(), &[], "selftest");
+        assert!(!script.contains("addappid(62x1"));
+        assert!(!script.contains("setmanifestid(62x1"));
+    }
+
+    #[test]
+    fn invalid_key_is_not_written() {
+        let depots = vec![json!({ "depot_id": 621, "gid": "123" })];
+        let mut keys = BTreeMap::new();
+        keys.insert("621".to_string(), "not-a-key".to_string());
+        let script = render_plan(620, "Test", "public", &depots, &keys, &[], "selftest");
+        assert!(!script.contains("not-a-key"));
+        assert!(!script.contains("addappid(621, 1"));
     }
 }
