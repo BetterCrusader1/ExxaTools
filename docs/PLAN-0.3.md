@@ -1,6 +1,8 @@
 # ExxaTools 0.3 — one flow, provable end to end
 
-Status: draft, awaiting acceptance. Nothing here is started until the user accepts.
+Status: delivered. Every task below is on `main`; the closing gate was run by an
+independent reviewer across two rounds, and the findings of both rounds are closed
+in commits d726988, 036a0ec and the security block that followed.
 
 ## Goal beyond the request
 

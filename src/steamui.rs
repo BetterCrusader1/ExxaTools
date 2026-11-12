@@ -281,9 +281,44 @@ fn run_action(action: &str) -> String {
 
 /// Steam's pages block loopback requests with their CSP, so the panel has no
 /// network at all: the pump reads clicks and pushes fresh state over CDP.
+/// One pump per process: it turns page clicks into Rust calls and opens the panel
+/// when the icon sets the flag, so it must run before the panel is ever shown.
+pub fn start_pump() {
+    if !PUMP.swap(true, std::sync::atomic::Ordering::Relaxed) {
+        std::thread::spawn(pump);
+    }
+}
+
 fn pump() {
     loop {
         std::thread::sleep(std::time::Duration::from_millis(400));
+        // The icon and the hotkey set a flag instead of calling the API, because
+        // the page cannot hold the token and its CSP blocks loopback requests.
+        if let Some(target) = main_target() {
+            if let Some(ws) = target.get("webSocketDebuggerUrl").and_then(Value::as_str) {
+                if let Ok(want) = cdp::evaluate(ws, "window.__vdWantPanel || null", std::time::Duration::from_millis(800)) {
+                    if want.is_object() {
+                        let _ = cdp::evaluate(ws, "window.__vdWantPanel = null", std::time::Duration::from_millis(800));
+                        if want.get("close").and_then(Value::as_bool).unwrap_or(false) {
+                            hide_panel();
+                        } else {
+                            let field = |name: &str| want.get(name).and_then(Value::as_i64).unwrap_or(0);
+                            if let Err(error) = panel(
+                                true,
+                                want.get("toggle").and_then(Value::as_bool).unwrap_or(false),
+                                field("x"),
+                                field("y"),
+                                field("screen_x"),
+                                field("screen_y"),
+                            ) {
+                                eprintln!("panel from icon: {error}");
+                            }
+                        }
+                        continue;
+                    }
+                }
+            }
+        }
         if !PANEL_SHOWN.load(std::sync::atomic::Ordering::Relaxed) {
             continue;
         }
@@ -369,9 +404,7 @@ pub fn panel(open: bool, toggle: bool, x: i64, y: i64, screen_x: i64, screen_y: 
         let _ = cdp::evaluate(&frame.ws, "window.__vdPanel && window.__vdPanel({ open: false })", std::time::Duration::from_secs(3));
     }
 
-    if !PUMP.swap(true, Ordering::Relaxed) {
-        std::thread::spawn(pump);
-    }
+    start_pump();
 
     Ok(json!({ "open": true, "host": [host.x, host.y, host.w, host.h], "left": local_x, "top": local_y }))
 }

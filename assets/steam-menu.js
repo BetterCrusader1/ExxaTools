@@ -266,19 +266,17 @@ window.__vdInject = () => {
   item.appendChild(icon);
   wrapper.insertAdjacentElement("afterend", item);
 
+  // The page has no HTTP path to the app: Steam's CSP blocks loopback, and the
+  // API now refuses unauthenticated writes. A flag read over CDP is enough.
   const toggle = () => {
     const rect = item.getBoundingClientRect();
-    fetch(API + "/api/steamui/panel", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        toggle: true,
-        x: Math.round(rect.left),
-        y: Math.round(rect.bottom),
-        screen_x: Math.round(window.screenX || 0),
-        screen_y: Math.round(window.screenY || 0),
-      }),
-    }).catch(() => {});
+    window.__vdWantPanel = {
+      toggle: true,
+      x: Math.round(rect.left),
+      y: Math.round(rect.bottom),
+      screen_x: Math.round(window.screenX || 0),
+      screen_y: Math.round(window.screenY || 0),
+    };
   };
 
   item.addEventListener("click", (event) => {
@@ -291,7 +289,7 @@ window.__vdInject = () => {
       toggle();
     }
     if (event.key === "Escape") {
-      fetch(API + "/api/steamui/panel", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ open: false }) }).catch(() => {});
+      window.__vdWantPanel = { close: true };
     }
   });
 

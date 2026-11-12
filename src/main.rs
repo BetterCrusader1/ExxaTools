@@ -77,6 +77,7 @@ fn main() {
                 "exxa selftest",
                 "exxa diagnostics",
                 "exxa storage",
+                "exxa window",
                 "exxa update",
                 "exxa version",
                 "exxa verify <appid>",

@@ -27,10 +27,13 @@ def usage() -> set[str]:
 
 def documented() -> dict[str, str]:
     found: dict[str, str] = {}
-    pattern = re.compile(r"^\s*(?:\S*/)?exxa\s+([a-z][a-z-]*)", re.MULTILINE)
+    leading = re.compile(r"^\s*(?:\S*/)?exxa\s+([a-z][a-z-]*)", re.MULTILINE)
+    inline = re.compile(r"`(?:\S*/)?exxa\s+([a-z][a-z-]*)`")
     for name in DOCS:
         text = (ROOT / name).read_text()
-        for match in pattern.finditer(text):
+        for match in leading.finditer(text):
+            found.setdefault(match.group(1), name)
+        for match in inline.finditer(text):
             found.setdefault(match.group(1), name)
     return found
 

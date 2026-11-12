@@ -16,10 +16,11 @@ execs it; the old Python implementation is kept under `legacy/` as a reference.
 
 ## Window and menu
 
-`./exxa` opens a real application window (GTK with a WebKit view, no browser
-chrome). `./exxa serve` keeps the integration alive in the background and puts the
-ExxaTools icon back into Steam within seconds whenever the client restarts;
-`./exxa autostart install` starts that at login. `./exxa window` opens just the
+`./exxa window` opens a real application window (GTK with a WebKit view, no browser
+chrome); bare `./exxa` prints the usage JSON. `./exxa serve` keeps the integration
+alive in the background and puts the ExxaTools icon back into Steam within seconds
+whenever the client restarts; `./exxa autostart install` starts that at login.
+`./exxa serve --window` runs the server and the window in one process.
 window, starting the server when nothing answers on the port.
 
 ## Run
@@ -42,7 +43,8 @@ cargo build --release
 ```
 
 ```sh
-./exxa                        # local UI on http://127.0.0.1:8765/
+./exxa window                 # the dashboard in a GTK/WebKit window
+./exxa                        # print the usage JSON
 ./exxa serve --window         # same UI in a GTK/WebKit app window
 ./exxa serve --port 9000
 ./exxa engine install         # fetch, verify, and wire the Vapor Forge engine
@@ -235,12 +237,12 @@ Details that matter:
   `-cef-enable-debugging`.
 * A `MutationObserver` inside the page re-adds the icon when Steam re-renders
   its menu bar.
-* `fetch` from the Steam page to `http://127.0.0.1:8765` works (loopback is a
-  trustworthy origin). Writes need the token from `GET /api/session`, a foreign
-  `Origin` is refused, and no CORS header is emitted at all — the dashboard is
-  same-origin and the Steam panel talks over CDP instead of HTTP.
-* The panel is plain DOM: status line from `/api/engine`, then Open ExxaTools,
-  Restart Steam, Install provider, About.
+* The panel never calls the API: Steam's CSP blocks loopback requests, and writes
+  need the token from `GET /api/session` which the page cannot hold. The icon sets
+  a flag, the Rust side reads it over CDP and opens the panel; clicks travel the
+  same way.
+* The panel lists up to eight plans with Install/Sync, Rebuild and an `-onlinefix`
+  toggle each, then Open ExxaTools, Restart Steam, Install provider, About.
 * An OS-level window grab can miss the CEF overlay; `Page.captureScreenshot`
   over CDP shows what the client actually renders.
 

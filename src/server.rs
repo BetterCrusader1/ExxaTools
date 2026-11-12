@@ -998,6 +998,7 @@ pub fn serve(config: Config) -> Result<(), String> {
         .map_err(|error| format!("cannot bind 127.0.0.1:{}: {error}", config.port))?;
     eprintln!("exxa {} on http://127.0.0.1:{}/", env!("CARGO_PKG_VERSION"), config.port);
     std::thread::spawn(crate::steamui::watch_loop);
+    crate::steamui::start_pump();
     let listener = Arc::new(listener);
     for incoming in listener.incoming() {
         match incoming {

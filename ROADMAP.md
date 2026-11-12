@@ -19,7 +19,7 @@ Everything below serves those three points.
 | UI | Library / Discover / Game / System in a GTK window, `.desktop` entry |
 | Diagnostics | `exxa diagnose`, `exxa doctor`, `exxa verify`, `exxa diagnostics` with keys masked |
 | Durability | state backups, offline refresh from the catalog snapshot carried by a plan |
-| Tests | 74 unit tests and 9 integration tests against a temporary Steam tree, CI on push |
+| Tests | Unit tests plus integration tests against a temporary Steam tree; CI on push |
 | Packaging | `packaging/PKGBUILD`, `v0.3.0` tag, `.desktop`, icon |
 | Not done | older-build picker, snapshot diff, auto-finish after download, tray icon, Millennium plugin |
 
