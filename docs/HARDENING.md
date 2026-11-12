@@ -20,6 +20,11 @@ the English working copy: what landed, what is still open.
 | State read-modify-write guarded | partial — `save` takes a process-wide mutex and uses a unique temp file, but read-modify-write across two `load` calls is still not transactional |
 | Body limit and Content-Type | done — 413 above 1 MiB, 415 for non-JSON bodies |
 
+One deliberate exception: the engine digest (`engine.sha256`) stays readable in
+`/api/engine` and `/api/library`. It is a public build checksum, not a secret, and the
+update path compares it. `diagnostics.json` still masks it so a pasted bundle carries
+no long hex runs.
+
 Tests behind these claims: `tests/http_security.rs` (secrets, permissions, 403/200,
 415, 413), `tests/api_auth.rs` (the predicate), `tests/diagnostics.rs` (hex scan).
 
