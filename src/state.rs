@@ -92,8 +92,43 @@ fn migrate_legacy(path: &Path) {
     }
 }
 
+/// Keeps the last few versions of the state next to it, so a bad import or a
+/// half-written plan never costs the keys a user collected by hand.
+fn snapshot(path: &Path) -> std::io::Result<()> {
+    if !path.is_file() {
+        return Ok(());
+    }
+    let Some(parent) = path.parent() else { return Ok(()) };
+    let dir = parent.join("backups");
+    std::fs::create_dir_all(&dir)?;
+    let stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|value| value.as_secs())
+        .unwrap_or(0);
+    let target = dir.join(format!("state-{stamp}.json"));
+    std::fs::copy(path, target)?;
+    let mut entries: Vec<std::path::PathBuf> = std::fs::read_dir(&dir)?
+        .flatten()
+        .map(|entry| entry.path())
+        .filter(|entry| entry.extension().and_then(|value| value.to_str()) == Some("json"))
+        .collect();
+    entries.sort();
+    while entries.len() > 5 {
+        if let Some(oldest) = entries.first() {
+            let _ = std::fs::remove_file(oldest);
+        }
+        entries.remove(0);
+    }
+    Ok(())
+}
+
+pub fn backup_dir() -> PathBuf {
+    state_path().parent().map(|path| path.join("backups")).unwrap_or_else(|| PathBuf::from("backups"))
+}
+
 pub fn save(state: &State) -> Result<(), String> {
     let path = state_path();
+    let _ = snapshot(&path);
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).map_err(|error| format!("cannot create {}: {error}", parent.display()))?;
     }

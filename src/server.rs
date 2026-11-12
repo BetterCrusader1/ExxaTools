@@ -368,6 +368,7 @@ fn get_route(path: &str, query: &[(String, String)]) -> Result<Value, (u16, Stri
             Ok(json!({ "appid": appid, "cloud": steamctl::cloud_state(appid) }))
         }
         "/api/doctor" => Ok(crate::doctor::run()),
+        "/api/selftest" => Ok(crate::selftest::run()),
         "/api/pins" => {
             let appid = need_u64(query, "appid")?;
             let branch = get(query, "branch").unwrap_or("public").to_string();

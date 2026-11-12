@@ -50,9 +50,18 @@ pub fn project_dir() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
 }
 
-pub fn web_dir() -> PathBuf {
-    project_dir().join("web")
+fn installed_share() -> PathBuf {
+    PathBuf::from("/usr/share/exxatools")
 }
+
+pub fn web_dir() -> PathBuf {
+    let local = project_dir().join("web");
+    if local.is_dir() {
+        return local;
+    }
+    installed_share().join("web")
+}
+
 
 pub fn state_dir() -> PathBuf {
     match env::var("EXXATOOLS_HOME") {

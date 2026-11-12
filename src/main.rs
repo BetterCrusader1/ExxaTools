@@ -13,6 +13,7 @@ mod paths;
 mod pins;
 mod plans;
 mod providers;
+mod selftest;
 mod server;
 mod sources;
 mod verify;
@@ -267,6 +268,13 @@ fn main() {
             }
             if let Err(error) = window::run(&url) {
                 fail(error);
+            }
+        }
+        "selftest" => {
+            let report = selftest::run();
+            print_json(&report);
+            if !report.get("ok").and_then(Value::as_bool).unwrap_or(false) {
+                std::process::exit(1);
             }
         }
         "steamui" => {

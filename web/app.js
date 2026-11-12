@@ -762,6 +762,34 @@ async function openSettings() {
   ryuu.append(ryuuRow);
   body.append(ryuu);
 
+  const selfTest = el("button", "btn tiny", "Run self-test");
+  const selfTestBox = el("div", "checks");
+  selfTest.addEventListener("click", async () => {
+    selfTest.disabled = true;
+    selfTestBox.replaceChildren(el("p", "hint", "Running…"));
+    try {
+      const report = await fetch("/api/selftest").then((response) => response.json());
+      selfTestBox.replaceChildren(...(report.steps || []).map((step) => {
+        const row = el("div", `check ${step.ok ? "ok" : "bad"}`);
+        row.append(el("span", "check-dot"));
+        const text = el("div", "check-text");
+        text.append(el("b", "", step.name), el("span", "", step.detail || ""));
+        row.append(text);
+        return row;
+      }));
+      if (report.ok) toast("Self-test passed");
+      else toast("Self-test failed", { kind: "bad" });
+    } catch (error) {
+      fail(error);
+    } finally {
+      selfTest.disabled = false;
+    }
+  });
+  const selfTestRow = el("div", "field");
+  selfTestRow.append(el("span", "", "Plan pipeline"));
+  selfTestRow.append(selfTest);
+  body.append(selfTestRow, selfTestBox);
+
   body.append(el("div", "divider"));
   body.append(el("h3", "", "Health"));
 
