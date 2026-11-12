@@ -16,12 +16,15 @@ execs it; the old Python implementation is kept under `legacy/` as a reference.
 
 ## Window and menu
 
-`./exxa window` opens a real application window (GTK with a WebKit view, no browser
-chrome); bare `./exxa` prints the usage JSON. `./exxa serve` keeps the integration
-alive in the background and puts the ExxaTools icon back into Steam within seconds
-whenever the client restarts; `./exxa autostart install` starts that at login.
-`./exxa serve --window` runs the server and the window in one process.
-window, starting the server when nothing answers on the port.
+The app lives in Steam. `./exxa serve` keeps the integration alive in the background
+and puts the ExxaTools icon back into the Steam menu bar within seconds whenever the
+client restarts; `./exxa autostart install` starts that at login. The panel's
+Open ExxaTools shows the dashboard inside the Steam window itself, and the menu entry
+that gets installed is hidden from the app grid because it only re-injects the menu.
+
+`./exxa window` still opens the dashboard in a real GTK/WebKit window for development;
+it is a single instance, so a second launch raises the window that already exists
+instead of adding another taskbar entry. Bare `./exxa` prints the usage JSON.
 
 ## Run
 
@@ -58,7 +61,7 @@ cargo build --release
 ./exxa check 730              # parse the plan with luac, the way the runtime does
 ./exxa fix 730                # Stop Steam, patch appmanifest flags, start Steam
 ./exxa provider --write       # install the request-code provider script
-./exxa shortcut                # add the desktop menu entry
+./exxa shortcut                # re-inject the Steam menu (hidden desktop entry)
 ```
 
 ## In the Steam client

@@ -252,9 +252,9 @@ fn run_action(action: &str) -> String {
             }
             format!("{refreshed} script(s) refreshed")
         }
-        "open" => match crate::desktop::launch_app().get("error").and_then(Value::as_str) {
-            Some(error) => error.to_string(),
-            None => "opening the dashboard".into(),
+        "open" => match open_dashboard() {
+            Ok(()) => "dashboard opened in Steam".into(),
+            Err(error) => error,
         },
         "restart" => match crate::steamctl::restart(&[]) {
             Ok(_) => "Steam is restarting".into(),
@@ -449,6 +449,35 @@ pub fn status() -> Value {
         "flag": FLAG,
         "error": error,
     })
+}
+
+/// Show the dashboard as an overlay inside Steam. Callers that used to spawn a
+/// desktop window (the panel button, an older injected panel) go through here so
+/// the app never splits into a second application.
+pub fn open_dashboard() -> Result<(), String> {
+    if !steamctl::is_running() {
+        return Err("Steam is not running".into());
+    }
+    if !debug_ready() {
+        return Err(format!("Steam has no debugging port: restart Steam with {FLAG}"));
+    }
+    let mut shown = 0;
+    for target in page_targets() {
+        let ws = target.get("webSocketDebuggerUrl").and_then(Value::as_str).unwrap_or("");
+        if ws.is_empty() {
+            continue;
+        }
+        let script = "window.__vdOpenDashboard ? (window.__vdOpenDashboard(), 'opened') : 'missing'";
+        if let Ok(value) = cdp::evaluate(ws, script, std::time::Duration::from_secs(4)) {
+            if value.as_str() == Some("opened") {
+                shown += 1;
+            }
+        }
+    }
+    if shown == 0 {
+        return Err("the Steam menu is not injected yet".into());
+    }
+    Ok(())
 }
 
 pub fn inject() -> Result<Value, String> {

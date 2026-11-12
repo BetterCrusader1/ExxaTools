@@ -651,7 +651,10 @@ fn post_route(path: &str, body: &Value, query: &[(String, String)]) -> Result<Va
                 other => Err((400, format!("action must be inject, remove, or enable, not {other}"))),
             }
         }
-        "/api/app/launch" => Ok(crate::desktop::launch_app()),
+        "/api/app/launch" => Ok(match crate::steamui::open_dashboard() {
+            Ok(()) => json!({ "opened": true, "where": "steam" }),
+            Err(error) => json!({ "opened": false, "error": error }),
+        }),
         "/api/desktop" => {
             let action = body.get("action").and_then(Value::as_str).unwrap_or("install");
             match action {
