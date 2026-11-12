@@ -14,6 +14,14 @@
     <img src="/logo-48.png" alt="" class="brand-mark">
     <span class="brand-name">ExxaTools</span>
   </div>
+
+  <nav class="nav" id="nav" aria-label="Sections">
+    <button class="nav-item" data-target="library" aria-selected="true">Library</button>
+    <button class="nav-item" data-target="discover" aria-selected="false">Discover</button>
+    <button class="nav-item" data-target="system" aria-selected="false">System</button>
+    <button class="nav-item" data-target="settings" aria-selected="false">Settings</button>
+  </nav>
+
   <div class="top-actions">
     <button class="btn small import-btn" id="importBtn" title="Paste or drop a .lua plan">
       <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v11M8 10l4 4 4-4"></path><path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"></path></svg>
@@ -22,61 +30,80 @@
     <button class="chip" id="steamChip" title="Steam status">
       <span class="dot"></span><span id="steamText">Steam</span>
     </button>
-    <button class="icon-btn" id="settingsBtn" title="Settings" aria-label="Settings">
-      <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round">
-        <circle cx="12" cy="12" r="3"></circle>
-        <path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1A1.7 1.7 0 0 0 8.9 19a1.7 1.7 0 0 0-1.9.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1A1.7 1.7 0 0 0 4.5 15a1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1A1.7 1.7 0 0 0 4.5 9a1.7 1.7 0 0 0-.3-1.9l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1A1.7 1.7 0 0 0 8.9 4.5 1.7 1.7 0 0 0 10 3V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.9-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.9V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"></path>
-      </svg>
-    </button>
   </div>
 </header>
 
 <main class="wrap">
-  <section class="search">
-    <div class="search-box">
-      <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
-        <circle cx="11" cy="11" r="7"></circle><path d="m20 20-3.5-3.5"></path>
-      </svg>
-      <input id="q" type="search" placeholder="Find a game — name or app id" autocomplete="off" spellcheck="false" aria-label="Find a game">
-      <button class="search-go" id="searchGo">Search</button>
-    </div>
-    <div class="results" id="results" hidden></div>
-  </section>
-
-  <section class="diagnose" id="diagnoseBanner" hidden></section>
-
-  <section class="section">
-    <div class="section-head">
-      <h2>Library</h2>
-      <span class="section-note" id="libNote"></span>
-    </div>
-    <div class="cards" id="cards"></div>
-    <div class="empty" id="empty" hidden>
-      <div class="empty-art">
-        <svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round">
-          <rect x="3" y="4" width="18" height="16" rx="3"></rect><path d="M3 9h18M8 4v5"></path>
+  <section class="view" id="view-library" data-view="library">
+    <section class="search">
+      <div class="search-box">
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
+          <circle cx="11" cy="11" r="7"></circle><path d="m20 20-3.5-3.5"></path>
         </svg>
+        <input id="q" type="search" placeholder="Find a game — name or app id" autocomplete="off" spellcheck="false" aria-label="Find a game">
+        <button class="search-go" id="searchGo">Search</button>
       </div>
-      <p class="empty-title">Your library is empty</p>
-      <p class="empty-text">Add a game and restart Steam — it appears in your library like a normal purchase.</p>
-      <button class="btn primary" id="emptyCta">Find a game</button>
-    </div>
+      <div class="results" id="results" hidden></div>
+    </section>
+
+    <section class="diagnose" id="diagnoseBanner" hidden></section>
+
+    <section class="section">
+      <div class="section-head">
+        <h2>Library</h2>
+        <span class="section-note" id="libNote"></span>
+      </div>
+      <div class="cards" id="cards"></div>
+      <div class="empty" id="empty" hidden>
+        <div class="empty-art">
+          <svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round">
+            <rect x="3" y="4" width="18" height="16" rx="3"></rect><path d="M3 9h18M8 4v5"></path>
+          </svg>
+        </div>
+        <p class="empty-title">Your library is empty</p>
+        <p class="empty-text">Add a game and restart Steam — it appears in your library like a normal purchase.</p>
+        <button class="btn primary" id="emptyCta">Find a game</button>
+      </div>
+    </section>
   </section>
 
-  <section class="section" id="suggestSection" hidden>
+  <section class="view" id="view-discover" data-view="discover" hidden>
     <div class="section-head">
-      <h2>Suggested for you</h2>
-      <span class="section-note">Choose one and press Add to Steam</span>
+      <h2>Discover</h2>
+      <span class="section-note">Popular on Steam right now</span>
     </div>
     <div class="cards" id="suggest"></div>
   </section>
 
-  <section class="section">
+  <section class="view" id="view-system" data-view="system" hidden>
+    <div class="section-head">
+      <h2>System</h2>
+      <span class="section-note">Steam, engine and disk</span>
+    </div>
+    <div class="system-grid">
+      <div class="system-card" id="systemEngine"></div>
+      <div class="system-card" id="systemDisk"></div>
+    </div>
+
     <div class="section-head">
       <h2>Quick actions</h2>
       <span class="section-note">Safe to run any time</span>
     </div>
     <div class="fixes" id="fixes"></div>
+
+    <div class="section-head">
+      <h2>Checks</h2>
+      <span class="section-note" id="checksNote"></span>
+    </div>
+    <div class="checks" id="checksList"></div>
+  </section>
+
+  <section class="view" id="view-settings" data-view="settings" hidden>
+    <div class="section-head">
+      <h2>Settings</h2>
+      <span class="section-note">Sources, keys and behaviour</span>
+    </div>
+    <div class="settings-page" id="settingsBody"></div>
   </section>
 </main>
 
@@ -92,18 +119,6 @@
   <div class="drawer-inner" id="drawerInner"></div>
 </aside>
 <div class="scrim" id="scrim" hidden></div>
-
-<div class="modal" id="settings" hidden>
-  <div class="modal-card">
-    <div class="modal-head">
-      <h3>Settings</h3>
-      <button class="icon-btn" id="settingsClose" aria-label="Close">
-        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"></path></svg>
-      </button>
-    </div>
-    <div class="modal-body" id="settingsBody"></div>
-  </div>
-</div>
 
 <div class="modal" id="importModal" hidden>
   <div class="modal-card">

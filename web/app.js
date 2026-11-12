@@ -70,7 +70,8 @@ function attachArt(container, appid, name) {
   return img;
 }
 
-const state = { items: [], settings: {}, sources: [], term: "" };
+const state = {
+  discoverLoaded: false, items: [], settings: {}, sources: [], term: "" };
 
 /* ---------- toasts ---------- */
 
@@ -90,6 +91,30 @@ function toast(text, options = {}) {
 const fail = (error) => toast(error.message || String(error), { kind: "bad" });
 
 /* ---------- header ---------- */
+
+const VIEWS = ["library", "discover", "system", "settings"];
+let currentView = "library";
+
+function setView(name) {
+  if (!VIEWS.includes(name)) name = "library";
+  currentView = name;
+  for (const view of VIEWS) {
+    const node = document.getElementById(`view-${view}`);
+    if (node) node.hidden = view !== name;
+  }
+  for (const button of document.querySelectorAll(".nav-item")) {
+    button.setAttribute("aria-selected", String(button.dataset.target === name));
+  }
+  if (window.location.hash !== `#${name}`) {
+    window.history.replaceState(null, "", `#${name}`);
+  }
+  if (name === "discover" && !state.discoverLoaded) {
+    state.discoverLoaded = true;
+    loadSuggestions().catch(() => {});
+  }
+  if (name === "system") renderSystem().catch(() => {});
+  if (name === "settings") openSettings().catch(() => {});
+}
 
 function renderHeader() {
   const chip = document.getElementById("steamChip");
@@ -290,8 +315,8 @@ function suggestCard(item) {
 }
 
 async function loadSuggestions() {
-  const section = document.getElementById("suggestSection");
   const box = document.getElementById("suggest");
+  if (!box) return;
   if (state.items.length) { section.hidden = true; return; }
   section.hidden = false;
   if (box.childElementCount) return;
@@ -498,6 +523,49 @@ function renderFixes() {
       try { await entry.run(); } finally { setTimeout(() => node.classList.remove("busy"), 600); }
     });
     return node;
+  }));
+}
+
+async function renderSystem() {
+  const engineBox = document.getElementById("systemEngine");
+  const diskBox = document.getElementById("systemDisk");
+  const checks = document.getElementById("checksList");
+  const note = document.getElementById("checksNote");
+  if (!engineBox || !diskBox || !checks) return;
+
+  const engine = state.engine || {};
+  engineBox.replaceChildren(
+    el("h3", "", "Vapor Forge"),
+    el("p", "", engine.installed
+      ? `${engine.version || "installed"} — ${engine.steam_engine_loaded ? "loaded inside Steam" : "installed, restart Steam to load it"}`
+      : "Not installed"),
+  );
+
+  let storage = null;
+  try { storage = await api("/api/storage"); } catch { /* keep the card empty */ }
+  if (storage && storage.lowest) {
+    diskBox.replaceChildren(
+      el("h3", "", "Disk"),
+      el("p", "", `${storage.lowest.free_human || "?"} free on ${storage.lowest.path || ""}`),
+    );
+  } else {
+    diskBox.replaceChildren(el("h3", "", "Disk"), el("p", "", "No Steam library found"));
+  }
+
+  let doctor = null;
+  try { doctor = await api("/api/doctor"); } catch { /* checks stay empty */ }
+  if (!doctor) {
+    checks.replaceChildren(el("p", "hint", "Could not read the checks."));
+    return;
+  }
+  note.textContent = doctor.ok ? "all critical checks pass" : `${doctor.warnings} warning(s)`;
+  checks.replaceChildren(...(doctor.items || []).map((item) => {
+    const row = el("div", `check ${item.status}`);
+    row.append(el("span", "check-dot"));
+    const text = el("div", "check-text");
+    text.append(el("b", "", item.label), el("span", "", item.detail || ""));
+    row.append(text);
+    return row;
   }));
 }
 
@@ -851,9 +919,9 @@ function closeDrawer() {
 /* ---------- settings ---------- */
 
 async function openSettings() {
-  const modal = document.getElementById("settings");
+  if (currentView !== "settings") setView("settings");
   const body = document.getElementById("settingsBody");
-  modal.hidden = false;
+  if (!body) return;
   body.replaceChildren(el("p", "hint", "Loading…"));
 
   const settings = state.settings || {};
@@ -1059,7 +1127,11 @@ async function boot() {
   });
   document.getElementById("searchGo").addEventListener("click", runSearch);
 
-  document.getElementById("settingsBtn").addEventListener("click", openSettings);
+  for (const button of document.querySelectorAll(".nav-item")) {
+    button.addEventListener("click", () => setView(button.dataset.target));
+  }
+  window.addEventListener("hashchange", () => setView(window.location.hash.replace("#", "")));
+  document.getElementById("settingsBtn")?.addEventListener("click", openSettings);
   document.getElementById("importBtn").addEventListener("click", openImport);
   document.getElementById("importClose").addEventListener("click", closeImport);
   document.getElementById("importCancel").addEventListener("click", closeImport);
@@ -1078,10 +1150,7 @@ async function boot() {
     dropzone.classList.remove("over");
     await readFileIntoBox(event.dataTransfer.files[0]);
   });
-  document.getElementById("settingsClose").addEventListener("click", () => { document.getElementById("settings").hidden = true; });
-  document.getElementById("settings").addEventListener("click", (event) => {
-    if (event.target.id === "settings") document.getElementById("settings").hidden = true;
-  });
+  document.querySelector(".brand-name")?.addEventListener("click", () => setView("library"));
   document.getElementById("scrim").addEventListener("click", closeDrawer);
 
   document.addEventListener("click", (event) => {
@@ -1092,7 +1161,6 @@ async function boot() {
   document.addEventListener("keydown", (event) => {
     if (event.key === "Escape") {
       document.getElementById("results").hidden = true;
-      document.getElementById("settings").hidden = true;
       closeImport();
       closeDrawer();
     }
@@ -1103,6 +1171,7 @@ async function boot() {
     document.getElementById("footVersion").textContent = `ExxaTools ${status.version || ""}`.trim();
   } catch { /* footer keeps its default */ }
 
+  setView(window.location.hash.replace("#", "") || "library");
   document.body.dataset.ready = "1";
   setInterval(() => { loadLibrary().catch(() => {}); }, 30000);
 }

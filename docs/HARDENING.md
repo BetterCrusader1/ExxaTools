@@ -44,10 +44,15 @@ Tests behind these claims: `tests/http_security.rs` (secrets, permissions, 403/2
 
 ## Phase 2 — design system and navigation
 
-Not started. Library / Discover / System / Settings as pages, shared components and
-the token set in section 4 of the audit. This is the largest block and needs its own
-pass; the current dashboard already uses the palette, so the work is structure and
-component consistency rather than colour.
+Navigation and the page shell are in: Library, Discover, System and Settings are views
+behind one nav, Settings is a page instead of a modal, System carries the engine and
+disk cards, the quick actions and the check list. The palette and the shared badge,
+card, modal, toast and check row already existed and are reused. Layout was checked at
+1080, 900 and 620 pixels with no horizontal overflow, `prefers-reduced-motion` is
+honoured, and the nav is a row of buttons reachable by Tab.
+
+Still open from Phase 2: a full keyboard pass over the drawer and forms, and folding
+the remaining ad-hoc styles into named components.
 
 ## Not in this program
 

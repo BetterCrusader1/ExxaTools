@@ -841,3 +841,82 @@ img { display: block; }
 .diagnose-row { display: flex; align-items: center; gap: 12px; }
 .diagnose-row .row-text b { color: var(--text); }
 .diagnose-row .row-text span { color: var(--faint); }
+
+/* ---------- navigation and views ---------- */
+
+.nav {
+  display: flex;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: rgba(21, 26, 33, .6);
+}
+
+.nav-item {
+  height: 32px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--dim);
+  font: 600 13px Inter, system-ui, sans-serif;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.nav-item:hover { color: var(--text); background: rgba(255, 255, 255, .04); }
+.nav-item[aria-selected="true"] { color: #14181f; background: var(--sand); }
+.nav-item:focus-visible { outline: 2px solid var(--sand); outline-offset: 2px; }
+
+.view { display: flex; flex-direction: column; gap: 24px; }
+.view[hidden] { display: none; }
+
+.system-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 16px;
+}
+
+.system-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 16px 18px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--panel);
+}
+
+.system-card h3 {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 650;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: var(--dim);
+}
+
+.system-card p { margin: 0; font-size: 14px; color: var(--text); }
+
+.settings-page { display: flex; flex-direction: column; gap: 18px; max-width: 760px; }
+
+.settings-page .field,
+.settings-page .field-row { max-width: 100%; }
+
+@media (max-width: 900px) {
+  .topbar { flex-wrap: wrap; padding: 14px 20px; }
+  .nav { order: 3; width: 100%; overflow-x: auto; }
+  .wrap { width: calc(100% - 32px); margin: 24px auto 56px; gap: 26px; }
+}
+
+@media (max-width: 620px) {
+  .brand-name { font-size: 20px; }
+  .import-btn { display: none; }
+  .cards { grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); }
+  .wrap { width: calc(100% - 24px); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * { animation-duration: .001ms !important; transition-duration: .001ms !important; }
+}
