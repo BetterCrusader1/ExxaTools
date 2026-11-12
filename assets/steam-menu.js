@@ -26,6 +26,25 @@ window.__vdPanel = (opts) => {
   };
   window.__vdOpenDashboard = openDashboard;
 
+  const POS_KEY = "exxa.panel.pos";
+  const readPos = () => {
+    try {
+      const raw = JSON.parse(localStorage.getItem(POS_KEY) || "null");
+      if (raw && Number.isFinite(raw.x) && Number.isFinite(raw.y)) return raw;
+    } catch (error) { /* storage is optional */ }
+    return null;
+  };
+  const savePos = (x, y) => {
+    try { localStorage.setItem(POS_KEY, JSON.stringify({ x: Math.round(x), y: Math.round(y) })); } catch (error) { }
+  };
+  const clampPos = (x, y) => {
+    const width = 320, height = 120;
+    return {
+      x: Math.max(8, Math.min(x, window.innerWidth - width - 8)),
+      y: Math.max(8, Math.min(y, window.innerHeight - height)),
+    };
+  };
+
   const build = () => {
     if (!document.body) return null;
     const style = document.createElement("style");
@@ -33,36 +52,39 @@ window.__vdPanel = (opts) => {
     style.textContent = `
       #${PANEL} {
         position: fixed; z-index: 2147483647; width: 320px;
-        background: #141922; border: 1px solid #242E3A; border-radius: 14px;
+        background: #0A0B0D; border: 1px solid #2E333B; border-radius: 14px;
         box-shadow: 0 20px 48px rgba(0,0,0,.55);
         font-family: Montserrat, "Motiva Sans", Arial, sans-serif;
-        color: #E9EDF2; display: none;
+        color: #F4F5F7; display: none;
         max-height: calc(100vh - 16px);
         overflow-y: auto;
         overscroll-behavior: contain;
       }
       #${PANEL}.open { display: block; }
-      #${PANEL} .vd-head { padding: 14px 14px 11px; border-bottom: 1px solid #1C2430; }
+      #${PANEL} .vd-state[hidden] { display: none; }
+      #${PANEL} .vd-head { cursor: grab; user-select: none; }
+      #${PANEL}.dragging, #${PANEL}.dragging .vd-head { cursor: grabbing; }
+      #${PANEL} .vd-head { padding: 14px 14px 11px; border-bottom: 1px solid #1A1D21; }
       #${PANEL} .vd-brand { display: flex; align-items: center; gap: 8px; }
       #${PANEL} .vd-name { flex: 1; font-size: 13.5px; font-weight: 650; letter-spacing: .005em; }
       #${PANEL} .vd-x {
         width: 28px; height: 28px; flex: none; display: grid; place-items: center;
         border: 0; border-radius: 7px; background: transparent;
-        color: #A9B4C3; font: 500 16px/1 Montserrat, Arial, sans-serif; cursor: pointer;
+        color: #C9CDD3; font: 500 16px/1 Montserrat, Arial, sans-serif; cursor: pointer;
       }
-      #${PANEL} .vd-x:hover { background: #1C2430; color: #E9EDF2; }
+      #${PANEL} .vd-x:hover { background: #1A1D21; color: #F4F5F7; }
       #${PANEL} .vd-state { display: flex; align-items: center; gap: 7px; margin-top: 8px;
-        font-size: 11.5px; color: #B7C1CD; }
-      #${PANEL} .vd-ver { margin-left: auto; font-size: 10.5px; color: #8A95A3;
+        font-size: 11.5px; color: #C9CDD3; }
+      #${PANEL} .vd-ver { margin-left: auto; font-size: 10.5px; color: #A9AFB7;
         font-variant-numeric: tabular-nums; }
       #${PANEL} .vd-dot { width: 7px; height: 7px; border-radius: 50%; background: #6B7686; flex: none; }
-      #${PANEL} .vd-state.ok .vd-dot { background: #58B77E; box-shadow: 0 0 0 3px rgba(88,183,126,.14); }
-      #${PANEL} .vd-state.warn .vd-dot { background: #D9A15A; box-shadow: 0 0 0 3px rgba(217,161,90,.14); }
-      #${PANEL} .vd-state.bad .vd-dot { background: #D9655C; box-shadow: 0 0 0 3px rgba(217,101,92,.14); }
+      #${PANEL} .vd-state.ok .vd-dot { background: #8FBFA6; box-shadow: 0 0 0 3px rgba(88,183,126,.14); }
+      #${PANEL} .vd-state.warn .vd-dot { background: #D8B27A; box-shadow: 0 0 0 3px rgba(217,161,90,.14); }
+      #${PANEL} .vd-state.bad .vd-dot { background: #D96A60; box-shadow: 0 0 0 3px rgba(217,101,92,.14); }
       #${PANEL} .vd-body { padding: 4px 8px 8px; }
       #${PANEL} .vd-label { margin: 20px 6px 8px; padding: 0;
         font-size: 10.5px; font-weight: 700; letter-spacing: .07em;
-        text-transform: uppercase; color: #A9B4C3; }
+        text-transform: uppercase; color: #B7BCC4; }
       #${PANEL} .vd-body > .vd-label:first-of-type { margin-top: 10px; }
       #${PANEL} .vd-alert[hidden] { display: none; }
       #${PANEL} .vd-alert { display: flex; align-items: center; gap: 8px; margin: 6px 6px 2px;
@@ -71,55 +93,57 @@ window.__vdPanel = (opts) => {
       #${PANEL} .vd-alert-text { flex: 1; line-height: 1.35; }
       #${PANEL} .vd-plans { display: flex; flex-direction: column; gap: 1px; }
       #${PANEL} .vd-plan { display: flex; flex-direction: column; align-items: stretch; gap: 8px;
-        min-height: 36px; padding: 8px; border-radius: 9px; font-size: 12.5px; color: #B7C1CD; }
-      #${PANEL} .vd-plan:hover { background: #171E28; }
+        min-height: 36px; padding: 8px; border-radius: 9px; font-size: 12.5px; color: #C9CDD3; }
+      #${PANEL} .vd-plan:hover { background: #14171B; }
       #${PANEL} .vd-plan-top { display: flex; align-items: center; gap: 8px; min-width: 0; }
-      #${PANEL} .vd-plan-top b { flex: 1; min-width: 0; font-weight: 550; color: #E9EDF2;
+      #${PANEL} .vd-plan-top b { flex: 1; min-width: 0; font-weight: 550; color: #F4F5F7;
         overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
       #${PANEL} .vd-plan-actions { display: flex; gap: 6px; justify-content: flex-start; flex-wrap: wrap; }
       #${PANEL} .vd-plan-actions .vd-mini { height: 24px; padding: 0 9px; font-size: 10.5px; }
       #${PANEL} .vd-flag { font: 600 10px Montserrat, Arial, sans-serif; padding: 2px 7px;
-        border: 0; border-radius: 5px; background: #1D2632; color: #93A0AE; }
+        border: 0; border-radius: 5px; background: #1B1F24; color: #B0B6BE; }
       #${PANEL} .vd-flag.ok { color: #83D3A6; background: #16261F; }
       #${PANEL} .vd-flag.warn { color: #E2B274; background: #2A2116; }
-      #${PANEL} .vd-mini { height: 26px; padding: 0 11px; border: 1px solid #39485A;
-        border-radius: 7px; background: #222D3A; color: #E2E9F1;
+      #${PANEL} .vd-mini { height: 26px; padding: 0 11px; border: 1px solid #2B3037;
+        border-radius: 7px; background: #222D3A; color: #E9ECEF;
         font: 600 11px Montserrat, Arial, sans-serif; cursor: pointer; }
-      #${PANEL} .vd-mini:hover { background: #1F2935; border-color: #35414F; color: #EEF3F8; }
+      #${PANEL} .vd-mini:hover { background: #1F242B; border-color: #3A424C; color: #FFFFFF; }
+      #${PANEL} .vd-mini.strong { background: #F2F3F5; border-color: #F2F3F5; color: #0A0B0D; }
+      #${PANEL} .vd-mini.strong:hover { background: #FFFFFF; color: #0A0B0D; }
       #${PANEL} .vd-empty { display: flex; flex-direction: column; align-items: flex-start;
-        gap: 5px; padding: 2px 8px 2px; font-size: 12px; color: #8A95A3; }
-      #${PANEL} .vd-empty span { font-size: 12.5px; font-weight: 600; color: #C3CCD7; }
-      #${PANEL} .vd-empty .vd-hint { font-size: 11.5px; font-weight: 400; color: #9AA6B5; }
+        gap: 5px; padding: 2px 8px 2px; font-size: 12px; color: #8E939B; }
+      #${PANEL} .vd-empty span { font-size: 12.5px; font-weight: 600; color: #C9CDD3; }
+      #${PANEL} .vd-empty .vd-hint { font-size: 11.5px; font-weight: 400; color: #A3A7AE; }
       #${PANEL} .vd-primary { height: 28px; margin-top: 4px; padding: 0 11px;
-        border: 0; border-radius: 7px; background: #EDB45F; color: #171C24;
+        border: 0; border-radius: 7px; background: #F2F3F5; color: #0A0B0D;
         font: 600 11.5px Montserrat, Arial, sans-serif; cursor: pointer; }
       #${PANEL} .vd-primary:hover { filter: brightness(1.06); }
       #${PANEL} .vd-primary:active { filter: brightness(.94); }
       #${PANEL} .vd-link { align-self: flex-start; padding: 0; border: 0; background: none;
-        color: #EDB45F; font: 500 11.5px Montserrat, Arial, sans-serif; cursor: pointer; }
+        color: #F2F3F5; font: 500 11.5px Montserrat, Arial, sans-serif; cursor: pointer; }
       #${PANEL} .vd-link:hover { text-decoration: underline; }
       #${PANEL} .vd-actions { display: flex; flex-direction: column; gap: 1px; }
       #${PANEL} .vd-item { display: flex; align-items: center; width: 100%; min-height: 36px;
         padding: 7px 8px; gap: 10px; background: transparent; border: 0;
-        border-radius: 8px; color: #C3CCD7;
+        border-radius: 8px; color: #C9CDD3;
         font: 500 12.5px Montserrat, "Motiva Sans", Arial, sans-serif;
         text-align: left; cursor: pointer; }
-      #${PANEL} .vd-item:hover { background: #1A212B; color: #EEF3F8; }
+      #${PANEL} .vd-item:hover { background: #14171B; color: #EEF3F8; }
       #${PANEL} .vd-item:focus-visible, #${PANEL} .vd-mini:focus-visible,
       #${PANEL} .vd-primary:focus-visible, #${PANEL} .vd-x:focus-visible {
-        outline: 2px solid #EDB45F; outline-offset: 2px; }
+        outline: 2px solid #F2F3F5; outline-offset: 2px; }
       #${PANEL} .vd-item svg { width: 16px; height: 16px; flex: none; opacity: .7; }
       #${PANEL} .vd-item:hover svg { opacity: .9; }
-      #${PANEL} .vd-foot { height: 1px; margin: 14px 6px 4px; background: #1C2430; }
-      #${PANEL} .vd-about { margin-top: 2px; color: #9AA6B5; }
-      #${PANEL} .vd-msg { padding: 8px 8px 0; font-size: 11.5px; color: #9AA6B5; }
+      #${PANEL} .vd-foot { height: 1px; margin: 14px 6px 4px; background: #1A1D21; }
+      #${PANEL} .vd-about { margin-top: 2px; color: #A3A7AE; }
+      #${PANEL} .vd-msg { padding: 8px 8px 0; font-size: 11.5px; color: #A3A7AE; }
       #${PANEL} .vd-msg:empty { display: none; }
       #${PANEL} .vd-plugins { display: flex; flex-direction: column; gap: 8px; }
-      #${PANEL} .vd-plugins section { padding: 10px 10px 10px; border: 1px solid #202834;
-        border-radius: 10px; background: #171D26; }
+      #${PANEL} .vd-plugins section { padding: 12px 12px 12px; border: 1px solid #1F2328;
+        border-radius: 10px; background: #101215; }
       #${PANEL} .vd-plugins section .vd-label { margin: 0 0 6px; padding: 0;
         font-size: 11.5px; font-weight: 650; letter-spacing: 0; text-transform: none;
-        color: #C3CCD7; }
+        color: #C9CDD3; }
       #${PANEL} .vd-plugins:empty { display: none; }
       #${PANEL} .vd-plugins .vd-label { margin: 0 0 4px; padding: 0; font-weight: 600; }
       #${PANEL}-dash {
@@ -130,16 +154,16 @@ window.__vdPanel = (opts) => {
       #${PANEL}-dash.open { display: flex; }
       #${PANEL}-dash .vd-dash-bar {
         display: flex; align-items: center; gap: 10px; height: 38px; flex: none;
-        padding: 0 10px 0 14px; background: #141922; border-bottom: 1px solid #242E3A;
-        color: #E9EDF2; font-size: 12.5px; font-weight: 600;
+        padding: 0 10px 0 14px; background: #0A0B0D; border-bottom: 1px solid #23262B;
+        color: #F4F5F7; font-size: 12.5px; font-weight: 600;
       }
-      #${PANEL}-dash .vd-dash-bar span { flex: 1; color: #8A95A3; font-weight: 400; }
+      #${PANEL}-dash .vd-dash-bar span { flex: 1; color: #8E939B; font-weight: 400; }
       #${PANEL}-dash .vd-dash-x {
         width: 26px; height: 26px; display: grid; place-items: center;
-        border: 1px solid #2A3543; border-radius: 7px; background: transparent;
-        color: #8A95A3; font: 500 14px/1 Montserrat, Arial, sans-serif; cursor: pointer;
+        border: 1px solid #2B3037; border-radius: 7px; background: transparent;
+        color: #8E939B; font: 500 14px/1 Montserrat, Arial, sans-serif; cursor: pointer;
       }
-      #${PANEL}-dash .vd-dash-x:hover { background: #1C2430; color: #EFF3F8; }
+      #${PANEL}-dash .vd-dash-x:hover { background: #1A1D21; color: #EFF3F8; }
       #${PANEL}-dash iframe { flex: 1; width: 100%; border: 0; background: #0c0f13; }
     `;
     // Refresh the stylesheet instead of skipping it: a panel injected by an
@@ -153,7 +177,7 @@ window.__vdPanel = (opts) => {
     panel.innerHTML = `
       <div class="vd-head">
         <div class="vd-brand"><span class="vd-name">ExxaTools</span><button class="vd-x" data-act="close" title="Close">×</button></div>
-        <div class="vd-state" id="vd-state"><span class="vd-dot"></span><span id="vd-state-text">checking engine</span><span class="vd-ver" id="vd-ver"></span></div>
+        <div class="vd-state" id="vd-state" hidden><span class="vd-dot"></span><span id="vd-state-text"></span></div>
       </div>
       <div class="vd-body">
         <div class="vd-alert" id="vd-alert" hidden>
@@ -173,7 +197,10 @@ window.__vdPanel = (opts) => {
         <div class="vd-plugins" id="vd-plugins-host"></div>
         <div class="vd-msg" id="vd-msg"></div>
         <div class="vd-foot"></div>
-        <button class="vd-item vd-about" data-act="about">ICON_GLYPH_ABOUT About</button>
+        <div class="vd-foot-row">
+          <button class="vd-item vd-about" data-act="about">ICON_GLYPH_ABOUT About</button>
+          <span class="vd-ver" id="vd-ver"></span>
+        </div>
       </div>
     `
       .replace("ICON_GLYPH_APP", glyph("app"))
@@ -223,20 +250,23 @@ window.__vdPanel = (opts) => {
       const stateNode = panel.querySelector("#vd-state");
       const text = panel.querySelector("#vd-state-text");
       const version = panel.querySelector("#vd-ver");
+      version.textContent = engine && engine.version ? engine.version : "";
       if (!engine) {
-        text.textContent = "ExxaTools is not answering";
+        stateNode.hidden = true;
+      } else if (!engine.installed) {
+        stateNode.hidden = false;
+        text.textContent = "Engine is not installed";
         stateNode.className = "vd-state bad";
+      } else if (!engine.steam_running) {
+        stateNode.hidden = false;
+        text.textContent = "Steam is not running";
+        stateNode.className = "vd-state warn";
+      } else if (!engine.steam_engine_loaded) {
+        stateNode.hidden = false;
+        text.textContent = "Restart Steam to load the engine";
+        stateNode.className = "vd-state warn";
       } else {
-        version.textContent = engine.version ? `engine ${engine.version}` : "—";
-        let label = "engine not installed";
-        let kind = "bad";
-        if (engine.installed) {
-          if (!engine.steam_running) { label = "Steam is not running"; kind = "warn"; }
-          else if (engine.steam_engine_loaded) { label = "engine loaded in Steam"; kind = "ok"; }
-          else { label = "restart Steam to load the engine"; kind = "warn"; }
-        }
-        text.textContent = label;
-        stateNode.className = "vd-state " + kind;
+        stateNode.hidden = true;
       }
       const box = panel.querySelector("#vd-plans");
       const plans = state.apps || [];
@@ -262,7 +292,7 @@ window.__vdPanel = (opts) => {
           chip.className = "vd-flag " + flag.kind;
           chip.textContent = flag.text;
           const install = document.createElement("button");
-          install.className = "vd-mini";
+          install.className = plan.installed ? "vd-mini" : "vd-mini strong";
           install.dataset.act = "install:" + plan.appid;
           install.textContent = plan.installed ? "Sync" : "Install";
           install.title = "Write this plan into the Vapor Forge scripts folder";
@@ -305,9 +335,38 @@ window.__vdPanel = (opts) => {
       if (state.msg !== undefined) msg(state.msg || "");
     };
 
+    const head = panel.querySelector(".vd-head");
+    let drag = null;
+    head.addEventListener("pointerdown", (event) => {
+      if (event.target.closest("button")) return;
+      const rect = panel.getBoundingClientRect();
+      drag = { dx: event.clientX - rect.left, dy: event.clientY - rect.top };
+      try { head.setPointerCapture(event.pointerId); } catch (error) { /* synthetic events */ }
+      panel.classList.add("dragging");
+    });
+    head.addEventListener("pointermove", (event) => {
+      if (!drag) return;
+      const next = clampPos(event.clientX - drag.dx, event.clientY - drag.dy);
+      panel.style.left = next.x + "px";
+      panel.style.top = next.y + "px";
+    });
+    const endDrag = () => {
+      if (!drag) return;
+      drag = null;
+      panel.classList.remove("dragging");
+      const rect = panel.getBoundingClientRect();
+      savePos(rect.left, rect.top);
+    };
+    head.addEventListener("pointerup", endDrag);
+    head.addEventListener("pointercancel", endDrag);
+
     panel.addEventListener("click", (event) => {
       const button = event.target.closest("[data-act]");
       if (!button) return;
+      if (button.dataset.act === "close") {
+        if (window.__vdPanel) window.__vdPanel({ open: false });
+        return;
+      }
       if (button.dataset.act === "dismiss") {
         const alerts = (window.__vdLastState && window.__vdLastState.diagnose) || [];
         const incident = alerts[0];
@@ -346,12 +405,17 @@ window.__vdPanel = (opts) => {
 
   if (opts && opts.open === false) {
     panel.classList.remove("open");
+    window.__vdPanelOpen = false;
     return true;
   }
 
-  panel.style.left = Math.max(8, Number((opts && opts.x) || 8)) + "px";
-  panel.style.top = Math.max(8, Number((opts && opts.y) || 44)) + "px";
+  const saved = readPos();
+  const start = saved || { x: Number((opts && opts.x) || 8), y: Number((opts && opts.y) || 44) };
+  const placed = clampPos(start.x, start.y);
+  panel.style.left = placed.x + "px";
+  panel.style.top = placed.y + "px";
   panel.classList.add("open");
+  window.__vdPanelOpen = true;
   if (opts && opts.state && window.__vdRender) window.__vdRender(opts.state);
   return true;
 };
@@ -367,8 +431,11 @@ window.__vdInject = () => {
   const API = "__API__";
   const ROOT = "__ROOT__";
   const ICON = "__ICON__";
+  const PANEL = "__PANEL__";
 
-  if (document.getElementById(ROOT)) return "present";
+  const existing = document.getElementById(ROOT);
+  if (existing && existing.dataset.build === (window.__vdBuild || "")) return "present";
+  if (existing) existing.remove();
 
   let help = null;
   for (const el of document.querySelectorAll("div,button,span,a,li")) {
@@ -383,6 +450,7 @@ window.__vdInject = () => {
 
   const item = wrapper.cloneNode(true);
   item.id = ROOT;
+  item.dataset.build = window.__vdBuild || "";
   item.innerHTML = "";
   item.style.cursor = "pointer";
   item.style.display = "flex";
@@ -402,13 +470,24 @@ window.__vdInject = () => {
   // API now refuses unauthenticated writes. A flag read over CDP is enough.
   const toggle = () => {
     const rect = item.getBoundingClientRect();
-    window.__vdWantPanel = {
-      toggle: true,
-      x: Math.round(rect.left),
-      y: Math.round(rect.bottom),
-      screen_x: Math.round(window.screenX || 0),
-      screen_y: Math.round(window.screenY || 0),
-    };
+    const panel = document.getElementById("__PANEL__");
+    if (panel && panel.classList.contains("open")) {
+      // Close locally; asking the pump to close as well raced with a second click
+      // and shut the panel right after it opened.
+      if (window.__vdPanel) window.__vdPanel({ open: false });
+      return;
+    }
+    // Open from the page immediately with whatever state was last pushed; the
+    // pump refreshes it a moment later. Waiting for the round trip was the reason
+    // the menu felt slow.
+    if (window.__vdPanel) {
+      window.__vdPanel({
+        open: true,
+        x: Math.round(rect.left),
+        y: Math.round(rect.bottom),
+        state: window.__vdLastState || null,
+      });
+    }
   };
 
   item.addEventListener("click", (event) => {
@@ -421,9 +500,9 @@ window.__vdInject = () => {
       toggle();
     }
     if (event.key === "Escape") {
-      const shell = document.getElementById(PANEL + "-dash");
+      const shell = document.getElementById("__PANEL__-dash");
       if (shell && shell.classList.contains("open")) { shell.classList.remove("open"); return; }
-      window.__vdWantPanel = { close: true };
+      if (window.__vdPanel) window.__vdPanel({ open: false });
     }
   });
 

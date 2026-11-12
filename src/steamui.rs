@@ -408,53 +408,40 @@ pub fn start_pump() {
 fn pump() {
     loop {
         std::thread::sleep(std::time::Duration::from_millis(400));
-        // The icon and the hotkey set a flag instead of calling the API, because
-        // the page cannot hold the token and its CSP blocks loopback requests.
-        if let Some(target) = main_target() {
-            if let Some(ws) = target.get("webSocketDebuggerUrl").and_then(Value::as_str) {
-                if let Ok(want) = cdp::evaluate(ws, "window.__vdWantPanel || null", std::time::Duration::from_millis(800)) {
-                    if want.is_object() {
-                        let _ = cdp::evaluate(ws, "window.__vdWantPanel = null", std::time::Duration::from_millis(800));
-                        if want.get("close").and_then(Value::as_bool).unwrap_or(false) {
-                            hide_panel();
-                        } else {
-                            let field = |name: &str| want.get(name).and_then(Value::as_i64).unwrap_or(0);
-                            if let Err(error) = panel(
-                                true,
-                                want.get("toggle").and_then(Value::as_bool).unwrap_or(false),
-                                field("x"),
-                                field("y"),
-                                field("screen_x"),
-                                field("screen_y"),
-                            ) {
-                                eprintln!("panel from icon: {error}");
-                            }
-                        }
-                        continue;
-                    }
-                }
-            }
-        }
-        if !PANEL_SHOWN.load(std::sync::atomic::Ordering::Relaxed) {
+        if !steamctl::is_running() || !debug_ready() {
             continue;
         }
-        let Some(ws) = PANEL_HOST.lock().ok().and_then(|guard| guard.clone()) else { continue };
-        let action = cdp::evaluate(&ws, "window.__vdAction || ''", std::time::Duration::from_secs(3))
+        let Some(target) = main_target() else { continue };
+        let ws = target.get("webSocketDebuggerUrl").and_then(Value::as_str).unwrap_or("");
+        if ws.is_empty() {
+            continue;
+        }
+        // The icon opens and closes the panel inside the page; the pump only
+        // refreshes what is on screen and turns clicks into Rust calls.
+        let _ = cdp::evaluate(ws, "window.__vdWantPanel = null", std::time::Duration::from_millis(600));
+        let open = cdp::evaluate(ws, "Boolean(window.__vdPanelOpen)", std::time::Duration::from_millis(800))
+            .ok()
+            .and_then(|value| value.as_bool())
+            .unwrap_or(false);
+        if !open {
+            continue;
+        }
+        let action = cdp::evaluate(ws, "window.__vdAction || ''", std::time::Duration::from_secs(2))
             .ok()
             .and_then(|value| value.as_str().map(str::to_string))
             .unwrap_or_default();
         if !action.is_empty() {
-            let _ = cdp::evaluate(&ws, "window.__vdAction = ''", std::time::Duration::from_secs(3));
+            let _ = cdp::evaluate(ws, "window.__vdAction = ''", std::time::Duration::from_secs(2));
             let message = run_action(&action);
             let state = status_snapshot();
             let payload = json!({ "engine": state["engine"], "apps": state["apps"], "msg": message });
             let expression = format!("window.__vdUpdate({payload})");
-            let _ = cdp::evaluate(&ws, &expression, std::time::Duration::from_secs(3));
+            let _ = cdp::evaluate(ws, &expression, std::time::Duration::from_secs(2));
             continue;
         }
         let state = status_snapshot();
         let expression = format!("window.__vdUpdate({state})");
-        let _ = cdp::evaluate(&ws, &expression, std::time::Duration::from_secs(3));
+        let _ = cdp::evaluate(ws, &expression, std::time::Duration::from_secs(2));
     }
 }
 
@@ -508,6 +495,9 @@ pub fn panel(open: bool, toggle: bool, x: i64, y: i64, screen_x: i64, screen_y: 
         "window.__vdPanel({{ open: true, x: {local_x}, y: {local_y}, state: {state} }})"
     );
     cdp::evaluate(&host.ws, &expression, std::time::Duration::from_secs(4))?;
+    // A click left in the page from a previous panel must not fire against the
+    // one we just opened (a stale "close" used to shut it instantly).
+    let _ = cdp::evaluate(&host.ws, "window.__vdAction = ''", std::time::Duration::from_secs(2));
     PANEL_SHOWN.store(true, Ordering::Relaxed);
     if let Ok(mut guard) = PANEL_HOST.lock() {
         *guard = Some(host.ws.clone());
@@ -814,6 +804,7 @@ static WATCHER: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::n
 /// restart and drops whatever was injected, so the icon has to be put back.
 pub fn ensure_started() {
     use std::sync::atomic::Ordering;
+    start_pump();
     static BRIDGE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
     if !BRIDGE.swap(true, Ordering::Relaxed) {
         std::thread::spawn(|| loop {
