@@ -84,20 +84,7 @@ pub fn run(appid: u64) -> Value {
     };
     items.push(item("script", "Lua plan installed", state_label, detail));
 
-    let text = crate::lua::render_plan(
-        appid,
-        plan.get("name").and_then(Value::as_str).unwrap_or(""),
-        plan.get("branch").and_then(Value::as_str).unwrap_or("public"),
-        plan.get("depots").and_then(Value::as_array).map(Vec::as_slice).unwrap_or(&[]),
-        &st.depot_keys,
-        &plan
-            .get("dlc")
-            .and_then(Value::as_array)
-            .map(|list| list.iter().filter_map(Value::as_u64).collect::<Vec<_>>())
-            .unwrap_or_default(),
-        &crate::vfsys::stamp(),
-        "auto",
-    );
+    let text = crate::lua::render_record(&plan, &st.depot_keys);
     let problems = lint_lua(&text);
     items.push(item(
         "lua",
@@ -106,7 +93,18 @@ pub fn run(appid: u64) -> Value {
         if problems.is_empty() { format!("{} lines", text.lines().count()) } else { problems.iter().take(4).cloned().collect::<Vec<_>>().join("; ") },
     ));
 
-    let depots = plan.get("depots").and_then(Value::as_array).cloned().unwrap_or_default();
+    // A depot switched off in the drawer is intentionally absent from the script,
+    // so it must not be demanded here either.
+    let depots: Vec<Value> = plan
+        .get("depots")
+        .and_then(Value::as_array)
+        .map(|list| {
+            list.iter()
+                .filter(|depot| depot.get("enabled").and_then(Value::as_bool).unwrap_or(true))
+                .cloned()
+                .collect()
+        })
+        .unwrap_or_default();
     let missing: Vec<String> = depots
         .iter()
         .filter_map(|depot| depot.get("depot_id").and_then(Value::as_u64))
@@ -117,7 +115,7 @@ pub fn run(appid: u64) -> Value {
         "keys",
         "Depot keys",
         if missing.is_empty() { "ok" } else { "warn" },
-        if missing.is_empty() { "all depots keyed".into() } else { format!("missing: {}", missing.join(", ")) },
+        if missing.is_empty() { "all enabled depots keyed".into() } else { format!("missing: {}", missing.join(", ")) },
     ));
 
     let resolved = depots
@@ -178,4 +176,31 @@ pub fn merge_launch_option(current: Option<&str>, flag: &str) -> String {
         return text;
     }
     format!("{text} {flag}").trim().to_string()
+}
+
+
+#[cfg(test)]
+mod record_lint_tests {
+    use super::lint_lua;
+    use serde_json::json;
+    use std::collections::BTreeMap;
+
+    #[test]
+    fn a_plan_without_keys_still_parses() {
+        let plan = json!({
+            "appid": 620,
+            "name": "Portal 2",
+            "branch": "public",
+            "source": "auto",
+            "updated": "1794480536",
+            "depots": [
+                {"depot_id": 621, "gid": "9044256803759256265", "size": 1200, "enabled": true},
+                {"depot_id": 622, "enabled": false}
+            ],
+            "dlc": [323180]
+        });
+        let text = crate::lua::render_record(&plan, &BTreeMap::new());
+        assert!(lint_lua(&text).is_empty(), "lint objections: {:?}", lint_lua(&text));
+        assert!(text.lines().count() >= 5);
+    }
 }
