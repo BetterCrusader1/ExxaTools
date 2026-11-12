@@ -155,6 +155,15 @@ function renderDiagnose() {
       const run = el("button", "btn tiny", "Refresh keys");
       run.addEventListener("click", () => fixGame(0, "keys", "Refreshing keys…"));
       row.append(run);
+    } else if (incident.action === "disk") {
+      const run = el("button", "btn tiny", "Check space");
+      run.addEventListener("click", async () => {
+        try {
+          const result = await post("/api/fix", { action: "disk" });
+          toast(result.message || "free space checked");
+        } catch (error) { fail(error); }
+      });
+      row.append(run);
     } else if (incident.action === "engine") {
       const run = el("button", "btn tiny", "Update engine");
       run.addEventListener("click", async () => {

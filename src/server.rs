@@ -370,6 +370,7 @@ fn get_route(path: &str, query: &[(String, String)]) -> Result<Value, (u16, Stri
         "/api/doctor" => Ok(crate::doctor::run()),
         "/api/selftest" => Ok(crate::selftest::run()),
         "/api/diagnose" => Ok(crate::diagnose::from_files()),
+        "/api/storage" => Ok(crate::storage::report()),
         "/api/pins" => {
             let appid = need_u64(query, "appid")?;
             let branch = get(query, "branch").unwrap_or("public").to_string();
@@ -603,6 +604,15 @@ fn post_route(path: &str, body: &Value, query: &[(String, String)]) -> Result<Va
                     if appid == 0 { return Err((400, "appid is required".into())); }
                     steamctl::set_launch_options(appid, "").map_err(|error| (409, error))?;
                     Ok(json!({ "ok": true, "message": "launch options cleared" }))
+                }
+                "disk" => {
+                    let report = crate::storage::report();
+                    let lowest = report.get("lowest").cloned().unwrap_or(Value::Null);
+                    let message = match lowest.get("free_human").and_then(Value::as_str) {
+                        Some(free) => format!("Lowest free space: {free} ({}). Steam needs room for the download plus the unpacked build.", lowest.get("path").and_then(Value::as_str).unwrap_or("")),
+                        None => "Could not read free space for the Steam libraries".to_string(),
+                    };
+                    Ok(json!({ "ok": true, "message": message, "result": report }))
                 }
                 "remove" => {
                     if appid == 0 { return Err((400, "appid is required".into())); }

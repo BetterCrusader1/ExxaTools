@@ -183,6 +183,14 @@ fn status_snapshot() -> Value {
 
 fn run_action(action: &str) -> String {
     match action {
+        "disk" => match crate::storage::report().get("lowest").cloned() {
+            Some(lowest) => format!(
+                "Lowest free space: {} ({})",
+                lowest.get("free_human").and_then(Value::as_str).unwrap_or("?"),
+                lowest.get("path").and_then(Value::as_str).unwrap_or("")
+            ),
+            None => "Could not read free space".into(),
+        },
         "engine" => match crate::engine::install(None) {
             Ok(report) => format!("engine {} installed", report.get("version").and_then(Value::as_str).unwrap_or("")),
             Err(error) => error,

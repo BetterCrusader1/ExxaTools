@@ -19,6 +19,7 @@ mod server;
 mod sources;
 mod verify;
 mod state;
+mod storage;
 mod steam;
 mod hubcap;
 mod steamctl;
@@ -274,6 +275,7 @@ fn main() {
             }
         }
         "diagnose" => print_json(&diagnose::from_files()),
+        "storage" => print_json(&storage::report()),
         "selftest" => {
             let report = selftest::run();
             print_json(&report);

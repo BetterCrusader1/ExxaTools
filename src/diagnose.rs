@@ -41,7 +41,7 @@ const RULES: &[Rule] = &[
         id: "disk-write",
         title: "Steam cannot write the download",
         detail: "Check free space on the library drive and the folder permissions.",
-        action: "",
+        action: "disk",
         needles: &["disk write error", "failed to write", "no space left"],
     },
     Rule {
