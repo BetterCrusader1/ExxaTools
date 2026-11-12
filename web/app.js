@@ -1,7 +1,14 @@
 /* ExxaTools dashboard: search, add, fix. Nothing else needs a manual. */
 
-const api = async (path, init) => {
-  const response = await fetch(path, init);
+let sessionToken = "";
+
+const api = async (path, init = {}) => {
+  const method = (init.method || "GET").toUpperCase();
+  const headers = { ...(init.headers || {}) };
+  if (sessionToken && method !== "GET" && method !== "HEAD") {
+    headers["X-Exxa-Token"] = sessionToken;
+  }
+  const response = await fetch(path, { ...init, headers });
   const text = await response.text();
   let data = {};
   try { data = text ? JSON.parse(text) : {}; } catch { data = { error: text }; }
@@ -17,6 +24,13 @@ const post = (path, body) => api(path, {
   headers: { "Content-Type": "application/json" },
   body: JSON.stringify(body || {}),
 });
+
+const hasFlag = (options, flag) => String(options || "").split(/\s+/).filter(Boolean).includes(flag);
+const withFlag = (options, flag, on) => {
+  const parts = String(options || "").split(/\s+/).filter((part) => part && part !== flag);
+  if (on) parts.push(flag);
+  return parts.join(" ");
+};
 
 const el = (tag, className, text) => {
   const node = document.createElement(tag);
@@ -578,6 +592,14 @@ async function openGame(appid) {
   if (app && (app.dlc || []).length) facts.append(el("span", "fact", `${app.dlc.length} DLC`));
   body.append(facts);
 
+  if (app && (app.depots || []).length) {
+    const keyed = app.depots.filter((depot) => depot.has_key).length;
+    const missing = app.depots.filter((depot) => !depot.has_key).map((depot) => depot.depot_id);
+    const coverage = el("div", "drawer-sub", `${keyed} of ${app.depots.length} depots keyed`);
+    if (missing.length) coverage.title = `missing keys: ${missing.join(", ")}`;
+    body.append(coverage);
+  }
+
   const actions = el("div", "drawer-actions");
   const needsKeys = !app || !app.plan || (item.missing_keys || []).length > 0;
   if (needsKeys) {
@@ -634,6 +656,36 @@ async function openGame(appid) {
   restart.addEventListener("click", restartSteam);
   actions.append(restart);
   body.append(actions);
+
+  const launchRow = el("div", "row");
+  const launchText = el("div", "row-text");
+  launchText.append(el("div", "row-name", "Launch option -onlinefix"));
+  const launchHint = el("div", "row-sub", "Adds the flag Denuvo-era fixes expect");
+  launchText.append(launchHint);
+  const launchToggle = el("input");
+  launchToggle.type = "checkbox";
+  launchToggle.checked = hasFlag(item.launch_options, "-onlinefix");
+  launchToggle.addEventListener("change", async () => {
+    launchToggle.disabled = true;
+    try {
+      const result = await post("/api/launchoptions", {
+        appid,
+        options: withFlag(item.launch_options, "-onlinefix", launchToggle.checked),
+      });
+      item.launch_options = result.options || "";
+      launchHint.textContent = item.launch_options
+        ? `Current: ${item.launch_options}`
+        : "Adds the flag Denuvo-era fixes expect";
+      toast(launchToggle.checked ? "Flag added" : "Flag removed");
+    } catch (error) {
+      launchToggle.checked = !launchToggle.checked;
+      toast(String(error.message || error), { error: true });
+    } finally {
+      launchToggle.disabled = false;
+    }
+  });
+  launchRow.append(launchText, launchToggle);
+  body.append(launchRow);
 
   const selectedDlc = new Set((app && app.plan && app.plan.dlc) || []);
   if (app && (app.dlc_names || []).length) {
@@ -954,6 +1006,11 @@ async function openSettings() {
 /* ---------- boot ---------- */
 
 async function boot() {
+  try {
+    const session = await api("/api/session");
+    sessionToken = session.token || "";
+  } catch { sessionToken = ""; }
+
   try {
     const sources = await api("/api/sources");
     state.sources = sources.sources || [];

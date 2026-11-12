@@ -56,7 +56,7 @@ fn respond(stream: &mut TcpStream, status: u16, mime: &str, body: &[u8]) {
         _ => "Error",
     };
     let head = format!(
-        "HTTP/1.1 {status} {reason}\r\nContent-Type: {mime}\r\nContent-Length: {}\r\nCache-Control: no-store\r\nAccess-Control-Allow-Origin: *\r\nAccess-Control-Allow-Headers: Content-Type\r\nAccess-Control-Allow-Methods: GET, POST, DELETE, OPTIONS\r\nConnection: close\r\n\r\n",
+        "HTTP/1.1 {status} {reason}\r\nContent-Type: {mime}\r\nContent-Length: {}\r\nCache-Control: no-store\r\nConnection: close\r\n\r\n",
         body.len()
     );
     let _ = stream.write_all(head.as_bytes());
@@ -172,7 +172,7 @@ fn app_view(appid: u64, branch: &str) -> Result<Value, (u16, String)> {
         "installed": vfsys::script_path(appid).exists(),
         "source": st.settings.default_source,
         "sources": crate::sources::catalog(&st.settings),
-        "launch_options": Value::Null,
+        "launch_options": steamctl::read_launch_options(appid),
         "catalog": catalog,
     }))
 }
@@ -224,6 +224,7 @@ fn record_from_body(body: &Value) -> Result<Value, (u16, String)> {
 fn get_route(path: &str, query: &[(String, String)]) -> Result<Value, (u16, String)> {
     let st = state::load().map_err(|error| (500, error))?;
     match path {
+        "/api/session" => Ok(json!({ "token": token(), "version": env!("CARGO_PKG_VERSION") })),
         "/api/status" => Ok(json!({
             "version": env!("CARGO_PKG_VERSION"),
             "steam": {
@@ -827,13 +828,48 @@ fn delete_route(path: &str, query: &[(String, String)]) -> Result<Value, (u16, S
     }
 }
 
-fn static_file(relative: &str) -> Option<PathBuf> {
+/// Resolves a request path against the web root and refuses anything that ends up
+/// outside it: `..`, an absolute path, or a symlink planted in the tree.
+static TOKEN: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+
+fn token() -> &'static str {
+    TOKEN.get().map(String::as_str).unwrap_or("")
+}
+
+/// Writes need the token from `/api/session`; a browser that is not this app
+/// cannot present it, and a foreign Origin is refused outright.
+pub fn authorize(method: &str, origin: Option<&str>, supplied: Option<&str>, expected: &str, port: u16) -> Result<(), (u16, String)> {
+    if method == "GET" || method == "OPTIONS" {
+        return Ok(());
+    }
+    if let Some(origin) = origin {
+        let allowed = [format!("http://127.0.0.1:{port}"), format!("http://localhost:{port}")];
+        if !allowed.iter().any(|value| value == origin) {
+            return Err((403, "origin not allowed".into()));
+        }
+    }
+    if expected.is_empty() {
+        return Err((500, "the server has no token".into()));
+    }
+    match supplied {
+        Some(value) if value == expected => Ok(()),
+        Some(_) => Err((403, "wrong token".into())),
+        None => Err((403, "missing token".into())),
+    }
+}
+
+pub fn static_file(relative: &str) -> Option<PathBuf> {
+    let root = paths::web_dir().canonicalize().ok()?;
     let cleaned = relative.trim_start_matches('/');
-    if cleaned.contains("..") {
+    if cleaned.contains('\0') {
         return None;
     }
-    let candidate = if cleaned.is_empty() { paths::web_dir().join("index.html") } else { paths::web_dir().join(cleaned) };
-    candidate.is_file().then_some(candidate)
+    let candidate = if cleaned.is_empty() { root.join("index.html") } else { root.join(cleaned) };
+    let resolved = candidate.canonicalize().ok()?;
+    if !resolved.starts_with(&root) || !resolved.is_file() {
+        return None;
+    }
+    Some(resolved)
 }
 
 fn handle(mut stream: TcpStream) {
@@ -848,6 +884,8 @@ fn handle(mut stream: TcpStream) {
     let target = parts.next().unwrap_or("/").to_string();
 
     let mut length = 0usize;
+    let mut origin: Option<String> = None;
+    let mut supplied: Option<String> = None;
     loop {
         let mut header = String::new();
         match reader.read_line(&mut header) {
@@ -857,6 +895,12 @@ fn handle(mut stream: TcpStream) {
                 let lower = header.to_lowercase();
                 if let Some(value) = lower.strip_prefix("content-length:") {
                     length = value.trim().parse().unwrap_or(0);
+                }
+                if let Some(value) = lower.strip_prefix("origin:") {
+                    origin = Some(value.trim().to_string());
+                }
+                if let Some(value) = lower.strip_prefix("x-exxa-token:") {
+                    supplied = Some(value.trim().to_string());
                 }
             }
             Err(_) => break,
@@ -878,6 +922,11 @@ fn handle(mut stream: TcpStream) {
             }
         }
     };
+
+    if let Err((status, message)) = authorize(&method, origin.as_deref(), supplied.as_deref(), token(), PORT.get().copied().unwrap_or(8765)) {
+        respond_json(&mut stream, status, &json!({ "error": message }));
+        return;
+    }
 
     let (raw_path, query) = match target.split_once('?') {
         Some((path, query)) => (path.to_string(), query_pairs(query)),
@@ -918,6 +967,7 @@ fn handle(mut stream: TcpStream) {
 
 pub fn serve(config: Config) -> Result<(), String> {
     let _ = PORT.set(config.port);
+    let _ = TOKEN.set(crate::state::ensure_token()?);
     let listener = TcpListener::bind(("127.0.0.1", config.port))
         .map_err(|error| format!("cannot bind 127.0.0.1:{}: {error}", config.port))?;
     eprintln!("exxa {} on http://127.0.0.1:{}/", env!("CARGO_PKG_VERSION"), config.port);

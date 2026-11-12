@@ -4,6 +4,7 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
+use sha2::Digest;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
@@ -48,6 +49,9 @@ pub struct State {
     /// appid -> depot -> recent branch gids, newest first
     pub build_history: BTreeMap<String, BTreeMap<String, Vec<serde_json::Value>>>,
     pub settings: Settings,
+    /// Shared secret for the local API; empty until the server first runs.
+    #[serde(default)]
+    pub token: String,
 }
 
 impl Default for State {
@@ -59,6 +63,7 @@ impl Default for State {
             codes: BTreeMap::new(),
             build_history: BTreeMap::new(),
             settings: Settings::default(),
+            token: String::new(),
         }
     }
 }
@@ -158,6 +163,26 @@ pub fn app_summary(state: &State, record: &serde_json::Value) -> serde_json::Val
         "dlc": record.get("dlc").cloned().unwrap_or_else(|| serde_json::json!([])),
         "updated": record.get("updated").cloned().unwrap_or(serde_json::Value::Null),
     })
+}
+
+/// The server keeps one token in state so a restarted UI keeps working, and a
+/// fresh one appears only when the file has none.
+pub fn ensure_token() -> Result<String, String> {
+    let mut state = load()?;
+    if state.token.len() == 64 {
+        return Ok(state.token);
+    }
+    let mut seed = format!("{}-{}-{:?}", std::process::id(), super::vfsys::stamp(), std::time::SystemTime::now());
+    let mut token = String::with_capacity(64);
+    while token.len() < 64 {
+        let digest = sha2::Sha256::digest(seed.as_bytes());
+        token.push_str(&format!("{digest:x}"));
+        seed.push('x');
+    }
+    token.truncate(64);
+    state.token = token.clone();
+    save(&state)?;
+    Ok(token)
 }
 
 /// A depot key is 64 hex characters; anything else is not a key.
