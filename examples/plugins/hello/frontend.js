@@ -4,13 +4,13 @@
 // The section is mounted synchronously so a slow host call can never delay it;
 // the status line fills in when the bridge answers.
 const line = document.createElement("div");
-line.style.cssText = "font-size:11.5px;color:#A9B4C3;line-height:1.4";
+line.style.cssText = "flex:1;font-size:11.5px;color:#93A0AE;line-height:1.4";
 line.textContent = "hello — asking the host…";
 
 const button = document.createElement("button");
 button.className = "vd-mini";
 button.textContent = "Say hi";
-button.style.marginLeft = "8px";
+button.style.flex = "none";
 button.addEventListener("click", async () => {
   try {
     await exxa.config.set("greeting", "hi from the plugin");
@@ -21,6 +21,7 @@ button.addEventListener("click", async () => {
 });
 
 const row = document.createElement("div");
+row.style.cssText = "display:flex;align-items:center;gap:10px";
 row.append(line, button);
 exxa.ui.section("Example", row);
 

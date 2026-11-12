@@ -135,7 +135,7 @@ fn plugin_bootstrap(plugin: &crate::plugins::Plugin) -> String {
     root.querySelectorAll('[data-exxa-plugin="' + PLUGIN.id + '"]').forEach((old) => old.remove());
     const wrap = document.createElement("section");
     wrap.setAttribute("data-exxa-plugin", PLUGIN.id);
-    wrap.style.cssText = "padding:2px 10px 6px";
+    wrap.style.cssText = "padding:0";
     if (title) {{
       const label = document.createElement("div");
       label.className = "vd-label";
