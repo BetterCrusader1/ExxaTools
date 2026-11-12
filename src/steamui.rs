@@ -135,6 +135,18 @@ fn host_for(cx: i64, cy: i64) -> Option<Frame> {
         .min_by_key(|frame| frame.w * frame.h)
 }
 
+/// A freshly created CEF window can report (0,0) for a moment while the window
+/// manager has not placed it yet. In that case lay the panel out against the
+/// shell's origin instead of the corner of the screen.
+fn panel_origin(host: &Frame, reference: Option<&Frame>) -> (i64, i64) {
+    if host.x == 0 && host.y == 0 {
+        if let Some(main) = reference.filter(|main| main.ws != host.ws && main.x + main.y > 0) {
+            return (main.x, main.y + (main.h - host.h).max(0));
+        }
+    }
+    (host.x, host.y)
+}
+
 fn ensure_panel(target: &Frame) -> Result<(), String> {
     let script = script();
     let build = script_hash(&script);
@@ -294,11 +306,13 @@ pub fn panel(open: bool, toggle: bool, x: i64, y: i64, screen_x: i64, screen_y: 
     let host = host_for(left + width / 2, top + height / 2).ok_or("no Steam window covers that spot")?;
 
     ensure_panel(&host)?;
-    if left < host.x + 8 {
+    let reference = frames().into_iter().max_by_key(|frame| frame.w * frame.h);
+    let (origin_x, origin_y) = panel_origin(&host, reference.as_ref());
+    if left < origin_x + 8 {
         left = icon_abs - 16;
     }
-    let local_x = (left - host.x).clamp(8, (host.w - width - 8).max(8));
-    let local_y = (top - host.y).max(8);
+    let local_x = (left - origin_x).clamp(8, (host.w - width - 8).max(8));
+    let local_y = (top - origin_y).max(8);
     let state = status_snapshot();
     let expression = format!(
         "window.__vdPanel({{ open: true, x: {local_x}, y: {local_y}, state: {state} }})"
@@ -571,5 +585,35 @@ mod tests {
     fn flag_is_not_added_twice() {
         let entry = "Exec=/usr/bin/steam -cef-enable-debugging %U\n";
         assert_eq!(add_debug_flag(entry), entry);
+    }
+}
+
+
+#[cfg(test)]
+mod origin_tests {
+    use super::{panel_origin, Frame};
+
+    fn frame(x: i64, y: i64, w: i64, h: i64, ws: &str) -> Frame {
+        Frame { ws: ws.to_string(), x, y, w, h }
+    }
+
+    #[test]
+    fn placed_window_uses_its_own_origin() {
+        let host = frame(462, 448, 1278, 657, "host");
+        let main = frame(461, 356, 1280, 800, "main");
+        assert_eq!(panel_origin(&host, Some(&main)), (462, 448));
+    }
+
+    #[test]
+    fn origin_falls_back_to_the_shell() {
+        let host = frame(0, 0, 1278, 657, "host");
+        let main = frame(461, 356, 1280, 800, "main");
+        assert_eq!(panel_origin(&host, Some(&main)), (461, 356 + (800 - 657)));
+    }
+
+    #[test]
+    fn no_reference_keeps_zero() {
+        let host = frame(0, 0, 1278, 657, "host");
+        assert_eq!(panel_origin(&host, None), (0, 0));
     }
 }
