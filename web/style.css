@@ -822,3 +822,22 @@ img { display: block; }
 
 .depot-key { font-size: 11px; color: var(--faint); }
 .depot-key.ok { color: #8ad8b0; }
+
+
+/* ---------- diagnosis ---------- */
+
+.diagnose {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px 16px;
+  border: 1px solid rgba(237, 180, 95, .32);
+  border-radius: var(--radius);
+  background: rgba(237, 180, 95, .07);
+}
+
+.diagnose-head { font-size: 13px; font-weight: 600; color: #f0c887; }
+
+.diagnose-row { display: flex; align-items: center; gap: 12px; }
+.diagnose-row .row-text b { color: var(--text); }
+.diagnose-row .row-text span { color: var(--faint); }

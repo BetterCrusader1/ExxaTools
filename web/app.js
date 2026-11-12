@@ -140,6 +140,30 @@ function gameCard(item) {
   return card;
 }
 
+function renderDiagnose() {
+  const banner = document.getElementById("diagnoseBanner");
+  const incidents = (state.diagnose && state.diagnose.incidents) || [];
+  if (!incidents.length) { banner.hidden = true; return; }
+  banner.hidden = false;
+  banner.replaceChildren(el("div", "diagnose-head", `Steam reported ${incidents.length} problem${incidents.length === 1 ? "" : "s"}`));
+  for (const incident of incidents.slice(0, 4)) {
+    const row = el("div", "diagnose-row");
+    const text = el("div", "row-text");
+    text.append(el("b", "", incident.title), el("span", "", incident.detail || ""));
+    row.append(text);
+    if (incident.action === "keys") {
+      const run = el("button", "btn tiny", "Refresh keys");
+      run.addEventListener("click", () => fixGame(0, "keys", "Refreshing keys…"));
+      row.append(run);
+    } else if (incident.action) {
+      const open = el("button", "btn tiny ghost", "Open fixes");
+      open.addEventListener("click", () => document.getElementById("fixes").scrollIntoView({ behavior: "smooth" }));
+      row.append(open);
+    }
+    banner.append(row);
+  }
+}
+
 function renderLibrary() {
   const cards = document.getElementById("cards");
   const empty = document.getElementById("empty");
@@ -153,6 +177,11 @@ function renderLibrary() {
     : "";
 }
 
+async function loadDiagnose() {
+  try { state.diagnose = await api("/api/diagnose"); } catch { state.diagnose = { incidents: [] }; }
+  renderDiagnose();
+}
+
 async function loadLibrary() {
   const data = await api("/api/library");
   state.items = data.items || [];
@@ -161,6 +190,7 @@ async function loadLibrary() {
   state.settings = data.settings || {};
   renderHeader();
   renderLibrary();
+  renderDiagnose();
   loadSuggestions();
   const foot = document.getElementById("footSteam");
   if (foot) foot.textContent = state.steam && state.steam.running ? "Steam running" : "Steam closed";
@@ -551,6 +581,25 @@ async function openGame(appid) {
     body.append(dlcBox);
   }
 
+  const appIncidents = ((state.diagnose && state.diagnose.incidents) || [])
+    .filter((incident) => (incident.line || "").includes(String(appid)));
+  if (appIncidents.length) {
+    const box = el("div", "drawer-list");
+    for (const incident of appIncidents) {
+      const row = el("div", "row");
+      const text = el("div", "row-text");
+      text.append(el("b", "", incident.title), el("span", "", incident.detail || ""));
+      row.append(text);
+      if (incident.action) {
+        const run = el("button", "btn tiny", "Fix");
+        run.addEventListener("click", () => fixGame(appid, incident.action));
+        row.append(run);
+      }
+      box.append(row);
+    }
+    body.append(box);
+  }
+
   const list = el("div", "drawer-list");
   const cloud = item.cloud || {};
   const cloudNote = cloud.found
@@ -819,6 +868,7 @@ async function boot() {
   } catch { state.sources = []; }
 
   try { await loadLibrary(); } catch (error) { fail(error); }
+  await loadDiagnose();
 
   renderFixes();
 

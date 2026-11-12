@@ -5,6 +5,7 @@ mod steamui;
 mod window;
 mod desktop;
 mod cdp;
+mod diagnose;
 mod doctor;
 mod engine;
 mod http;
@@ -270,6 +271,7 @@ fn main() {
                 fail(error);
             }
         }
+        "diagnose" => print_json(&diagnose::from_files()),
         "selftest" => {
             let report = selftest::run();
             print_json(&report);

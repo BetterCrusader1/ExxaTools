@@ -369,6 +369,7 @@ fn get_route(path: &str, query: &[(String, String)]) -> Result<Value, (u16, Stri
         }
         "/api/doctor" => Ok(crate::doctor::run()),
         "/api/selftest" => Ok(crate::selftest::run()),
+        "/api/diagnose" => Ok(crate::diagnose::from_files()),
         "/api/pins" => {
             let appid = need_u64(query, "appid")?;
             let branch = get(query, "branch").unwrap_or("public").to_string();
