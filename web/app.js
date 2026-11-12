@@ -203,7 +203,7 @@ async function loadSuggestions() {
 
 /* ---------- install flow ---------- */
 
-async function installGame(appid, name, button) {
+async function installGame(appid, name, button, dlcSelection) {
   if (button) { button.disabled = true; button.textContent = "Adding…"; }
   try {
     const app = await api(`/api/app?appid=${appid}`);
@@ -219,7 +219,7 @@ async function installGame(appid, name, button) {
       name: name || app.name || String(appid),
       branch: "public",
       depots,
-      dlc: (app.plan && app.plan.dlc) || [],
+      dlc: dlcSelection || (app.plan && app.plan.dlc) || [],
       fixes: { ticket: "forge", steam_id: "", avatar: 0, purchase_time: 0, online_fix: false },
     });
     await post("/api/install", { appid, enabled: true });
@@ -232,6 +232,51 @@ async function installGame(appid, name, button) {
     fail(error);
   } finally {
     if (button) { button.disabled = false; button.textContent = "Add to Steam"; }
+  }
+}
+
+/* ---------- import ---------- */
+
+function openImport() {
+  document.getElementById("importModal").hidden = false;
+  document.getElementById("importText").value = "";
+  document.getElementById("dropText").textContent = "Drop a .lua file, or click to choose";
+  document.getElementById("importText").focus();
+}
+
+function closeImport() {
+  document.getElementById("importModal").hidden = true;
+}
+
+async function readFileIntoBox(file) {
+  if (!file) return;
+  const text = await file.text();
+  document.getElementById("importText").value = text;
+  document.getElementById("dropText").textContent = file.name;
+}
+
+async function runImport() {
+  const text = document.getElementById("importText").value.trim();
+  if (!text) return toast("Paste a plan or drop a file first", { kind: "warn" });
+  const create = document.getElementById("importCreate").checked;
+  const button = document.getElementById("importRun");
+  button.disabled = true;
+  button.textContent = "Importing…";
+  try {
+    const result = await post("/api/import", { text, create });
+    const summary = result.summary || {};
+    const keys = summary.keys || 0;
+    const parts = [`${keys} key${keys === 1 ? "" : "s"}`];
+    if (summary.depots) parts.push(`${summary.depots} depots`);
+    if (summary.created_plan) parts.push("added to the library");
+    toast(`Imported: ${parts.join(", ")}`);
+    closeImport();
+    await loadLibrary();
+  } catch (error) {
+    fail(error);
+  } finally {
+    button.disabled = false;
+    button.textContent = "Import";
   }
 }
 
@@ -428,13 +473,51 @@ async function openGame(appid) {
     actions.append(installed);
   } else {
     const install = el("button", "btn primary", "Add to Steam");
-    install.addEventListener("click", async () => { await installGame(appid, name, install); closeDrawer(); });
+    install.addEventListener("click", async () => { await installGame(appid, name, install, [...selectedDlc]); closeDrawer(); });
     actions.append(install);
   }
   const restart = el("button", "btn", "Restart Steam");
   restart.addEventListener("click", restartSteam);
   actions.append(restart);
   body.append(actions);
+
+  const selectedDlc = new Set((app && app.plan && app.plan.dlc) || []);
+  if (app && (app.dlc_names || []).length) {
+    const dlcBox = el("div", "drawer-list");
+    const head = el("div", "row");
+    const headText = el("div", "row-text");
+    headText.append(el("b", "", `DLC (${app.dlc_names.length})`), el("span", "", "Selected DLC is added with the game"));
+    head.append(headText);
+    if (app.plan) {
+      const saveDlc = el("button", "btn tiny ghost", "Save");
+      saveDlc.addEventListener("click", async () => {
+        const body = {
+          appid, name: app.plan.name || name, branch: app.plan.branch || "public",
+          depots: app.plan.depots || [], dlc: [...selectedDlc], fixes: app.plan.fixes || {},
+        };
+        try {
+          await post("/api/plan", body);
+          await post("/api/install", { appid, enabled: true });
+          toast("DLC saved");
+          await loadLibrary();
+        } catch (error) { fail(error); }
+      });
+      head.append(saveDlc);
+    }
+    dlcBox.append(head);
+    for (const entry of app.dlc_names.slice(0, 12)) {
+      const row = el("label", "dlc-row");
+      const box = document.createElement("input");
+      box.type = "checkbox";
+      box.checked = selectedDlc.has(entry.appid);
+      box.addEventListener("change", () => {
+        if (box.checked) selectedDlc.add(entry.appid); else selectedDlc.delete(entry.appid);
+      });
+      row.append(box, el("span", "", entry.name || String(entry.appid)), el("span", "hint", String(entry.appid)));
+      dlcBox.append(row);
+    }
+    body.append(dlcBox);
+  }
 
   const list = el("div", "drawer-list");
   const cloud = item.cloud || {};
@@ -642,6 +725,24 @@ async function boot() {
   document.getElementById("searchGo").addEventListener("click", runSearch);
 
   document.getElementById("settingsBtn").addEventListener("click", openSettings);
+  document.getElementById("importBtn").addEventListener("click", openImport);
+  document.getElementById("importClose").addEventListener("click", closeImport);
+  document.getElementById("importCancel").addEventListener("click", closeImport);
+  document.getElementById("importRun").addEventListener("click", runImport);
+  document.getElementById("importModal").addEventListener("click", (event) => {
+    if (event.target.id === "importModal") closeImport();
+  });
+  const dropzone = document.getElementById("dropzone");
+  const filePicker = document.getElementById("importFile");
+  dropzone.addEventListener("click", () => filePicker.click());
+  filePicker.addEventListener("change", () => readFileIntoBox(filePicker.files[0]));
+  dropzone.addEventListener("dragover", (event) => { event.preventDefault(); dropzone.classList.add("over"); });
+  dropzone.addEventListener("dragleave", () => dropzone.classList.remove("over"));
+  dropzone.addEventListener("drop", async (event) => {
+    event.preventDefault();
+    dropzone.classList.remove("over");
+    await readFileIntoBox(event.dataTransfer.files[0]);
+  });
   document.getElementById("settingsClose").addEventListener("click", () => { document.getElementById("settings").hidden = true; });
   document.getElementById("settings").addEventListener("click", (event) => {
     if (event.target.id === "settings") document.getElementById("settings").hidden = true;
@@ -657,6 +758,7 @@ async function boot() {
     if (event.key === "Escape") {
       document.getElementById("results").hidden = true;
       document.getElementById("settings").hidden = true;
+      closeImport();
       closeDrawer();
     }
   });
