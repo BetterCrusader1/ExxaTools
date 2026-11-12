@@ -76,6 +76,7 @@ window.__vdPanel = (opts) => {
       <div class="vd-alert" id="vd-alert" hidden>
         <span class="vd-alert-text" id="vd-alert-text"></span>
         <button class="vd-mini" data-act="keys">Fix</button>
+        <button class="vd-mini" data-act="dismiss" title="Hide until it happens again">×</button>
       </div>
       <div class="vd-sep"></div>
       <div class="vd-label">Plans</div>
@@ -148,14 +149,19 @@ window.__vdPanel = (opts) => {
           return row;
         }));
       }
-      const alerts = state.diagnose || [];
+      window.__vdLastState = state;
+      window.__vdHidden = window.__vdHidden || new Set();
+      const key = (incident) => `${incident.id}:${(incident.line || "").slice(0, 60)}`;
+      const alerts = (state.diagnose || []).filter((incident) => !window.__vdHidden.has(key(incident)));
       const alertBox = panel.querySelector("#vd-alert");
       if (alertBox) {
         if (alerts.length) {
           alertBox.hidden = false;
-          panel.querySelector("#vd-alert-text").textContent = alerts[0].title;
-          const fix = alertBox.querySelector(".vd-mini");
-          if (fix) fix.dataset.act = alerts[0].action || "keys";
+          const count = alerts.length > 1 ? `${alerts.length} problems · ` : "";
+          panel.querySelector("#vd-alert-text").textContent = count + alerts[0].title;
+          const buttons = alertBox.querySelectorAll(".vd-mini");
+          if (buttons[0]) buttons[0].dataset.act = alerts[0].action || "keys";
+          if (buttons[1]) buttons[1].dataset.act = alerts[0].action === "dismiss" ? "dismiss" : "dismiss";
         } else {
           alertBox.hidden = true;
         }
@@ -166,6 +172,16 @@ window.__vdPanel = (opts) => {
     panel.addEventListener("click", (event) => {
       const button = event.target.closest("[data-act]");
       if (!button) return;
+      if (button.dataset.act === "dismiss") {
+        const alerts = (window.__vdLastState && window.__vdLastState.diagnose) || [];
+        const incident = alerts[0];
+        if (incident) {
+          window.__vdHidden = window.__vdHidden || new Set();
+          window.__vdHidden.add(`${incident.id}:${(incident.line || "").slice(0, 60)}`);
+        }
+        window.__vdAction = "";
+        return;
+      }
       window.__vdAction = button.dataset.act;
       msg("working…");
     });
