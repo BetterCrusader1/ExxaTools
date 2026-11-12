@@ -51,6 +51,13 @@ card, modal, toast and check row already existed and are reused. Layout was chec
 1080, 900 and 620 pixels with no horizontal overflow, `prefers-reduced-motion` is
 honoured, and the nav is a row of buttons reachable by Tab.
 
+Visual QA at 1440x900 and 390x844, every view rendered: no horizontal overflow
+(scrollWidth equals innerWidth at 1440, 900, 620 and 390), phone top bar, nav, search
+and Settings fields fit without clipping. One defect found and fixed: the Quick
+actions title "Repair all manifests" wrapped to two lines and pulled its card out of
+line with the other four; the label is now "Repair manifests" and all five measure one
+line.
+
 Keyboard pass done: a card is a focusable button with an aria-label, Enter or Space
 opens the drawer, focus moves to the drawer's close button, and Escape closes it and
 returns focus to the card that opened it. Still open: folding the remaining ad-hoc

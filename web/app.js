@@ -473,7 +473,7 @@ const fixes = [
     run: restartSteam,
   },
   {
-    title: "Repair all manifests",
+    title: "Repair manifests",
     text: "Fix stuck updates and download loops",
     icon: '<path d="M14.7 6.3a4 4 0 0 0 5 5L21 21H3l1.3-9.7a4 4 0 0 0 5-5L12 3z"/>',
     async run() {
