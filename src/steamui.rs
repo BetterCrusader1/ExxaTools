@@ -427,15 +427,41 @@ pub fn inject() -> Result<Value, String> {
             "Steam has no debugging port: press Enable, which restarts Steam with {FLAG}"
         ));
     }
-    let target = main_target().ok_or("the Steam main window is not available over CDP".to_string())?;
-    let ws = target.get("webSocketDebuggerUrl").and_then(Value::as_str).unwrap_or("");
     let script = script();
     let build = script_hash(&script);
-    let body = format!("window.__vdNoIcon = false;\n{script}\nwindow.__vdBuild = {build:?};\nwindow.__vdInject();");
-    let result = cdp::evaluate(ws, &body, std::time::Duration::from_secs(20))?;
-    let text = result.as_str().unwrap_or("");
-    if text != "injected" && text != "present" {
-        return Err(format!("injection failed: {text}"));
+    let plain = format!("{script}\nwindow.__vdBuild = {build:?};\nwindow.__vdInject();");
+    let main_ws = main_target()
+        .and_then(|target| target.get("webSocketDebuggerUrl").and_then(Value::as_str).map(str::to_string))
+        .unwrap_or_default();
+    // Every page window gets the current script: the panel lives in the content
+    // window, which is not the shell that carries the menu bar.
+    let mut text = String::new();
+    let mut reached = 0;
+    for target in page_targets() {
+        let ws = target.get("webSocketDebuggerUrl").and_then(Value::as_str).unwrap_or("");
+        if ws.is_empty() {
+            continue;
+        }
+        // Only the window that owns the menu bar gets the icon; every other page
+        // window stays panel-only, or the icon would appear more than once.
+        let body = if ws == main_ws {
+            format!("window.__vdNoIcon = false;\n{plain}")
+        } else {
+            format!("window.__vdNoIcon = true;\n{plain}")
+        };
+        if let Ok(value) = cdp::evaluate(ws, &body, std::time::Duration::from_secs(20)) {
+            let answer = value.as_str().unwrap_or("").to_string();
+            if answer == "injected" || answer == "present" {
+                reached += 1;
+                text = answer;
+            }
+        }
+    }
+    if reached == 0 {
+        return Err(format!(
+            "injection failed: {}",
+            if text.is_empty() { "no page window answered" } else { &text }
+        ));
     }
     let mut out = status();
     out["injected"] = json!(true);
