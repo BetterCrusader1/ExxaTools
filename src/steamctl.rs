@@ -144,9 +144,33 @@ pub fn apply_session_env(command: &mut Command) {
             command.env("DISPLAY", ":0");
         }
     }
-    if std::env::var("XAUTHORITY").is_err() {
-        let authority = crate::paths::home().join(".Xauthority");
-        if authority.is_file() {
+    if std::env::var("XAUTHORITY").map(|value| value.is_empty()).unwrap_or(true) {
+        // A session can keep its cookie in the runtime dir while ~/.Xauthority is
+        // empty or stale, and Steam then fails with "Unable to open a connection
+        // to X"; prefer whichever file actually has a cookie in it.
+        let home_cookie = crate::paths::home().join(".Xauthority");
+        let mut chosen = None;
+        if std::fs::metadata(&home_cookie).map(|meta| meta.len() > 0).unwrap_or(false) {
+            chosen = Some(home_cookie);
+        } else {
+            let runtime = std::env::var("XDG_RUNTIME_DIR").unwrap_or_else(|_| "/run/user/1000".into());
+            if let Ok(entries) = std::fs::read_dir(&runtime) {
+                let mut candidates: Vec<PathBuf> = entries
+                    .flatten()
+                    .map(|entry| entry.path())
+                    .filter(|path| {
+                        path.file_name()
+                            .and_then(|name| name.to_str())
+                            .map(|name| name.starts_with("xauth_") || name == "gdm/Xauthority")
+                            .unwrap_or(false)
+                    })
+                    .filter(|path| std::fs::metadata(path).map(|meta| meta.len() > 0).unwrap_or(false))
+                    .collect();
+                candidates.sort();
+                chosen = candidates.into_iter().next();
+            }
+        }
+        if let Some(authority) = chosen {
             command.env("XAUTHORITY", authority);
         }
     }
