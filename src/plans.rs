@@ -187,17 +187,7 @@ pub fn refresh_manifests() -> Result<Value, String> {
 pub fn write_script(appid: u64) -> Result<bool, String> {
     let st = state::load()?;
     let Some(record) = st.apps.get(&appid.to_string()) else { return Ok(false) };
-    let name = record.get("name").and_then(Value::as_str).unwrap_or("");
-    let branch = record.get("branch").and_then(Value::as_str).unwrap_or("public");
-    let depots = record.get("depots").and_then(Value::as_array).cloned().unwrap_or_default();
-    let dlc: Vec<u64> = record
-        .get("dlc")
-        .and_then(Value::as_array)
-        .map(|list| list.iter().filter_map(Value::as_u64).collect())
-        .unwrap_or_default();
-    let generated = record.get("updated").and_then(Value::as_str).unwrap_or("");
-    let source = record.get("source").and_then(Value::as_str).unwrap_or("auto");
-    let text = crate::lua::render_plan(appid, name, branch, &depots, &st.depot_keys, &dlc, generated, source);
+    let text = crate::lua::render_record(record, &st.depot_keys);
     crate::vfsys::write_script(appid, &text, true).map(|_| true)
 }
 

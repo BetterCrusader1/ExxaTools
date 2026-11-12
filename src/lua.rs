@@ -154,6 +154,23 @@ pub fn value_to_gid(value: &Value) -> Option<String> {
     }
 }
 
+/// Renders a saved plan record. One builder for the status panel, the installed
+/// script and the verify pass, so all three show the same text.
+pub fn render_record(record: &Value, keys: &BTreeMap<String, String>) -> String {
+    let appid = record.get("appid").and_then(Value::as_u64).unwrap_or(0);
+    let name = record.get("name").and_then(Value::as_str).unwrap_or("");
+    let branch = record.get("branch").and_then(Value::as_str).unwrap_or("public");
+    let depots = record.get("depots").and_then(Value::as_array).cloned().unwrap_or_default();
+    let dlc: Vec<u64> = record
+        .get("dlc")
+        .and_then(Value::as_array)
+        .map(|list| list.iter().filter_map(Value::as_u64).collect())
+        .unwrap_or_default();
+    let generated = record.get("updated").and_then(Value::as_str).unwrap_or("");
+    let source = record.get("source").and_then(Value::as_str).unwrap_or("auto");
+    render_plan(appid, name, branch, &depots, keys, &dlc, generated, source)
+}
+
 pub fn render_provider(order: &[Value]) -> Result<String, String> {
     let mut rows: Vec<String> = Vec::new();
     for entry in order {
@@ -347,5 +364,58 @@ mod stable_tests {
     #[test]
     fn missing_stamp_omits_the_line() {
         assert!(!render("").contains("-- generated"));
+    }
+}
+
+
+#[cfg(test)]
+mod record_tests {
+    use super::{render_plan, render_record};
+    use serde_json::json;
+    use std::collections::BTreeMap;
+
+    fn record() -> serde_json::Value {
+        json!({
+            "appid": 620,
+            "name": "Portal 2",
+            "branch": "public",
+            "source": "hubcap",
+            "updated": "1794480536",
+            "depots": [{"depot_id": 621, "gid": "9044256803759256265", "size": 1200, "enabled": true}],
+            "dlc": [323180],
+        })
+    }
+
+    #[test]
+    fn record_render_is_stable_and_matches_the_plan_builder() {
+        let keys = BTreeMap::new();
+        let first = render_record(&record(), &keys);
+        let second = render_record(&record(), &keys);
+        assert_eq!(first, second);
+        let direct = render_plan(
+            620,
+            "Portal 2",
+            "public",
+            record()["depots"].as_array().unwrap(),
+            &keys,
+            &[323180],
+            "1794480536",
+            "hubcap",
+        );
+        assert_eq!(first, direct);
+        assert!(first.contains("-- @source hubcap"));
+        assert!(first.contains("-- generated 1794480536"));
+    }
+
+    #[test]
+    fn disabled_depot_is_absent_from_the_record_render() {
+        let mut value = record();
+        value["depots"] = json!([
+            {"depot_id": 621, "gid": "1", "enabled": false},
+            {"depot_id": 622, "gid": "2", "enabled": true}
+        ]);
+        let text = render_record(&value, &BTreeMap::new());
+        assert!(!text.contains("setmanifestid(621"), "disabled depot was pinned: {text}");
+        assert!(text.contains("setmanifestid(622"));
     }
 }

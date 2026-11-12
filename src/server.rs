@@ -121,18 +121,7 @@ fn body_u64(body: &Value, key: &str) -> Result<u64, (u16, String)> {
 }
 
 fn render_record(record: &Value, st: &state::State) -> String {
-    let appid = record.get("appid").and_then(Value::as_u64).unwrap_or(0);
-    let name = record.get("name").and_then(Value::as_str).unwrap_or("");
-    let branch = record.get("branch").and_then(Value::as_str).unwrap_or("public");
-    let depots = record.get("depots").and_then(Value::as_array).cloned().unwrap_or_default();
-    let dlc: Vec<u64> = record
-        .get("dlc")
-        .and_then(Value::as_array)
-        .map(|list| list.iter().filter_map(Value::as_u64).collect())
-        .unwrap_or_default();
-    let generated = record.get("updated").and_then(Value::as_str).unwrap_or("");
-    let source = record.get("source").and_then(Value::as_str).unwrap_or("auto");
-    lua::render_plan(appid, name, branch, &depots, &st.depot_keys, &dlc, generated, source)
+    lua::render_record(record, &st.depot_keys)
 }
 
 fn app_view(appid: u64, branch: &str) -> Result<Value, (u16, String)> {
