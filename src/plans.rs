@@ -195,7 +195,9 @@ pub fn write_script(appid: u64) -> Result<bool, String> {
         .and_then(Value::as_array)
         .map(|list| list.iter().filter_map(Value::as_u64).collect())
         .unwrap_or_default();
-    let text = crate::lua::render_plan(appid, name, branch, &depots, &st.depot_keys, &dlc, "auto");
+    let generated = record.get("updated").and_then(Value::as_str).unwrap_or("");
+    let source = record.get("source").and_then(Value::as_str).unwrap_or("auto");
+    let text = crate::lua::render_plan(appid, name, branch, &depots, &st.depot_keys, &dlc, generated, source);
     crate::vfsys::write_script(appid, &text, true).map(|_| true)
 }
 

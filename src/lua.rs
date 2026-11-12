@@ -42,6 +42,7 @@ pub fn render_plan(
     depots: &[Value],
     keys: &BTreeMap<String, String>,
     dlc: &[u64],
+    generated: &str,
     source: &str,
 ) -> String {
     let active: Vec<&Value> = depots
@@ -59,10 +60,12 @@ pub fn render_plan(
         format!("-- @branch {}", comment_value(branch)),
         format!("-- @source {}", comment_value(source)),
         format!("-- @depots {}", depot_ids.join(",")),
-        format!("-- generated {}", stamp()),
-        String::new(),
-        format!("addappid({appid})"),
     ];
+    if !generated.is_empty() {
+        lines.push(format!("-- generated {generated}"));
+    }
+    lines.push(String::new());
+    lines.push(format!("addappid({appid})"));
 
     let keyed: Vec<&Value> = active
         .iter()
@@ -189,7 +192,7 @@ mod tests {
             json!({ "depot_id": 624, "gid": "222" }),
             json!({ "depot_id": 625 }),
         ];
-        let text = render_plan(620, "Portal 2", "public", &depots, &keys(), &[650], "auto");
+        let text = render_plan(620, "Portal 2", "public", &depots, &keys(), &[650], "test", "auto");
         assert!(text.contains("addappid(620)"));
         assert!(text.contains("addappid(621, 1, \""));
         assert!(text.contains("setmanifestid(621, \"111\", 1200)"));
@@ -205,7 +208,7 @@ mod tests {
 
     #[test]
     fn escapes_quotes_in_names() {
-        let text = render_plan(1, "Some \"Game\"", "public", &[], &BTreeMap::new(), &[], "auto");
+        let text = render_plan(1, "Some \"Game\"", "public", &[], &BTreeMap::new(), &[], "test", "auto");
         assert!(text.contains("-- @name Some \"Game\""));
     }
 
@@ -221,7 +224,7 @@ mod tests {
     #[test]
     fn disabled_depot_disappears() {
         let depots = vec![json!({ "depot_id": 621, "gid": "9044256803759256265", "size": 1200, "enabled": false })];
-        let text = render_plan(620, "Portal 2", "public", &depots, &keys(), &[], "auto");
+        let text = render_plan(620, "Portal 2", "public", &depots, &keys(), &[], "test", "auto");
         assert!(!text.contains("addappid(621"));
         assert!(!text.contains("setmanifestid(621"));
         assert!(text.contains("addappid(620)"));
@@ -230,7 +233,7 @@ mod tests {
     #[test]
     fn enabled_depot_stays() {
         let depots = vec![json!({ "depot_id": 621, "gid": "9044256803759256265", "enabled": true })];
-        let text = render_plan(620, "Portal 2", "public", &depots, &keys(), &[], "auto");
+        let text = render_plan(620, "Portal 2", "public", &depots, &keys(), &[], "test", "auto");
         assert!(text.contains("addappid(621, 1, \""));
         assert!(text.contains("setmanifestid(621"));
     }
@@ -245,7 +248,7 @@ mod comment_tests {
 
     fn render(name: &str) -> String {
         let depots = vec![json!({ "depot_id": 621, "gid": "9044256803759256265" })];
-        render_plan(620, name, "public", &depots, &BTreeMap::new(), &[], "selftest")
+        render_plan(620, name, "public", &depots, &BTreeMap::new(), &[], "test", "selftest")
     }
 
     #[test]
@@ -297,7 +300,7 @@ mod id_tests {
     #[test]
     fn non_numeric_depot_is_not_written() {
         let depots = vec![json!({ "depot_id": "62x1", "gid": "123" })];
-        let script = render_plan(620, "Test", "public", &depots, &BTreeMap::new(), &[], "selftest");
+        let script = render_plan(620, "Test", "public", &depots, &BTreeMap::new(), &[], "test", "selftest");
         assert!(!script.contains("addappid(62x1"));
         assert!(!script.contains("setmanifestid(62x1"));
     }
@@ -307,8 +310,39 @@ mod id_tests {
         let depots = vec![json!({ "depot_id": 621, "gid": "123" })];
         let mut keys = BTreeMap::new();
         keys.insert("621".to_string(), "not-a-key".to_string());
-        let script = render_plan(620, "Test", "public", &depots, &keys, &[], "selftest");
+        let script = render_plan(620, "Test", "public", &depots, &keys, &[], "test", "selftest");
         assert!(!script.contains("not-a-key"));
         assert!(!script.contains("addappid(621, 1"));
+    }
+}
+
+
+#[cfg(test)]
+mod stable_tests {
+    use super::render_plan;
+    use serde_json::json;
+    use std::collections::BTreeMap;
+
+    fn render(generated: &str) -> String {
+        let depots = vec![json!({ "depot_id": 621, "gid": "9044256803759256265" })];
+        render_plan(620, "Portal 2", "public", &depots, &BTreeMap::new(), &[], generated, "auto")
+    }
+
+    #[test]
+    fn same_plan_renders_the_same_text() {
+        assert_eq!(render("1794480536"), render("1794480536"));
+    }
+
+    #[test]
+    fn stored_stamp_survives_a_rerender() {
+        let first = render("1794480536");
+        let second = render("1794480536");
+        assert!(first.contains("-- generated 1794480536"));
+        assert_eq!(first, second);
+    }
+
+    #[test]
+    fn missing_stamp_omits_the_line() {
+        assert!(!render("").contains("-- generated"));
     }
 }

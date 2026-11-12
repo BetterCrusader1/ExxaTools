@@ -130,7 +130,9 @@ fn render_record(record: &Value, st: &state::State) -> String {
         .and_then(Value::as_array)
         .map(|list| list.iter().filter_map(Value::as_u64).collect())
         .unwrap_or_default();
-    lua::render_plan(appid, name, branch, &depots, &st.depot_keys, &dlc, "auto")
+    let generated = record.get("updated").and_then(Value::as_str).unwrap_or("");
+    let source = record.get("source").and_then(Value::as_str).unwrap_or("auto");
+    lua::render_plan(appid, name, branch, &depots, &st.depot_keys, &dlc, generated, source)
 }
 
 fn app_view(appid: u64, branch: &str) -> Result<Value, (u16, String)> {

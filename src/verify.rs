@@ -95,6 +95,7 @@ pub fn run(appid: u64) -> Value {
             .and_then(Value::as_array)
             .map(|list| list.iter().filter_map(Value::as_u64).collect::<Vec<_>>())
             .unwrap_or_default(),
+        &crate::vfsys::stamp(),
         "auto",
     );
     let problems = lint_lua(&text);

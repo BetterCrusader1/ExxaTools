@@ -180,7 +180,7 @@ fn main() {
                 .and_then(Value::as_array)
                 .map(|list| list.iter().filter_map(Value::as_u64).collect())
                 .unwrap_or_default();
-            let text = lua::render_plan(appid, &name, &branch, &depots, &st.depot_keys, &dlc, "auto");
+            let text = lua::render_plan(appid, &name, &branch, &depots, &st.depot_keys, &dlc, &crate::vfsys::stamp(), "auto");
             if has_flag(rest, "--write") {
                 std::fs::create_dir_all(paths::vf_scripts()).unwrap_or_else(|error| fail(error.to_string()));
                 let target = paths::vf_scripts().join(format!("exxatools-{appid}.lua"));
@@ -211,7 +211,7 @@ fn main() {
             let catalog = steam::catalog(appid).unwrap_or_else(|error| fail(error));
             let name = catalog.get("name").and_then(Value::as_str).unwrap_or("").to_string();
             let depots: Vec<Value> = catalog.get("depots").and_then(Value::as_array).cloned().unwrap_or_default();
-            let text = lua::render_plan(appid, &name, "public", &depots, &st.depot_keys, &[], "auto");
+            let text = lua::render_plan(appid, &name, "public", &depots, &st.depot_keys, &[], &crate::vfsys::stamp(), "auto");
             print_json(&engine::check_script(&text, "plan.lua"));
         }
         "key" => {

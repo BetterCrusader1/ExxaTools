@@ -60,13 +60,13 @@ pub fn run() -> Value {
     let mut key_map = std::collections::BTreeMap::new();
     key_map.insert("621".to_string(), "c".repeat(64));
     let depots = vec![json!({ "depot_id": 621, "gid": "9044256803759256265", "size": 1200 })];
-    let script = crate::lua::render_plan(620, "Selftest", "public", &depots, &key_map, &[], "selftest");
+    let script = crate::lua::render_plan(620, "Selftest", "public", &depots, &key_map, &[], "selftest", "selftest");
     let has_key = script.contains("addappid(621, 1, \"cccc");
     let has_pin = script.contains("setmanifestid(621, \"9044256803759256265\"");
     passo("script carries key and manifest", has_key && has_pin, format!("{} lines", script.lines().count()));
 
     let depots = vec![json!({ "depot_id": 621, "gid": "9044256803759256265", "size": 1200, "enabled": false })];
-    let script = crate::lua::render_plan(620, "Selftest", "public", &depots, &key_map, &[], "selftest");
+    let script = crate::lua::render_plan(620, "Selftest", "public", &depots, &key_map, &[], "selftest", "selftest");
     let dropped = !script.contains("addappid(621") && !script.contains("setmanifestid(621");
     passo("disabled depot leaves the script", dropped, "addappid and setmanifestid both gone".into());
 
