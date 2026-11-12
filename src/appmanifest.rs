@@ -387,7 +387,17 @@ pub fn patch(appid: u64, mode: &Mode, steam_check: bool) -> Result<Value, String
         std::fs::copy(&path, &backup).map_err(|error| format!("cannot back up {}: {error}", path.display()))?;
     }
     let temp = path.with_extension("acf.tmp");
-    std::fs::write(&temp, &text).map_err(|error| format!("cannot write {}: {error}", temp.display()))?;
+    {
+        use std::io::Write;
+        let mut file = std::fs::File::create(&temp)
+            .map_err(|error| format!("cannot create {}: {error}", temp.display()))?;
+        file.write_all(text.as_bytes())
+            .map_err(|error| format!("cannot write {}: {error}", temp.display()))?;
+        // Rename is atomic, but only after the bytes reach the disk; otherwise a
+        // power loss can leave an empty appmanifest where Steam expects a game.
+        file.sync_all()
+            .map_err(|error| format!("cannot flush {}: {error}", temp.display()))?;
+    }
     std::fs::rename(&temp, &path).map_err(|error| format!("cannot replace {}: {error}", path.display()))?;
 
     match vdf::parse(&text) {

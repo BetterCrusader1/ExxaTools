@@ -21,14 +21,46 @@ pub fn targets(port: u16) -> Vec<Value> {
     }
 }
 
-pub fn evaluate(ws_url: &str, expression: &str, timeout: std::time::Duration) -> Result<Value, String> {
-    use tungstenite::stream::MaybeTlsStream;
-    use tungstenite::Message;
+type Socket = tungstenite::WebSocket<tungstenite::stream::MaybeTlsStream<std::net::TcpStream>>;
 
-    let (mut socket, _) = tungstenite::connect(ws_url).map_err(|error| format!("cannot connect to CDP: {error}"))?;
-    if let MaybeTlsStream::Plain(stream) = socket.get_mut() {
+/// One live socket per target. A handshake costs a few milliseconds and the pump
+/// asks for state every 400 ms, so reconnecting each time was pure churn.
+static SOCKETS: std::sync::Mutex<Option<std::collections::HashMap<String, Socket>>> =
+    std::sync::Mutex::new(None);
+
+fn take_socket(ws_url: &str, timeout: std::time::Duration) -> Result<Socket, String> {
+    let cached = {
+        let mut guard = SOCKETS.lock().map_err(|_| "CDP socket cache is poisoned".to_string())?;
+        guard
+            .get_or_insert_with(std::collections::HashMap::new)
+            .remove(ws_url)
+    };
+    let mut socket = match cached {
+        Some(socket) => socket,
+        None => tungstenite::connect(ws_url)
+            .map_err(|error| format!("cannot connect to CDP: {error}"))?
+            .0,
+    };
+    if let tungstenite::stream::MaybeTlsStream::Plain(stream) = socket.get_mut() {
         let _ = stream.set_read_timeout(Some(timeout));
     }
+    Ok(socket)
+}
+
+fn keep_socket(ws_url: &str, socket: Socket) {
+    if let Ok(mut guard) = SOCKETS.lock() {
+        let map = guard.get_or_insert_with(std::collections::HashMap::new);
+        if map.len() >= 24 {
+            map.clear();
+        }
+        map.insert(ws_url.to_string(), socket);
+    }
+}
+
+pub fn evaluate(ws_url: &str, expression: &str, timeout: std::time::Duration) -> Result<Value, String> {
+    use tungstenite::Message;
+
+    let mut socket = take_socket(ws_url, timeout)?;
     let request = json!({
         "id": 1,
         "method": "Runtime.evaluate",
@@ -60,10 +92,11 @@ pub fn evaluate(ws_url: &str, expression: &str, timeout: std::time::Duration) ->
             return Err(error.to_string());
         }
         let result = parsed.get("result").cloned().unwrap_or_else(|| json!({}));
-        if result.get("exceptionDetails").is_some() {
-            let detail = result.get("exceptionDetails").and_then(|value| value.get("text")).cloned();
+        if let Some(details) = result.get("exceptionDetails") {
+            let detail = details.get("text").cloned();
             return Err(detail.map(|value| value.to_string()).unwrap_or_else(|| "evaluation threw".into()));
         }
+        keep_socket(ws_url, socket);
         return Ok(result.pointer("/result/value").cloned().unwrap_or(Value::Null));
     }
 }

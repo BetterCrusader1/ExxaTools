@@ -85,11 +85,36 @@ pub fn run() -> Result<(), String> {
         eprintln!("watching {}", library.display());
     }
 
+    // Steam writes an appmanifest dozens of times per download. Patch only after
+    // the writes go quiet, or a half-written file can be read and rewritten.
+    let debounce = Duration::from_millis(1500);
+    let idle = Duration::from_secs(60);
+    let mut pending: std::collections::HashMap<u64, std::time::Instant> = std::collections::HashMap::new();
+    let mut last_sweep = std::time::Instant::now();
     loop {
-        match receiver.recv_timeout(Duration::from_secs(60)) {
+        let wait = pending
+            .values()
+            .map(|seen| debounce.saturating_sub(seen.elapsed()))
+            .min()
+            .unwrap_or(idle)
+            .max(Duration::from_millis(50));
+        match receiver.recv_timeout(wait) {
             Ok(Ok(event)) => {
                 for path in event.paths {
-                    let Some(appid) = appid_from(&path) else { continue };
+                    if let Some(appid) = appid_from(&path) {
+                        pending.insert(appid, std::time::Instant::now());
+                    }
+                }
+            }
+            Ok(Err(error)) => eprintln!("watch error: {error}"),
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                let ready: Vec<u64> = pending
+                    .iter()
+                    .filter(|(_, seen)| seen.elapsed() >= debounce)
+                    .map(|(appid, _)| *appid)
+                    .collect();
+                for appid in ready {
+                    pending.remove(&appid);
                     let Some(reason) = needs_fix(appid) else { continue };
                     if steamctl::is_running() {
                         eprintln!("{appid} needs a fix ({reason}); waiting for Steam to exit");
@@ -100,12 +125,12 @@ pub fn run() -> Result<(), String> {
                         Err(error) => println!("{}", json!({ "appid": appid, "fixed": false, "error": error })),
                     }
                 }
-            }
-            Ok(Err(error)) => eprintln!("watch error: {error}"),
-            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
-                let idle = sweep(true);
-                if idle.get("fixed").and_then(Value::as_array).map(|list| !list.is_empty()).unwrap_or(false) {
-                    println!("{idle}");
+                if pending.is_empty() && last_sweep.elapsed() >= idle {
+                    last_sweep = std::time::Instant::now();
+                    let report = sweep(true);
+                    if report.get("fixed").and_then(Value::as_array).map(|list| !list.is_empty()).unwrap_or(false) {
+                        println!("{report}");
+                    }
                 }
             }
             Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
