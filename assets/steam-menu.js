@@ -58,8 +58,8 @@ window.__vdPanel = (opts) => {
       #${PANEL} .vd-state.warn .vd-dot { background: #D9A15A; box-shadow: 0 0 0 3px rgba(217,161,90,.14); }
       #${PANEL} .vd-state.bad .vd-dot { background: #D9655C; box-shadow: 0 0 0 3px rgba(217,101,92,.14); }
       #${PANEL} .vd-sep { height: 1px; margin: 4px 6px; background: #222A35; }
-      #${PANEL} .vd-label { padding: 6px 11px 4px; font-size: 10px; font-weight: 700;
-        letter-spacing: .08em; text-transform: uppercase; color: #8B96A5; }
+      #${PANEL} .vd-label { padding: 8px 11px 5px; font-size: 10px; font-weight: 700;
+        letter-spacing: .08em; text-transform: uppercase; color: #A9B4C3; }
       #${PANEL} .vd-plans { display: flex; flex-direction: column; padding: 0 4px 2px; }
       #${PANEL} .vd-plan { display: flex; align-items: center; gap: 8px; padding: 6px 8px;
         border-radius: 9px; font-size: 12px; color: #A9B4C3; }
@@ -69,13 +69,14 @@ window.__vdPanel = (opts) => {
         padding: 2px 7px; border-radius: 999px; border: 1px solid #2E3A49; color: #8B96A5; }
       #${PANEL} .vd-flag.ok { color: #7FCFA2; border-color: #2F5B45; }
       #${PANEL} .vd-flag.warn { color: #D9A15A; border-color: #5B4A2F; }
+      #${PANEL} .vd-alert[hidden] { display: none; }
       #${PANEL} .vd-alert { display: flex; align-items: center; gap: 8px; padding: 8px 10px; margin: 2px 4px; border: 1px solid rgba(237,180,95,.32); border-radius: 9px; background: rgba(237,180,95,.08); font-size: 11.5px; color: #F0C887; }
       #${PANEL} .vd-alert-text { flex: 1; line-height: 1.3; }
       #${PANEL} .vd-mini { height: 24px; padding: 0 9px; border: 1px solid rgba(237,180,95,.4); border-radius: 7px; background: transparent; color: #F0C887; font: 600 11px Montserrat, Arial, sans-serif; cursor: pointer; }
       #${PANEL} .vd-mini:hover { background: rgba(237,180,95,.16); }
       #${PANEL} .vd-plan .vd-mini { height: 20px; padding: 0 6px; font-size: 10px; }
       #${PANEL} .vd-plan b { flex: 1; min-width: 0; }
-      #${PANEL} .vd-empty { padding: 8px 11px 10px; font-size: 11.5px; color: #8B96A5; }
+      #${PANEL} .vd-empty { padding: 8px 11px 12px; font-size: 11.5px; color: #9AA6B5; }
       #${PANEL} .vd-actions { display: flex; flex-direction: column; gap: 2px; padding: 2px 4px 4px; }
       #${PANEL} .vd-item { display: flex; align-items: center; width: 100%; min-height: 34px;
         padding: 7px 10px; gap: 10px; background: transparent; border: 1px solid transparent;
@@ -83,8 +84,10 @@ window.__vdPanel = (opts) => {
         text-align: left; cursor: pointer; }
       #${PANEL} .vd-item:hover { background: #1A212B; color: #E9EDF2; }
       #${PANEL} .vd-item svg { width: 15px; height: 15px; flex: none; opacity: .9; }
-      #${PANEL} .vd-msg { min-height: 15px; padding: 4px 11px 8px; font-size: 11.5px; color: #A9B4C3; }
-      #${PANEL} .vd-plugins { display: flex; flex-direction: column; gap: 4px; padding-bottom: 4px; }
+      #${PANEL} .vd-msg { padding: 2px 11px 8px; font-size: 11.5px; color: #A9B4C3; }
+      #${PANEL} .vd-msg:empty { display: none; }
+      #${PANEL} .vd-plugins { display: flex; flex-direction: column; gap: 6px; padding-bottom: 4px; }
+      #${PANEL} .vd-plugins:empty { display: none; }
       #${PANEL}-dash {
         position: fixed; inset: 0; z-index: 2147483647;
         display: none; flex-direction: column; background: #0c0f13;
@@ -129,7 +132,7 @@ window.__vdPanel = (opts) => {
       <div class="vd-plans" id="vd-plans"><div class="vd-empty">no plans yet</div></div>
       <div class="vd-sep"></div>
       <div class="vd-actions">
-        <button class="vd-item" data-act="open">ICON_GLYPH_APP Open ExxaTools</button>
+        <button class="vd-item" data-act="open">ICON_GLYPH_APP Open dashboard</button>
         <button class="vd-item" data-act="restart">ICON_GLYPH_RESTART Restart Steam</button>
         <button class="vd-item" data-act="provider">ICON_GLYPH_PROVIDER Install provider</button>
       </div>
@@ -138,7 +141,7 @@ window.__vdPanel = (opts) => {
         <button class="vd-item" data-act="about">ICON_GLYPH_ABOUT About</button>
       </div>
       <div class="vd-sep"></div>
-      <div class="vd-label">Plugins</div>
+      <div class="vd-label vd-label-plugins" hidden>Plugins</div>
       <div class="vd-plugins" id="vd-plugins-host"></div>
       <div class="vd-msg" id="vd-msg"></div>
     `
@@ -158,11 +161,26 @@ window.__vdPanel = (opts) => {
         root.id = "exxa-plugin-root";
       }
       pluginHost.appendChild(root);
+      const pluginsLabel = panel.querySelector(".vd-label-plugins");
+      const syncPlugins = () => {
+        if (pluginsLabel) pluginsLabel.hidden = root.children.length === 0;
+      };
+      new MutationObserver(syncPlugins).observe(root, { childList: true });
+      syncPlugins();
     }
 
-    const msg = (text) => {
+    let msgTimer = null;
+    const msg = (text, options = {}) => {
       const node = panel.querySelector("#vd-msg");
-      if (node) node.textContent = text;
+      if (!node) return;
+      node.textContent = text || "";
+      if (msgTimer) { clearTimeout(msgTimer); msgTimer = null; }
+      if (text && !options.persist && text !== "working…") {
+        msgTimer = setTimeout(() => {
+          const current = panel.querySelector("#vd-msg");
+          if (current && current.textContent === text) current.textContent = "";
+        }, 5000);
+      }
     };
 
     // Steam's store and community pages send a CSP that blocks requests to
@@ -178,7 +196,7 @@ window.__vdPanel = (opts) => {
         text.textContent = "ExxaTools is not answering";
         stateNode.className = "vd-state bad";
       } else {
-        version.textContent = engine.version || "—";
+        version.textContent = engine.version ? `engine ${engine.version}` : "—";
         let label = "engine not installed";
         let kind = "bad";
         if (engine.installed) {
@@ -229,7 +247,9 @@ window.__vdPanel = (opts) => {
       window.__vdLastState = state;
       window.__vdHidden = window.__vdHidden || new Set();
       const key = (incident) => `${incident.id}:${(incident.line || "").slice(0, 60)}`;
-      const alerts = (state.diagnose || []).filter((incident) => !window.__vdHidden.has(key(incident)));
+      const alerts = (state.diagnose || [])
+        .filter((incident) => String(incident.title || "").trim().length > 0)
+        .filter((incident) => !window.__vdHidden.has(key(incident)));
       const alertBox = panel.querySelector("#vd-alert");
       if (alertBox) {
         if (alerts.length) {
@@ -276,6 +296,10 @@ window.__vdPanel = (opts) => {
   if (existing && existing.dataset.build === (window.__vdBuild || "")) {
     // keep the current panel
   } else if (existing) {
+    // Plugin sections live inside the panel; move their root back to the page so a
+    // rebuild does not destroy everything plugins already rendered.
+    const pluginRoot = existing.querySelector("#exxa-plugin-root");
+    if (pluginRoot) document.body.appendChild(pluginRoot);
     existing.remove();
   }
   const panel = document.getElementById(PANEL) || build();

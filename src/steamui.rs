@@ -130,6 +130,9 @@ fn plugin_bootstrap(plugin: &crate::plugins::Plugin) -> String {
   const section = (title, build) => {{
     const root = host("exxa-plugin-root");
     if (!root) return false;
+    // Re-injection creates a fresh world for the same plugin; drop the section the
+    // previous world rendered so the panel never shows two copies.
+    root.querySelectorAll('[data-exxa-plugin="' + PLUGIN.id + '"]').forEach((old) => old.remove());
     const wrap = document.createElement("section");
     wrap.setAttribute("data-exxa-plugin", PLUGIN.id);
     wrap.style.cssText = "padding:2px 10px 6px";
@@ -359,7 +362,11 @@ fn run_action(action: &str) -> String {
                     refreshed += 1;
                 }
             }
-            format!("{refreshed} script(s) refreshed")
+            match refreshed {
+                0 => "no scripts needed a refresh".into(),
+                1 => "refreshed 1 script".into(),
+                count => format!("refreshed {count} scripts"),
+            }
         }
         "open" => match open_dashboard() {
             Ok(()) => "dashboard opened in Steam".into(),

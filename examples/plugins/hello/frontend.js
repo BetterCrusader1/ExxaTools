@@ -25,7 +25,8 @@ row.append(line, button);
 exxa.ui.section("Example", row);
 
 exxa.steam.status().then((status) => {
-  line.textContent = `hello — Steam ${status.steam_running ? "running" : "closed"}, ${status.plans} plan(s)`;
+  const plans = status.plans === 1 ? "1 plan" : `${status.plans} plans`;
+  line.textContent = `Steam ${status.steam_running ? "running" : "closed"} · ${plans}`;
 }).catch((error) => {
   line.textContent = "hello — host refused: " + error;
 });
