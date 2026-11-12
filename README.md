@@ -33,6 +33,8 @@ cargo build --release
 ./target/release/exxa pins 620         # branch gid vs the plan, per depot
 ./target/release/exxa pin 620 621 1234567890   # pin an older manifest
 ./target/release/exxa doctor           # twelve checks with the fix for each
+./target/release/exxa diagnose         # name the failure found in the Steam log
+./target/release/exxa selftest         # prove the plan pipeline on a local fixture
 ./target/release/exxa watch --once     # what still needs the flag repair
 ```
 

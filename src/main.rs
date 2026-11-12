@@ -78,6 +78,8 @@ fn main() {
                 "exxa import-plan plan.json",
                 "exxa pin <appid> <depot> [gid|clear]",
                 "exxa doctor",
+                "exxa diagnose",
+                "exxa selftest",
                 "exxa update",
                 "exxa version",
                 "exxa verify <appid>",
