@@ -225,6 +225,7 @@ fn get_route(path: &str, query: &[(String, String)]) -> Result<Value, (u16, Stri
     let st = state::load().map_err(|error| (500, error))?;
     match path {
         "/api/session" => Ok(json!({ "token": token(), "version": env!("CARGO_PKG_VERSION") })),
+        "/api/diagnostics" => Ok(crate::diagnostics::build()),
         "/api/status" => Ok(json!({
             "version": env!("CARGO_PKG_VERSION"),
             "steam": {

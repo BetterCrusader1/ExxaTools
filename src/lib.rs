@@ -6,6 +6,7 @@ pub mod window;
 pub mod desktop;
 pub mod cdp;
 pub mod diagnose;
+pub mod diagnostics;
 pub mod doctor;
 pub mod engine;
 pub mod http;

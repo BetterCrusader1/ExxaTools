@@ -191,6 +191,23 @@ fn status_snapshot() -> Value {
 }
 
 fn run_action(action: &str) -> String {
+    if let Some(rest) = action.strip_prefix("install:") {
+        let Ok(appid) = rest.parse::<u64>() else { return "bad app id".into() };
+        return match crate::plans::write_script(appid) {
+            Ok(true) => format!("plan {appid} installed"),
+            Ok(false) => format!("no saved plan for {appid}"),
+            Err(error) => error,
+        };
+    }
+    if action.starts_with("rebuild:") {
+        return match crate::plans::refresh_manifests() {
+            Ok(report) => format!(
+                "{} plan(s) rebuilt",
+                report.get("updated").and_then(Value::as_u64).unwrap_or(0)
+            ),
+            Err(error) => error,
+        };
+    }
     match action {
         "disk" => match crate::storage::report().get("lowest").cloned() {
             Some(lowest) => format!(

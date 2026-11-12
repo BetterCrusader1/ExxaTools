@@ -978,9 +978,30 @@ async function openSettings() {
       selfTest.disabled = false;
     }
   });
+  const diagnosticsButton = el("button", "btn tiny ghost", "Download diagnostics");
+  diagnosticsButton.addEventListener("click", async () => {
+    diagnosticsButton.disabled = true;
+    try {
+      const bundle = await api("/api/diagnostics");
+      const blob = new Blob([JSON.stringify(bundle, null, 2)], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = "exxatools-diagnostics.json";
+      document.body.append(link);
+      link.click();
+      link.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 2000);
+      toast("Saved exxatools-diagnostics.json");
+    } catch (error) {
+      fail(error);
+    } finally {
+      diagnosticsButton.disabled = false;
+    }
+  });
   const selfTestRow = el("div", "field");
   selfTestRow.append(el("span", "", "Plan pipeline"));
-  selfTestRow.append(selfTest);
+  selfTestRow.append(selfTest, diagnosticsButton);
   body.append(selfTestRow, selfTestBox);
 
   body.append(el("div", "divider"));

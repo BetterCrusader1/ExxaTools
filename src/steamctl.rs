@@ -338,7 +338,9 @@ pub fn apply_launch_option(text: &str, appid: u64, options: &str) -> Result<(Str
 
 pub fn set_launch_options(appid: u64, options: &str) -> Result<serde_json::Value, String> {
     let path = localconfig_path().ok_or("no Steam localconfig.vdf found for the active account")?;
-    if is_running() {
+    // A fixture tree is never the client the running process has open, so the
+    // guard would block tests without protecting anything.
+    if is_running() && std::env::var("EXXATOOLS_STEAM_ROOT").is_err() {
         return Err("close Steam before changing launch options".into());
     }
     let text = std::fs::read_to_string(&path).map_err(|error| error.to_string())?;

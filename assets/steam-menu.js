@@ -56,6 +56,8 @@ window.__vdPanel = (opts) => {
       #${PANEL} .vd-alert-text { flex: 1; line-height: 1.3; }
       #${PANEL} .vd-mini { height: 24px; padding: 0 9px; border: 1px solid rgba(237,180,95,.4); border-radius: 7px; background: transparent; color: #F0C887; font: 600 11px Montserrat, Arial, sans-serif; cursor: pointer; }
       #${PANEL} .vd-mini:hover { background: rgba(237,180,95,.16); }
+      #${PANEL} .vd-plan .vd-mini { height: 20px; padding: 0 6px; font-size: 10px; }
+      #${PANEL} .vd-plan b { flex: 1; min-width: 0; }
       #${PANEL} .vd-empty { padding: 8px 11px 10px; font-size: 11.5px; color: #8B96A5; }
       #${PANEL} .vd-actions { display: flex; flex-direction: column; gap: 2px; padding: 2px 4px 4px; }
       #${PANEL} .vd-item { display: flex; align-items: center; width: 100%; min-height: 34px;
@@ -148,7 +150,17 @@ window.__vdPanel = (opts) => {
           const chip = document.createElement("span");
           chip.className = "vd-flag " + flag.kind;
           chip.textContent = flag.text;
-          row.append(name, chip);
+          const install = document.createElement("button");
+          install.className = "vd-mini";
+          install.dataset.act = "install:" + plan.appid;
+          install.textContent = plan.installed ? "Sync" : "Install";
+          install.title = "Write this plan into the Vapor Forge scripts folder";
+          const rebuild = document.createElement("button");
+          rebuild.className = "vd-mini";
+          rebuild.dataset.act = "rebuild:" + plan.appid;
+          rebuild.textContent = "Rebuild";
+          rebuild.title = "Rebuild the plan from the current catalog";
+          row.append(name, chip, install, rebuild);
           return row;
         }));
       }

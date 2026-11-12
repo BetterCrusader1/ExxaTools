@@ -6,6 +6,7 @@ use exxa::{
     window,
     desktop,
     diagnose,
+    diagnostics,
     doctor,
     engine,
     lua,
@@ -267,6 +268,7 @@ fn main() {
                 fail(error);
             }
         }
+        "diagnostics" => print_json(&diagnostics::build()),
         "diagnose" => print_json(&diagnose::from_files()),
         "storage" => print_json(&storage::report()),
         "selftest" => {

@@ -32,11 +32,17 @@ impl Tree {
         self.root.join("home")
     }
 
+    pub fn data(&self) -> PathBuf {
+        self.root.join("data")
+    }
+
     /// Points every path helper at this tree for the rest of the process.
     pub fn apply(&self) {
         std::env::set_var("EXXATOOLS_STEAM_ROOT", self.steam());
         std::env::set_var("EXXATOOLS_VF_HOME", self.vf());
         std::env::set_var("EXXATOOLS_HOME", self.home());
+        std::env::set_var("XDG_DATA_HOME", self.data());
+        std::env::set_var("XDG_CONFIG_HOME", self.root.join("config"));
     }
 
     fn build(&self) {
@@ -48,6 +54,7 @@ impl Tree {
         write(&self.vf().join("config.toml"), "manifest_url = \"\"\n");
         std::fs::create_dir_all(self.vf().join("scripts")).expect("scripts dir");
         std::fs::create_dir_all(self.home()).expect("state dir");
+        std::fs::create_dir_all(self.data().join("Steam/logs")).expect("log dir");
     }
 }
 
