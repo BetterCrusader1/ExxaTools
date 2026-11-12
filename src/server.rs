@@ -779,7 +779,16 @@ fn post_route(path: &str, body: &Value, query: &[(String, String)]) -> Result<Va
                 st.settings = serde_json::from_value(Value::Object(merged)).map_err(|error| (400, error.to_string()))?;
             }
             state::save(&st).map_err(|error| (500, error))?;
-            Ok(json!(st.settings))
+            Ok(json!({
+                "country": st.settings.country,
+                "default_source": st.settings.default_source,
+                "default_os": st.settings.default_os,
+                "manifest_providers": st.settings.manifest_providers,
+                "sources": st.settings.sources,
+                "plan_sources": st.settings.plan_sources,
+                "has_hubcap_key": !st.settings.hubcap_key.trim().is_empty(),
+                "has_ryuu_key": !st.settings.ryuu_key.trim().is_empty(),
+            }))
         }
         "/api/open" => {
             let target = body.get("target").and_then(Value::as_str).unwrap_or("");
