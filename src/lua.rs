@@ -23,6 +23,18 @@ pub fn stamp() -> String {
     format!("{}", now)
 }
 
+/// Comment fields come from Steam metadata or a user-supplied name. A newline in
+/// one of them would end the comment line and turn the rest into executable Lua,
+/// so control characters collapse to spaces and the length is bounded.
+fn comment_value(text: &str) -> String {
+    let cleaned: String = text
+        .chars()
+        .map(|ch| if ch.is_control() { ' ' } else { ch })
+        .take(120)
+        .collect();
+    cleaned.trim().to_string()
+}
+
 pub fn render_plan(
     appid: u64,
     name: &str,
@@ -43,9 +55,9 @@ pub fn render_plan(
     let mut lines: Vec<String> = vec![
         "-- ExxaTools plan".into(),
         format!("-- @appid {appid}"),
-        format!("-- @name {}", name.trim_end()),
-        format!("-- @branch {branch}"),
-        format!("-- @source {source}"),
+        format!("-- @name {}", comment_value(name)),
+        format!("-- @branch {}", comment_value(branch)),
+        format!("-- @source {}", comment_value(source)),
         format!("-- @depots {}", depot_ids.join(",")),
         format!("-- generated {}", stamp()),
         String::new(),
@@ -215,5 +227,39 @@ mod tests {
         let text = render_plan(620, "Portal 2", "public", &depots, &keys(), &[], "auto");
         assert!(text.contains("addappid(621, 1, \""));
         assert!(text.contains("setmanifestid(621"));
+    }
+}
+
+
+#[cfg(test)]
+mod comment_tests {
+    use super::render_plan;
+    use serde_json::json;
+    use std::collections::BTreeMap;
+
+    fn render(name: &str) -> String {
+        let depots = vec![json!({ "depot_id": 621, "gid": "9044256803759256265" })];
+        render_plan(620, name, "public", &depots, &BTreeMap::new(), &[], "selftest")
+    }
+
+    #[test]
+    fn newline_in_name_cannot_inject_lua() {
+        let script = render("Evil\naddappid(999)");
+        assert!(!script.lines().any(|line| line.trim() == "addappid(999)"), "injected line survived: {script}");
+        assert!(script.contains("-- @name Evil addappid(999)"));
+    }
+
+    #[test]
+    fn carriage_return_and_tabs_are_flattened() {
+        let script = render("A\r\nB\tC");
+        let name_line = script.lines().find(|line| line.starts_with("-- @name")).unwrap_or("");
+        assert_eq!(name_line, "-- @name A  B C");
+    }
+
+    #[test]
+    fn long_names_are_bounded() {
+        let script = render(&"x".repeat(400));
+        let name_line = script.lines().find(|line| line.starts_with("-- @name")).unwrap_or("");
+        assert!(name_line.len() <= "-- @name ".len() + 120);
     }
 }
