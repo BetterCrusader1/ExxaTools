@@ -63,7 +63,7 @@ pub fn run() -> Value {
     items.push(item(
         "engine_loaded",
         "Engine loaded inside Steam",
-        if loaded { "ok" } else if running { "warn" } else { "warn" },
+        if loaded { "ok" } else { "warn" },
         if loaded { "LD_AUDIT picked it up".into() } else if running { "Steam is running without the shim".into() } else { "Steam is not running".into() },
         "Restart Steam so the client loads the engine",
         if loaded { "" } else { "restart_steam" },

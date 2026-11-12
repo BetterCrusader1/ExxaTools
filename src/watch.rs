@@ -4,7 +4,7 @@
 //! written until the client is gone: the watcher marks what needs a fix and
 //! applies it as soon as Steam exits.
 
-use std::path::PathBuf;
+use std::path::Path;
 use std::time::Duration;
 
 use serde_json::{json, Value};
@@ -28,7 +28,7 @@ fn needs_fix(appid: u64) -> Option<String> {
     }
 }
 
-fn appid_from(path: &PathBuf) -> Option<u64> {
+fn appid_from(path: &Path) -> Option<u64> {
     let name = path.file_name()?.to_str()?;
     name.strip_prefix("appmanifest_")?.strip_suffix(".acf")?.parse().ok()
 }

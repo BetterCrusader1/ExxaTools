@@ -26,11 +26,8 @@ pub fn evaluate(ws_url: &str, expression: &str, timeout: std::time::Duration) ->
     use tungstenite::Message;
 
     let (mut socket, _) = tungstenite::connect(ws_url).map_err(|error| format!("cannot connect to CDP: {error}"))?;
-    match socket.get_mut() {
-        MaybeTlsStream::Plain(stream) => {
-            let _ = stream.set_read_timeout(Some(timeout));
-        }
-        _ => {}
+    if let MaybeTlsStream::Plain(stream) = socket.get_mut() {
+        let _ = stream.set_read_timeout(Some(timeout));
     }
     let request = json!({
         "id": 1,

@@ -1,6 +1,6 @@
-//! Window and desktop integration without a GUI toolkit: the UI is the web page,
-//! the window is whatever browser the user has, and the launcher entry points at
-//! the same binary.
+//! Desktop integration: the dashboard opens in the GTK window defined in
+//! `window.rs`, and the launcher entry points at this binary so the same window
+//! starts from the menu.
 
 use std::process::{Command, Stdio};
 
@@ -10,19 +10,6 @@ use crate::paths;
 
 fn port_answers(port: u16) -> bool {
     std::net::TcpStream::connect(("127.0.0.1", port)).is_ok()
-}
-
-#[allow(dead_code)]
-fn spawn_open(url: &str) -> Result<(), String> {
-    let mut command = Command::new("xdg-open");
-    crate::steamctl::apply_session_env(&mut command);
-    command
-        .arg(url)
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .spawn()
-        .map(|_| ())
-        .map_err(|error| format!("cannot open {url}: {error}"))
 }
 
 /// Open the dashboard, starting the server first if nothing answers.

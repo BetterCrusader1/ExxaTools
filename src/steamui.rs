@@ -351,14 +351,10 @@ pub fn main_target() -> Option<Value> {
             return Some(target.clone());
         }
     }
-    for target in list {
-        if target.get("title").and_then(Value::as_str) == Some("Steam")
+    list.into_iter().find(|target| {
+        target.get("title").and_then(Value::as_str) == Some("Steam")
             && target.get("type").and_then(Value::as_str) == Some("page")
-        {
-            return Some(target);
-        }
-    }
-    None
+    })
 }
 
 pub fn status() -> Value {
@@ -491,9 +487,8 @@ pub fn enable_debug() -> Result<Value, String> {
             continue;
         }
         let updated = add_debug_flag(&text);
-        if updated == text {
-            patched.push(path.display().to_string());
-        } else if std::fs::write(&path, updated).is_ok() {
+        let written = updated == text || std::fs::write(&path, updated).is_ok();
+        if written {
             patched.push(path.display().to_string());
         }
     }
