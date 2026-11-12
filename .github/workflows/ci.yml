@@ -17,4 +17,6 @@ jobs:
       - run: cargo build --release --locked
       - run: cargo test --release --locked
       - run: node --check web/app.js
+      - run: node --check assets/steam-menu.js
+      - run: python3 scripts/docs-check.py
       - run: ./target/release/exxa selftest

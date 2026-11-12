@@ -17,8 +17,8 @@ Everything below serves those three points.
 | Steam | icon and menu injected in the client over CDP, appmanifest fixes |
 | UI | Library / Discover / Game / System, `.desktop` entry |
 | Language | Rust is the product; `legacy/` keeps the Python build for reference |
-| Tests | 22 unit tests over lua, appmanifest, hubcap, providers, vdf, launch options |
-| Missing | named DLC, importing foreign lua, older build picker, auto-finish after download, self-diagnostics, app updates, tests |
+| Tests | 74 unit tests plus 10 integration tests against a temporary Steam tree |
+| Missing | older build picker, auto-finish after download, app updates, tray icon, Millennium plugin |
 
 ## Locked decisions
 
@@ -88,20 +88,22 @@ game without opening a terminal.
 - [x] **Pin UI**: pin a specific manifest per depot, with the consequence spelled out.
 - [x] **Export/import** plans as JSON, so they move between machines.
 - [ ] **Diff** two snapshots: what changed per depot (size, gid).
+- [x] **Offline refresh**: a plan carries its catalog snapshot and rebuilds without
+      the Steam API.
 
 ## Phase 4 — Steam integration (2 days)
 
 - [x] Steam menu panel: saved plans with state, dashboard, restart, provider.
 - [x] Toasts inside the client (injected, not the bridge).
 - [x] Hotkey for the panel (Ctrl+Shift+E).
-- [ ] Launch options: an `-onlinefix` toggle per game.
+- [x] Launch options: an `-onlinefix` toggle per game.
 - [x] Post-update check: a watcher re-injects the menu every 45 seconds.
 
 ## Phase 5 — product (2 days)
 
 - [x] Autostart entry (`exxa autostart`); tray icon still open.
 - [x] Packaging: `packaging/PKGBUILD`, `.desktop`, icon, screenshot in the README.
-- [ ] `diagnostics.json`: last app errors, an export button.
+- [x] `diagnostics.json`: last app errors, an export button.
 
 ## Risks and countermeasures
 

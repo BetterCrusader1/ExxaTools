@@ -75,6 +75,8 @@ fn main() {
                 "exxa doctor",
                 "exxa diagnose",
                 "exxa selftest",
+                "exxa diagnostics",
+                "exxa storage",
                 "exxa update",
                 "exxa version",
                 "exxa verify <appid>",

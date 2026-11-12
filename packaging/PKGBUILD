@@ -1,6 +1,6 @@
 # Maintainer: BetterCrusader <bettercrusader@users.noreply.github.com>
 pkgname=exxatools
-pkgver=0.2.0
+pkgver=0.3.0
 pkgrel=1
 pkgdesc="Steam depots and manifests for the Linux client, on Vapor Forge"
 arch=('x86_64')

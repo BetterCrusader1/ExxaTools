@@ -36,6 +36,7 @@ cargo build --release
 ./target/release/exxa diagnose         # name the failure found in the Steam log
 ./target/release/exxa selftest         # prove the plan pipeline on a local fixture
 ./target/release/exxa storage          # free space for every Steam library
+./target/release/exxa diagnostics      # support bundle with keys masked
 ./target/release/exxa watch --once     # what still needs the flag repair
 ```
 
