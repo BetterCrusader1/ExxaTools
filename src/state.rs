@@ -81,6 +81,11 @@ pub fn load() -> Result<State, String> {
         return Ok(State::default());
     }
     let text = std::fs::read_to_string(&path).map_err(|error| format!("cannot read {}: {error}", path.display()))?;
+    // A file written before permissions were enforced is repaired on the next read.
+    if let Some(parent) = path.parent() {
+        let _ = lock_down(parent, 0o700);
+    }
+    let _ = lock_down(&path, 0o600);
     serde_json::from_str(&text).map_err(|error| format!("cannot parse {}: {error}", path.display()))
 }
 
@@ -111,7 +116,9 @@ fn snapshot(path: &Path) -> std::io::Result<()> {
         .map(|value| value.as_secs())
         .unwrap_or(0);
     let target = dir.join(format!("state-{stamp}.json"));
-    std::fs::copy(path, target)?;
+    std::fs::copy(path, &target)?;
+    let _ = lock_down(&dir, 0o700);
+    let _ = lock_down(&target, 0o600);
     let mut entries: Vec<std::path::PathBuf> = std::fs::read_dir(&dir)?
         .flatten()
         .map(|entry| entry.path())
@@ -131,16 +138,42 @@ pub fn backup_dir() -> PathBuf {
     state_path().parent().map(|path| path.join("backups")).unwrap_or_else(|| PathBuf::from("backups"))
 }
 
+/// Serialises writers so two requests cannot interleave read-modify-write.
+static WRITE_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 pub fn save(state: &State) -> Result<(), String> {
+    let _guard = WRITE_LOCK.lock().map_err(|_| "state lock is poisoned".to_string())?;
     let path = state_path();
     let _ = snapshot(&path);
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent).map_err(|error| format!("cannot create {}: {error}", parent.display()))?;
-    }
+    let parent = path.parent().ok_or_else(|| "state path has no parent".to_string())?;
+    std::fs::create_dir_all(parent).map_err(|error| format!("cannot create {}: {error}", parent.display()))?;
+    lock_down(parent, 0o700)?;
     let text = serde_json::to_string_pretty(state).map_err(|error| error.to_string())?;
-    let temp = path.with_extension("tmp");
+    // A unique temporary name: a shared `state.tmp` raced between writers.
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|delta| delta.as_nanos())
+        .unwrap_or(0);
+    let temp = parent.join(format!(".state-{}-{nanos}.tmp", std::process::id()));
     std::fs::write(&temp, format!("{text}\n")).map_err(|error| format!("cannot write {}: {error}", temp.display()))?;
-    std::fs::rename(&temp, &path).map_err(|error| format!("cannot replace {}: {error}", path.display()))
+    lock_down(&temp, 0o600)?;
+    if let Err(error) = std::fs::rename(&temp, &path) {
+        let _ = std::fs::remove_file(&temp);
+        return Err(format!("cannot replace {}: {error}", path.display()));
+    }
+    lock_down(&path, 0o600)
+}
+
+#[cfg(unix)]
+fn lock_down(path: &std::path::Path, mode: u32) -> Result<(), String> {
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::set_permissions(path, std::fs::Permissions::from_mode(mode))
+        .map_err(|error| format!("cannot set mode {mode:o} on {}: {error}", path.display()))
+}
+
+#[cfg(not(unix))]
+fn lock_down(_path: &std::path::Path, _mode: u32) -> Result<(), String> {
+    Ok(())
 }
 
 /// One shape for an app as every surface shows it: the library route, the status
@@ -150,6 +183,7 @@ pub fn app_summary(state: &State, record: &serde_json::Value) -> serde_json::Val
     let depots = record.get("depots").and_then(serde_json::Value::as_array).cloned().unwrap_or_default();
     let missing: Vec<u64> = depots
         .iter()
+        .filter(|depot| depot.get("enabled").and_then(serde_json::Value::as_bool).unwrap_or(true))
         .filter_map(|depot| depot.get("depot_id").and_then(serde_json::Value::as_u64))
         .filter(|id| !state.depot_keys.contains_key(&id.to_string()))
         .collect();
@@ -287,5 +321,20 @@ mod summary_tests {
         assert_eq!(view["missing_keys"], json!([622]));
         assert_eq!(view["dlc"], json!([323180]));
         assert_eq!(view["branch"], "public");
+    }
+
+    #[test]
+    fn a_disabled_depot_is_not_reported_as_missing_a_key() {
+        let state = State::default();
+        let record = json!({
+            "appid": 620,
+            "depots": [
+                {"depot_id": 621, "enabled": false},
+                {"depot_id": 622, "enabled": true}
+            ]
+        });
+        let view = app_summary(&state, &record);
+        assert_eq!(view["missing_keys"], json!([622]));
+        assert_eq!(view["depot_count"], 2);
     }
 }

@@ -922,7 +922,7 @@ async function openSettings() {
   hubcap.append(el("span", "", "Hubcap key (optional, for key lookups)"));
   const hubcapInput = document.createElement("input");
   hubcapInput.type = "password";
-  hubcapInput.placeholder = settings.hubcap_key ? "saved" : "smm_…";
+  hubcapInput.placeholder = settings.has_hubcap_key ? "saved" : "smm_…";
   hubcapInput.value = "";
   const saveKey = el("button", "btn tiny", "Save");
   saveKey.addEventListener("click", async () => {
@@ -941,7 +941,7 @@ async function openSettings() {
   ryuu.append(el("span", "", "Ryuu auth key (plan source)"));
   const ryuuInput = document.createElement("input");
   ryuuInput.type = "password";
-  ryuuInput.placeholder = settings.ryuu_key ? "saved" : "from generator.ryuu.lol";
+  ryuuInput.placeholder = settings.has_ryuu_key ? "saved" : "from generator.ryuu.lol";
   const saveRyuu = el("button", "btn tiny", "Save");
   saveRyuu.addEventListener("click", async () => {
     try {

@@ -51,6 +51,8 @@ fn respond(stream: &mut TcpStream, status: u16, mime: &str, body: &[u8]) {
         404 => "Not Found",
         405 => "Method Not Allowed",
         409 => "Conflict",
+        413 => "Payload Too Large",
+        415 => "Unsupported Media Type",
         500 => "Internal Server Error",
         502 => "Bad Gateway",
         _ => "Error",
@@ -150,7 +152,6 @@ fn app_view(appid: u64, branch: &str) -> Result<Value, (u16, String)> {
                 "download": manifest.as_ref().and_then(|value| value.get("download")).cloned().unwrap_or(Value::Null),
                 "branches": names,
                 "has_key": key.is_some(),
-                "key": key,
                 "code": manifest.as_ref().and_then(|value| value.get("gid")).and_then(Value::as_str)
                     .and_then(|gid| st.codes.get(gid)).cloned(),
             }));
@@ -274,7 +275,7 @@ fn get_route(path: &str, query: &[(String, String)]) -> Result<Value, (u16, Stri
         }
         "/api/key" => {
             let depot_id = need_u64(query, "depot_id")?;
-            Ok(json!({ "depot_id": depot_id, "key": st.depot_keys.get(&depot_id.to_string()) }))
+            Ok(json!({ "depot_id": depot_id, "has_key": st.depot_keys.contains_key(&depot_id.to_string()) }))
         }
         "/api/plan" => {
             let appid = need_u64(query, "appid")?;
@@ -289,7 +290,16 @@ fn get_route(path: &str, query: &[(String, String)]) -> Result<Value, (u16, Stri
                 "installed": vfsys::script_path(appid).exists(),
             }))
         }
-        "/api/settings" => Ok(json!(st.settings)),
+        "/api/settings" => Ok(json!({
+            "country": st.settings.country,
+            "default_source": st.settings.default_source,
+            "default_os": st.settings.default_os,
+            "manifest_providers": st.settings.manifest_providers,
+            "sources": st.settings.sources,
+            "plan_sources": st.settings.plan_sources,
+            "has_hubcap_key": !st.settings.hubcap_key.trim().is_empty(),
+            "has_ryuu_key": !st.settings.ryuu_key.trim().is_empty(),
+        })),
         "/api/sources" => Ok(json!({
             "sources": crate::sources::catalog(&st.settings),
             "default": st.settings.default_source,
@@ -488,7 +498,7 @@ fn post_route(path: &str, body: &Value, query: &[(String, String)]) -> Result<Va
             let mut st = state::load().map_err(|error| (500, error))?;
             state::set_key(&mut st, depot_id, Some(&key));
             state::save(&st).map_err(|error| (500, error))?;
-            Ok(json!({ "depot_id": depot_id, "key": key }))
+            Ok(json!({ "depot_id": depot_id, "has_key": true }))
         }
         "/api/script/check" => {
             let text = body.get("text").and_then(Value::as_str);
@@ -887,6 +897,7 @@ fn handle(mut stream: TcpStream) {
     let mut length = 0usize;
     let mut origin: Option<String> = None;
     let mut supplied: Option<String> = None;
+    let mut content_type: Option<String> = None;
     loop {
         let mut header = String::new();
         match reader.read_line(&mut header) {
@@ -903,11 +914,19 @@ fn handle(mut stream: TcpStream) {
                 if let Some(value) = lower.strip_prefix("x-exxa-token:") {
                     supplied = Some(value.trim().to_string());
                 }
+                if let Some(value) = lower.strip_prefix("content-type:") {
+                    content_type = Some(value.trim().to_string());
+                }
             }
             Err(_) => break,
         }
     }
-    let mut body = vec![0u8; length.min(1 << 20)];
+    const MAX_BODY: usize = 1 << 20;
+    if length > MAX_BODY {
+        respond_json(&mut stream, 413, &json!({ "error": format!("body is larger than {MAX_BODY} bytes") }));
+        return;
+    }
+    let mut body = vec![0u8; length];
     if length > 0 && reader.read_exact(&mut body).is_err() {
         respond_json(&mut stream, 400, &json!({ "error": "cannot read body" }));
         return;
@@ -915,6 +934,12 @@ fn handle(mut stream: TcpStream) {
     let body_json: Value = if body.is_empty() {
         json!({})
     } else {
+        if let Some(kind) = content_type {
+            if !kind.starts_with("application/json") {
+                respond_json(&mut stream, 415, &json!({ "error": "body must be application/json" }));
+                return;
+            }
+        }
         match serde_json::from_slice(&body) {
             Ok(value) => value,
             Err(_) => {
