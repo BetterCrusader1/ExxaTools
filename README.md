@@ -10,7 +10,7 @@ downloading.
 
 ![ExxaTools](docs/game.png)
 
-Rust, one binary; the native GTK3 window needs `gtk3` at runtime. `./exxa` builds it on
+Rust, one binary; the native GTK4 window needs `gtk4` and `libadwaita` at runtime. `./exxa` builds it on
 first use and
 execs it; the old Python implementation is kept under `legacy/` as a reference.
 
@@ -33,7 +33,7 @@ override so the stock launcher returns. `./exxa steamui status` reports the whol
 autostart file, launcher wrapper, server, debug port and whether the menu is injected.
 A second `./exxa serve` exits cleanly instead of failing on the busy port.
 
-`./exxa window` opens the dashboard as a native GTK3 window — no WebKit, no browser tab.
+`./exxa window` opens the dashboard as a native GTK4/libadwaita window — no WebKit, no browser tab.
 It is a single instance, so a second launch raises the window that already exists instead
 of adding another taskbar entry. Bare `./exxa` prints the usage JSON.
 

@@ -1,76 +1,13 @@
-//! The native face of ExxaTools: GTK3, no WebKit and no browser tab.
-//!
-//! It is a GtkApplication, so a second launch from the Steam panel, the desktop
-//! entry or a shell raises the window that already exists. Views read the same
-//! library functions as the HTTP API; nothing here talks to localhost.
+//! Native dashboard on GTK4 + libadwaita: the Adwaita design system, not a
+//! hand-styled surface. One application window with a navigation split view.
 
-use std::rc::Rc;
-
-use gtk::prelude::*;
+use adw::prelude::*;
 use gtk::{Box as GtkBox, Orientation};
 use serde_json::Value;
 
 use crate::state;
 
 const APP_ID: &str = "dev.exxatools.ExxaTools";
-
-const STYLE: &str = r#"
-    window, .background { background: #08090b; color: #e8edf4; font-family: "Noto Sans"; }
-    headerbar { background: #08090b; border-bottom: 1px solid #1b2129; box-shadow: none; }
-    headerbar .title { color: #e8edf4; font-weight: 600; }
-    .sidebar { background: #0b0d10; border-right: 1px solid #1b2129; padding: 18px 12px; }
-    .brand { font-size: 19px; font-weight: 700; letter-spacing: -0.01em; color: #e8edf4; }
-    .tagline { font-family: "Noto Sans Mono"; font-size: 10px; color: #5f6874; }
-    .sidebar button { background: transparent; border: none; border-left: 2px solid transparent;
-                      border-radius: 0; color: #8a94a2; padding: 7px 10px; }
-    .sidebar button:hover { color: #e8edf4; background: #0e1115; }
-    .sidebar button:checked { color: #e8edf4; background: #0e1115; border-left-color: #e8edf4;
-                              font-weight: 600; }
-    .topbar { background: #08090b; border-bottom: 1px solid #1b2129; padding: 14px 22px; }
-    entry { background: #0f1216; border: 1px solid #232b35; border-radius: 3px;
-            color: #e8edf4; padding: 8px 10px; }
-    entry:focus { border-color: #3a4553; }
-    button.action { background: transparent; border: 1px solid #2a3340; border-radius: 3px;
-                    box-shadow: none; color: #d8dee6; padding: 4px 10px; }
-    button.action:hover { background: #12161b; border-color: #3a4553; }
-    button.primary { background: #e8edf4; border: 1px solid #e8edf4; border-radius: 3px;
-                     box-shadow: none; color: #08090b; padding: 4px 12px; }
-    button.primary:hover { background: #ffffff; }
-    button.primary label, button.primary image { color: #08090b; }
-    button.action label { color: #d8dee6; }
-    .row { padding: 9px 2px; border-bottom: 1px solid #161b21; }
-    .row:hover { background: #0d1014; }
-    .game-name { font-size: 14px; font-weight: 600; color: #e8edf4; }
-    .muted { color: #8a94a2; font-size: 11.5px; }
-    .faint { color: #5f6874; font-size: 10.5px; }
-    .mono { font-family: "Noto Sans Mono"; font-size: 10.5px; color: #7c8795; }
-    .online { color: #7ed6a5; font-family: "Noto Sans Mono"; font-size: 10.5px; }
-    .content-title { font-size: 22px; font-weight: 700; letter-spacing: -0.02em; color: #e8edf4; }
-    .content-sub { font-family: "Noto Sans Mono"; font-size: 10.5px; color: #5f6874;
-                   margin-bottom: 4px; }
-    .columns { font-family: "Noto Sans Mono"; font-size: 10px; color: #6b7686;
-               padding: 3px 2px 4px; border-bottom: 1px solid #1b2129; }
-    .empty-title { font-size: 16px; font-weight: 600; color: #cdd4dd; }
-    .empty { color: #7c8795; padding: 32px 0; }
-    .cover { border-radius: 2px; background: #12161b; }
-    button.tile { background: transparent; border: none; box-shadow: none; padding: 6px;
-                  border-radius: 3px; }
-    button.tile:hover { background: #0d1014; }
-    .status { font-family: "Noto Sans Mono"; font-size: 10px; font-weight: 600; color: #8a94a2; }
-    .status.ready { color: #7ed6a5; }
-    .status.planned { color: #d9b36c; }
-    .status.keys_missing { color: #e08a80; }
-    .status.disabled { color: #8a94a2; }
-    .dot { border-radius: 99px; min-width: 7px; min-height: 7px; }
-    .dot.ok { background: #7ed6a5; }
-    .dot.warn { background: #d9b36c; }
-    .dot.bad { background: #e08a80; }
-    .card { background: transparent; border-top: 1px solid #232b35; border-radius: 0;
-            padding: 14px 0; }
-    .check-row { padding: 7px 0; border-bottom: 1px solid #14191f; }
-    statusbar { background: #08090b; border-top: 1px solid #1b2129; color: #5f6874;
-                font-family: "Noto Sans Mono"; font-size: 10px; padding: 6px 22px; }
-"#;
 
 #[derive(Clone)]
 enum Msg {
@@ -83,20 +20,38 @@ enum Msg {
 }
 
 struct Ui {
-    window: gtk::ApplicationWindow,
-    library_head: GtkBox,
-    library_rows: GtkBox,
+    window: adw::ApplicationWindow,
+    toast: adw::ToastOverlay,
+    stack: gtk::Stack,
+    library_list: gtk::ListBox,
+    library_title: gtk::Label,
+    library_sub: gtk::Label,
     discover: gtk::FlowBox,
-    doctor: GtkBox,
-    status: gtk::Label,
+    doctor_list: gtk::ListBox,
     sender: std::sync::mpsc::Sender<Msg>,
+    country: std::rc::Rc<std::cell::RefCell<String>>,
 }
 
 pub fn run(_url: &str) -> Result<(), String> {
-    let app = gtk::Application::new(Some(APP_ID), gtk::gio::ApplicationFlags::empty());
+    let app = adw::Application::builder().application_id(APP_ID).build();
     app.connect_startup(|_| {
-        if let Some(settings) = gtk::Settings::default() {
-            settings.set_gtk_application_prefer_dark_theme(true);
+        adw::StyleManager::default().set_color_scheme(adw::ColorScheme::ForceDark);
+        if let Some(display) = gtk::gdk::Display::default() {
+            let provider = gtk::CssProvider::new();
+            provider.load_from_data(
+                ".cover { border-radius: 6px; }
+                 .mono { font-family: \"Noto Sans Mono\"; font-size: 11px; }
+                 .status-ready { color: #7ed6a5; }
+                 .status-planned { color: #d9b36c; }
+                 .status-keys_missing { color: #e08a80; }
+                 .status-disabled { color: #8a94a2; }
+                 .steam-online { color: #7ed6a5; }",
+            );
+            gtk::style_context_add_provider_for_display(
+                &display,
+                &provider,
+                gtk::STYLE_PROVIDER_PRIORITY_APPLICATION,
+            );
         }
     });
     app.connect_activate(|app| {
@@ -110,192 +65,13 @@ pub fn run(_url: &str) -> Result<(), String> {
     Ok(())
 }
 
-fn label(text: &str, class: &str) -> gtk::Label {
-    let widget = gtk::Label::new(Some(text));
-    widget.set_xalign(0.0);
-    widget.style_context().add_class(class);
-    widget
-}
-
-fn image_at(path: &str, width: i32, height: i32) -> Option<gtk::Image> {
-    let pixbuf = gtk::gdk_pixbuf::Pixbuf::from_file_at_scale(path, width, height, false).ok()?;
-    Some(gtk::Image::from_pixbuf(Some(&pixbuf)))
-}
-
-fn button(text: &str, class: &str) -> gtk::Button {
-    let widget = gtk::Button::with_label(text);
-    widget.style_context().add_class(class);
-    widget
-}
-
-fn message(parent: &gtk::ApplicationWindow, text: &str) {
-    let dialog = gtk::MessageDialog::new(
-        Some(parent),
-        gtk::DialogFlags::MODAL,
-        gtk::MessageType::Info,
-        gtk::ButtonsType::Ok,
-        text,
-    );
-    dialog.run();
-    dialog.close();
-}
-
-fn build(app: &gtk::Application) {
-    let window = gtk::ApplicationWindow::new(app);
-    if let Some(screen) = gtk::prelude::GtkWindowExt::screen(&window) {
-        let provider = gtk::CssProvider::new();
-        if let Err(error) = provider.load_from_data(STYLE.as_bytes()) {
-            eprintln!("window css: {error}");
-        }
-        gtk::StyleContext::add_provider_for_screen(
-            &screen,
-            &provider,
-            gtk::STYLE_PROVIDER_PRIORITY_APPLICATION,
-        );
-    }
-    window.set_title("ExxaTools");
-    window.set_default_size(1240, 820);
-    window.set_position(gtk::WindowPosition::Center);
-    let icon = crate::paths::web_dir().join("logo-128.png");
-    if icon.is_file() {
-        let _ = window.set_icon_from_file(&icon);
-    }
-
-    let header = gtk::HeaderBar::new();
-    header.set_show_close_button(true);
-    header.set_title(Some("ExxaTools"));
-    window.set_titlebar(Some(&header));
-
-    let stack = gtk::Stack::new();
-    stack.set_transition_type(gtk::StackTransitionType::Crossfade);
-    stack.set_transition_duration(120);
-    stack.set_hexpand(true);
-    stack.set_vexpand(true);
-
-    let sidebar = GtkBox::new(Orientation::Vertical, 4);
-    sidebar.set_size_request(196, -1);
-    sidebar.style_context().add_class("sidebar");
-    let brand = gtk::Label::new(Some("ExxaTools"));
-    brand.set_xalign(0.0);
-    brand.style_context().add_class("brand");
-    sidebar.pack_start(&brand, false, false, 0);
-    let tagline = label("Vapor Forge", "faint");
-    sidebar.pack_start(&tagline, false, false, 10);
-
-    let views = [
-        ("library", "Library"),
-        ("discover", "Discover"),
-        ("system", "System"),
-        ("settings", "Settings"),
-    ];
-    let mut nav_buttons = Vec::new();
-    for (name, title) in views {
-        let item = gtk::ToggleButton::with_label(title);
-        item.set_relief(gtk::ReliefStyle::None);
-        if let Some(child) = item.child() {
-            if let Some(label) = child.downcast_ref::<gtk::Label>() {
-                label.set_xalign(0.0);
-            }
-        }
-        sidebar.pack_start(&item, false, false, 0);
-        let stack = stack.clone();
-        item.connect_clicked(move |active| {
-            if !active.is_active() {
-                active.set_active(true);
-            }
-            stack.set_visible_child_name(name);
-        });
-        nav_buttons.push(item);
-    }
-    let steam = label(
-        if crate::steamctl::is_running() { "● Steam connected" } else { "○ Steam offline" },
-        if crate::steamctl::is_running() { "online" } else { "faint" },
-    );
-    steam.set_valign(gtk::Align::End);
-    steam.set_vexpand(true);
-    sidebar.pack_end(&steam, false, false, 4);
-    let version = label(&format!("v{}", env!("CARGO_PKG_VERSION")), "faint");
-    sidebar.pack_end(&version, false, false, 0);
-
-    let topbar = GtkBox::new(Orientation::Horizontal, 8);
-    topbar.style_context().add_class("topbar");
-    let search = gtk::SearchEntry::new();
-    search.set_placeholder_text(Some("Find a game — name or app id"));
-    search.set_hexpand(true);
-    let refresh = gtk::Button::from_icon_name(Some("view-refresh-symbolic"), gtk::IconSize::Button);
-    refresh.set_tooltip_text(Some("Refresh library and doctor"));
-    refresh.style_context().add_class("action");
-    topbar.pack_start(&search, true, true, 0);
-    topbar.pack_end(&refresh, false, false, 0);
-
-    let library = GtkBox::new(Orientation::Vertical, 10);
-    library.set_margin_top(16);
-    library.set_margin_bottom(16);
-    library.set_margin_start(20);
-    library.set_margin_end(20);
-    let library_head = GtkBox::new(Orientation::Vertical, 2);
-    let library_rows = GtkBox::new(Orientation::Vertical, 0);
-    library.pack_start(&library_head, false, false, 0);
-    library.pack_start(&library_rows, false, false, 0);
-    let library_scroll = gtk::ScrolledWindow::new(gtk::Adjustment::NONE, gtk::Adjustment::NONE);
-    library_scroll.set_policy(gtk::PolicyType::Never, gtk::PolicyType::Automatic);
-    library_scroll.add(&library);
-
-    let discover = gtk::FlowBox::new();
-    discover.set_column_spacing(10);
-    discover.set_row_spacing(10);
-    discover.set_selection_mode(gtk::SelectionMode::None);
-    discover.set_valign(gtk::Align::Start);
-    discover.set_margin_top(12);
-    discover.set_margin_bottom(12);
-    discover.set_margin_start(14);
-    discover.set_margin_end(14);
-    let discover_scroll = gtk::ScrolledWindow::new(gtk::Adjustment::NONE, gtk::Adjustment::NONE);
-    discover_scroll.add(&discover);
-    let discover_page = GtkBox::new(Orientation::Vertical, 0);
-    let discover_head = GtkBox::new(Orientation::Vertical, 2);
-    discover_head.set_margin_top(16);
-    discover_head.set_margin_start(20);
-    discover_head.set_margin_end(20);
-    discover_head.pack_start(&label("Discover", "content-title"), false, false, 0);
-    discover_head.pack_start(&label("Popular on Steam right now", "content-sub"), false, false, 0);
-    discover_page.pack_start(&discover_head, false, false, 0);
-    discover_page.pack_start(&discover_scroll, true, true, 0);
-
-    let doctor = GtkBox::new(Orientation::Vertical, 0);
-    doctor.set_margin_top(14);
-    doctor.set_margin_bottom(14);
-    doctor.set_margin_start(20);
-    doctor.set_margin_end(20);
-    let doctor_scroll = gtk::ScrolledWindow::new(gtk::Adjustment::NONE, gtk::Adjustment::NONE);
-    doctor_scroll.add(&doctor);
-
-    let settings = build_settings(&window);
-    let settings_scroll = gtk::ScrolledWindow::new(gtk::Adjustment::NONE, gtk::Adjustment::NONE);
-    settings_scroll.add(&settings);
-
-    stack.add_named(&library_scroll, "library");
-    stack.add_named(&discover_page, "discover");
-    stack.add_named(&doctor_scroll, "system");
-    stack.add_named(&settings_scroll, "settings");
-    nav_buttons[0].set_active(true);
-
-    let status = gtk::Label::new(Some(""));
-    status.set_xalign(0.0);
-    status.style_context().add_class("muted");
-    let statusbar = gtk::Box::new(Orientation::Horizontal, 8);
-    statusbar.style_context().add_class("statusbar");
-    statusbar.pack_start(&status, true, true, 0);
-
-    let content = GtkBox::new(Orientation::Vertical, 0);
-    content.pack_start(&topbar, false, false, 0);
-    content.pack_start(&stack, true, true, 0);
-    content.pack_start(&statusbar, false, false, 0);
-
-    let body = GtkBox::new(Orientation::Horizontal, 0);
-    body.pack_start(&sidebar, false, false, 0);
-    body.pack_start(&content, true, true, 0);
-    window.add(&body);
+fn build(app: &adw::Application) {
+    let window = adw::ApplicationWindow::builder()
+        .application(app)
+        .title("ExxaTools")
+        .default_width(1240)
+        .default_height(820)
+        .build();
 
     let (sender, receiver) = std::sync::mpsc::channel::<Msg>();
     let country = std::rc::Rc::new(std::cell::RefCell::new(
@@ -303,14 +79,201 @@ fn build(app: &gtk::Application) {
             .map(|value| value.settings.country)
             .unwrap_or_else(|_| "us".into()),
     ));
-    let ui = Rc::new(Ui {
+
+    let stack = gtk::Stack::new();
+    stack.set_vexpand(true);
+    stack.set_hexpand(true);
+
+    let library_title = gtk::Label::new(Some("Library"));
+    library_title.add_css_class("title-1");
+    library_title.set_halign(gtk::Align::Start);
+    let library_sub = gtk::Label::new(Some(""));
+    library_sub.add_css_class("dim-label");
+    library_sub.set_halign(gtk::Align::Start);
+    let library_list = gtk::ListBox::new();
+    library_list.add_css_class("boxed-list");
+    library_list.set_selection_mode(gtk::SelectionMode::None);
+    library_list.set_margin_top(6);
+    library_list.set_margin_bottom(18);
+    library_list.set_margin_start(18);
+    library_list.set_margin_end(18);
+    let library_header = GtkBox::new(Orientation::Vertical, 2);
+    library_header.set_margin_top(18);
+    library_header.set_margin_start(18);
+    library_header.set_margin_end(18);
+    library_header.append(&library_title);
+    library_header.append(&library_sub);
+    let library_page = GtkBox::new(Orientation::Vertical, 0);
+    library_page.append(&library_header);
+    library_page.append(&library_list);
+    let library_scroll = gtk::ScrolledWindow::new();
+    library_scroll.set_policy(gtk::PolicyType::Never, gtk::PolicyType::Automatic);
+    library_scroll.set_child(Some(&library_page));
+    stack.add_named(&library_scroll, Some("library"));
+
+    let discover = gtk::FlowBox::new();
+    discover.set_column_spacing(14);
+    discover.set_row_spacing(14);
+    discover.set_selection_mode(gtk::SelectionMode::None);
+    discover.set_valign(gtk::Align::Start);
+    discover.set_margin_top(18);
+    discover.set_margin_bottom(18);
+    discover.set_margin_start(18);
+    discover.set_margin_end(18);
+    let discover_scroll = gtk::ScrolledWindow::new();
+    discover_scroll.set_child(Some(&discover));
+    discover_scroll.set_vexpand(true);
+    let discover_page = GtkBox::new(Orientation::Vertical, 0);
+    let discover_title = gtk::Label::new(Some("Discover"));
+    discover_title.add_css_class("title-1");
+    discover_title.set_halign(gtk::Align::Start);
+    discover_title.set_margin_top(18);
+    discover_title.set_margin_start(18);
+    let discover_sub = gtk::Label::new(Some("Popular on Steam right now"));
+    discover_sub.add_css_class("dim-label");
+    discover_sub.set_halign(gtk::Align::Start);
+    discover_sub.set_margin_start(18);
+    discover_page.append(&discover_title);
+    discover_page.append(&discover_sub);
+    discover_page.append(&discover_scroll);
+    stack.add_named(&discover_page, Some("discover"));
+
+    let doctor_list = gtk::ListBox::new();
+    doctor_list.add_css_class("boxed-list");
+    doctor_list.set_selection_mode(gtk::SelectionMode::None);
+    doctor_list.set_margin_top(6);
+    doctor_list.set_margin_bottom(18);
+    doctor_list.set_margin_start(18);
+    doctor_list.set_margin_end(18);
+    let doctor_page = GtkBox::new(Orientation::Vertical, 0);
+    let doctor_head = GtkBox::new(Orientation::Horizontal, 8);
+    doctor_head.set_margin_top(18);
+    doctor_head.set_margin_start(18);
+    doctor_head.set_margin_end(18);
+    let doctor_title = gtk::Label::new(Some("System"));
+    doctor_title.add_css_class("title-1");
+    doctor_title.set_halign(gtk::Align::Start);
+    doctor_title.set_hexpand(true);
+    let copy = gtk::Button::with_label("Copy report");
+    copy.add_css_class("flat");
+    doctor_head.append(&doctor_title);
+    doctor_head.append(&copy);
+    doctor_page.append(&doctor_head);
+    doctor_page.append(&doctor_list);
+    let doctor_scroll = gtk::ScrolledWindow::new();
+    doctor_scroll.set_child(Some(&doctor_page));
+    stack.add_named(&doctor_scroll, Some("system"));
+
+    let settings_page = build_settings(&window, &sender);
+    stack.add_named(&settings_page, Some("settings"));
+
+    let toast = adw::ToastOverlay::new();
+
+    let sidebar_list = gtk::ListBox::new();
+    sidebar_list.add_css_class("navigation-sidebar");
+    sidebar_list.set_selection_mode(gtk::SelectionMode::Single);
+    for (id, title) in [
+        ("library", "Library"),
+        ("discover", "Discover"),
+        ("system", "System"),
+        ("settings", "Settings"),
+    ] {
+        let row = gtk::ListBoxRow::new();
+        let label = gtk::Label::new(Some(title));
+        label.set_margin_top(8);
+        label.set_margin_bottom(8);
+        label.set_margin_start(8);
+        label.set_margin_end(8);
+        label.set_halign(gtk::Align::Start);
+        row.set_child(Some(&label));
+        unsafe { row.set_data("page", id.to_string()) };
+        sidebar_list.append(&row);
+    }
+
+    let brand = gtk::Label::new(Some("ExxaTools"));
+    brand.add_css_class("title-2");
+    brand.set_halign(gtk::Align::Start);
+    brand.set_margin_start(16);
+    brand.set_margin_top(16);
+    let tagline = gtk::Label::new(Some("Steam depot console"));
+    tagline.add_css_class("dim-label");
+    tagline.set_halign(gtk::Align::Start);
+    tagline.set_margin_start(16);
+    let steam = gtk::Label::new(Some(if crate::steamctl::is_running() {
+        "Steam connected"
+    } else {
+        "Steam offline"
+    }));
+    steam.add_css_class("dim-label");
+    if crate::steamctl::is_running() {
+        steam.add_css_class("steam-online");
+    }
+    steam.set_halign(gtk::Align::Start);
+    steam.set_margin_start(16);
+    steam.set_margin_bottom(6);
+    let version = gtk::Label::new(Some(&format!("v{}", env!("CARGO_PKG_VERSION"))));
+    version.add_css_class("dim-label");
+    version.set_halign(gtk::Align::Start);
+    version.set_margin_start(16);
+    version.set_margin_bottom(16);
+
+    let sidebar_box = GtkBox::new(Orientation::Vertical, 10);
+    sidebar_box.append(&brand);
+    sidebar_box.append(&tagline);
+    sidebar_box.append(&sidebar_list);
+    let spacer = GtkBox::new(Orientation::Vertical, 0);
+    spacer.set_vexpand(true);
+    sidebar_box.append(&spacer);
+    sidebar_box.append(&steam);
+    sidebar_box.append(&version);
+    sidebar_box.set_width_request(210);
+
+    let sidebar_scroll = gtk::ScrolledWindow::new();
+    sidebar_scroll.set_policy(gtk::PolicyType::Never, gtk::PolicyType::Automatic);
+    sidebar_scroll.set_child(Some(&sidebar_box));
+    let sidebar_toolbar = adw::ToolbarView::new();
+    sidebar_toolbar.set_content(Some(&sidebar_scroll));
+    let sidebar_page = adw::NavigationPage::builder()
+        .title("ExxaTools")
+        .child(&sidebar_toolbar)
+        .build();
+
+    let search = gtk::SearchEntry::new();
+    search.set_placeholder_text(Some("Find a game — name or app id"));
+    search.set_hexpand(true);
+    let refresh = gtk::Button::from_icon_name("view-refresh-symbolic");
+    refresh.set_tooltip_text(Some("Refresh library and system checks"));
+    let content_header = adw::HeaderBar::new();
+    content_header.set_title_widget(Some(&search));
+    content_header.pack_end(&refresh);
+    let content_toolbar = adw::ToolbarView::new();
+    content_toolbar.add_top_bar(&content_header);
+    content_toolbar.set_content(Some(&stack));
+    let content_page = adw::NavigationPage::builder()
+        .title("ExxaTools")
+        .child(&content_toolbar)
+        .build();
+
+    let split = adw::NavigationSplitView::new();
+    split.set_sidebar(Some(&sidebar_page));
+    split.set_content(Some(&content_page));
+    split.set_min_sidebar_width(210.0);
+    split.set_max_sidebar_width(260.0);
+
+    toast.set_child(Some(&split));
+    window.set_content(Some(&toast));
+
+    let ui = std::rc::Rc::new(Ui {
         window: window.clone(),
-        library_head: library_head.clone(),
-        library_rows: library_rows.clone(),
+        toast: toast.clone(),
+        stack: stack.clone(),
+        library_list: library_list.clone(),
+        library_title: library_title.clone(),
+        library_sub: library_sub.clone(),
         discover: discover.clone(),
-        doctor: doctor.clone(),
-        status: status.clone(),
+        doctor_list: doctor_list.clone(),
         sender: sender.clone(),
+        country: country.clone(),
     });
 
     {
@@ -322,29 +285,54 @@ fn build(app: &gtk::Application) {
                     Msg::Search(items) => render_library(&ui, items, true),
                     Msg::Discover(items) => render_discover(&ui, items),
                     Msg::Doctor(value) => render_doctor(&ui, value),
-                    Msg::Info(text) => ui.status.set_text(&text),
+                    Msg::Info(text) => toast_text(&ui, &text),
                     Msg::Error(text) => {
-                        ui.status.set_text(&text);
-                        message(&ui.window, &text);
+                        toast_text(&ui, &text);
+                        ui.window.present();
                     }
                 }
             }
             gtk::glib::ControlFlow::Continue
         });
     }
-
     {
-        let sender = sender.clone();
-        let country = country.clone();
-        let stack = stack.clone();
+        let ui = ui.clone();
+        let sender = ui.sender.clone();
+        let country = ui.country.clone();
+        sidebar_list.connect_row_selected(move |_, row| {
+            let Some(row) = row else { return };
+            let pages = ["library", "discover", "system", "settings"];
+            let index = row.index();
+            if index < 0 {
+                return;
+            }
+            let Some(page) = pages.get(index as usize) else { return };
+            ui.stack.set_visible_child_name(page);
+            match *page {
+                "discover" => {
+                    let sender = sender.clone();
+                    let country = country.borrow().clone();
+                    std::thread::spawn(move || {
+                        let mut items = crate::steam::discover(&country, 24);
+                        attach_covers(&mut items);
+                        sender.send(Msg::Discover(items)).ok();
+                    });
+                }
+                "system" => load_doctor(sender.clone()),
+                _ => {}
+            }
+        });
+    }
+    {
+        let ui = ui.clone();
         search.connect_activate(move |entry| {
             let term = entry.text().trim().to_string();
             if term.is_empty() {
                 return;
             }
-            let sender = sender.clone();
-            let country = country.borrow().clone();
-            stack.set_visible_child_name("library");
+            let sender = ui.sender.clone();
+            let country = ui.country.borrow().clone();
+            ui.stack.set_visible_child_name("library");
             sender.send(Msg::Info("Searching Steam…".into())).ok();
             std::thread::spawn(move || {
                 let mut result = term
@@ -360,49 +348,39 @@ fn build(app: &gtk::Application) {
         });
     }
     {
-        let sender = sender.clone();
-        let stack = stack.clone();
+        let ui = ui.clone();
+        let sender = ui.sender.clone();
         refresh.connect_clicked(move |_| {
-            stack.set_visible_child_name("library");
             load_library(sender.clone());
             load_doctor(sender.clone());
         });
     }
     {
         let sender = sender.clone();
-        let country = country.clone();
-        nav_buttons[1].connect_clicked(move |_| {
-            let sender = sender.clone();
-            let country = country.borrow().clone();
-            std::thread::spawn(move || {
-                let mut items = crate::steam::discover(&country, 24);
-                attach_covers(&mut items);
-                sender.send(Msg::Discover(items)).ok();
-            });
-        });
-    }
-    {
-        let sender = sender.clone();
-        nav_buttons[2].connect_clicked(move |_| load_doctor(sender.clone()));
-    }
-    {
-        let sender = sender.clone();
-        nav_buttons[3].connect_clicked(move |_| {
-            sender.send(Msg::Info("Settings save to ~/.config/exxatools/state.json".into())).ok();
-        });
+        sidebar_list.select_row(sidebar_list.row_at_index(0).as_ref());
+        load_library(sender.clone());
+        load_doctor(sender);
     }
 
-    window.show_all();
     window.present();
-    // Focus stealing prevention can leave a freshly spawned app under the
-    // browser; sit above for a moment so the window that was asked for is seen.
-    window.set_keep_above(true);
-    let raised = window.clone();
-    gtk::glib::timeout_add_local_once(std::time::Duration::from_millis(900), move || {
-        raised.set_keep_above(false);
-    });
-    load_library(sender.clone());
-    load_doctor(sender);
+}
+
+fn toast_text(ui: &Ui, text: &str) {
+    ui.toast.add_toast(adw::Toast::new(text));
+}
+
+fn clear_list(list: &gtk::ListBox) {
+    while let Some(child) = list.first_child() {
+        list.remove(&child);
+    }
+}
+
+fn image_at(path: &str, width: i32, height: i32) -> Option<gtk::Picture> {
+    let picture = gtk::Picture::for_filename(path);
+    picture.set_content_fit(gtk::ContentFit::Cover);
+    picture.set_size_request(width, height);
+    picture.add_css_class("cover");
+    Some(picture)
 }
 
 fn ensure_cover(appid: u64) -> Option<String> {
@@ -454,25 +432,13 @@ fn load_doctor(sender: std::sync::mpsc::Sender<Msg>) {
     });
 }
 
-fn clear(container: &GtkBox) {
-    for child in container.children() {
-        container.remove(&child);
-    }
-}
-
 fn render_library(ui: &Ui, items: Vec<Value>, from_search: bool) {
-    clear(&ui.library_head);
-    clear(&ui.library_rows);
+    clear_list(&ui.library_list);
+    ui.library_title.set_text(if from_search { "Search results" } else { "Library" });
     let ready = items
         .iter()
         .filter(|item| item.get("state").and_then(Value::as_str) == Some("ready"))
         .count();
-    ui.library_head.pack_start(
-        &label(if from_search { "Search results" } else { "Library" }, "content-title"),
-        false,
-        false,
-        0,
-    );
     let summary = if items.is_empty() {
         "No games yet".to_string()
     } else if from_search {
@@ -480,54 +446,23 @@ fn render_library(ui: &Ui, items: Vec<Value>, from_search: bool) {
     } else {
         format!("{} {} · {} ready", items.len(), if items.len() == 1 { "game" } else { "games" }, ready)
     };
-    ui.library_head.pack_start(&label(&summary, "content-sub"), false, false, 0);
-
-    if !items.is_empty() {
-        let columns = GtkBox::new(Orientation::Horizontal, 12);
-        columns.style_context().add_class("columns");
-        let cover_space = GtkBox::new(Orientation::Horizontal, 0);
-        cover_space.set_size_request(96, -1);
-        columns.pack_start(&cover_space, false, false, 0);
-        columns.pack_start(&label("game", "columns"), true, true, 0);
-        let app = label("app", "columns");
-        app.set_xalign(1.0);
-        app.set_size_request(64, -1);
-        columns.pack_start(&app, false, false, 0);
-        let depots = label("depots", "columns");
-        depots.set_xalign(1.0);
-        depots.set_size_request(54, -1);
-        columns.pack_start(&depots, false, false, 0);
-        let status = label("status", "columns");
-        status.set_size_request(82, -1);
-        columns.pack_start(&status, false, false, 0);
-        let actions = label("actions", "columns");
-        actions.set_size_request(150, -1);
-        columns.pack_start(&actions, false, false, 0);
-        ui.library_head.pack_start(&columns, false, false, 0);
-    }
+    ui.library_sub.set_text(&summary);
 
     if items.is_empty() {
-        let empty = GtkBox::new(Orientation::Vertical, 6);
-        empty.set_valign(gtk::Align::Center);
-        empty.set_vexpand(true);
-        let title = label(
-            if from_search { "Nothing found" } else { "Your library is empty" },
-            "empty-title",
-        );
-        title.set_xalign(0.5);
-        let hint = label(
-            if from_search {
+        let status = adw::StatusPage::builder()
+            .icon_name("folder-open-symbolic")
+            .title(if from_search { "Nothing found" } else { "Your library is empty" })
+            .description(if from_search {
                 "Try another name or a numeric app id."
             } else {
                 "Search for a game above, then press Add."
-            },
-            "muted",
-        );
-        hint.set_xalign(0.5);
-        empty.pack_start(&title, false, false, 0);
-        empty.pack_start(&hint, false, false, 0);
-        ui.library_head.pack_start(&empty, true, true, 24);
-        ui.library_head.show_all();
+            })
+            .build();
+        let row = gtk::ListBoxRow::new();
+        row.set_activatable(false);
+        row.set_selectable(false);
+        row.set_child(Some(&status));
+        ui.library_list.append(&row);
         return;
     }
 
@@ -544,70 +479,41 @@ fn render_library(ui: &Ui, items: Vec<Value>, from_search: bool) {
         let depots = item
             .get("depot_count")
             .and_then(Value::as_u64)
-            .map(|count| format!("{count}"))
-            .unwrap_or_else(|| "—".into());
-        let branch = item
-            .get("branch")
-            .and_then(Value::as_str)
-            .unwrap_or("public")
-            .to_string();
-
-        let row = GtkBox::new(Orientation::Horizontal, 12);
-        row.style_context().add_class("row");
-
+            .map(|count| format!("{count} depots"))
+            .unwrap_or_else(|| "no depots".into());
+        let row = adw::ActionRow::builder()
+            .title(&name)
+            .subtitle(format!(
+                "{} · {} branch",
+                depots,
+                item.get("branch").and_then(Value::as_str).unwrap_or("public")
+            ))
+            .build();
         if let Some(cover) = item
             .get("cover")
             .and_then(Value::as_str)
             .and_then(|path| image_at(path, 96, 45))
         {
-            cover.style_context().add_class("cover");
-            row.pack_start(&cover, false, false, 0);
+            row.add_prefix(&cover);
         }
-
-        let text = GtkBox::new(Orientation::Vertical, 2);
-        let title = label(&name, "game-name");
-        title.set_ellipsize(gtk::pango::EllipsizeMode::End);
-        title.set_max_width_chars(34);
-        text.pack_start(&title, false, false, 0);
-        text.pack_start(&label(&format!("{branch} branch"), "mono"), false, false, 0);
-        row.pack_start(&text, true, true, 0);
-
-        let app = label(&appid.to_string(), "mono");
-        app.set_xalign(1.0);
-        app.set_size_request(64, -1);
-        row.pack_start(&app, false, false, 0);
-
-        let depots_label = label(&depots, "mono");
-        depots_label.set_xalign(1.0);
-        depots_label.set_size_request(54, -1);
-        row.pack_start(&depots_label, false, false, 0);
-
-        let status_cell = GtkBox::new(Orientation::Horizontal, 5);
-        status_cell.set_size_request(82, -1);
         let status = item.get("state").and_then(Value::as_str).unwrap_or("planned");
-        let dot = gtk::Label::new(Some("●"));
-        dot.style_context().add_class("status");
-        dot.style_context().add_class(status);
-        status_cell.pack_start(&dot, false, false, 0);
-        let status_text = label(status, "status");
-        status_text.style_context().add_class(status);
-        status_cell.pack_start(&status_text, false, false, 0);
-        row.pack_start(&status_cell, false, false, 0);
+        let state_label = gtk::Label::new(Some(status));
+        state_label.add_css_class("mono");
+        state_label.add_css_class(&format!("status-{status}"));
+        row.add_suffix(&state_label);
 
-        let actions = GtkBox::new(Orientation::Horizontal, 6);
-        actions.set_valign(gtk::Align::Center);
         let installed = item.get("installed").and_then(Value::as_bool).unwrap_or(false);
         if from_search || !installed {
-            let add = button("Add", "primary");
+            let add = gtk::Button::with_label("Add");
+            add.add_css_class("suggested-action");
             let sender = ui.sender.clone();
             let name_hint = name.clone();
             add.connect_clicked(move |_| {
                 let sender = sender.clone();
-                let name_hint = name_hint.clone();
-                sender.send(Msg::Info(format!("Fetching a plan for {name_hint}…"))).ok();
-                std::thread::spawn(move || match crate::plans::fetch_plan(appid, Some(&name_hint)) {
+                let hint = name_hint.clone();
+                std::thread::spawn(move || match crate::plans::fetch_plan(appid, Some(&hint)) {
                     Ok(_) => {
-                        sender.send(Msg::Info(format!("{name_hint} added"))).ok();
+                        sender.send(Msg::Info(format!("{hint} added"))).ok();
                         load_library(sender.clone());
                     }
                     Err(error) => {
@@ -615,41 +521,38 @@ fn render_library(ui: &Ui, items: Vec<Value>, from_search: bool) {
                     }
                 });
             });
-            actions.pack_start(&add, false, false, 0);
+            row.add_suffix(&add);
         } else {
-            let details = button("Details", "action");
+            let details = gtk::Button::with_label("Details");
+            details.add_css_class("flat");
+            details.set_valign(gtk::Align::Center);
             let sender = ui.sender.clone();
             let window = ui.window.clone();
             let detail_name = name.clone();
             details.connect_clicked(move |_| {
                 open_details(&window, appid, &detail_name, sender.clone());
             });
-            actions.pack_start(&details, false, false, 0);
-
-            let launch = button("Launch", "primary");
+            row.add_suffix(&details);
+            let launch = gtk::Button::with_label("Launch");
+            launch.add_css_class("suggested-action");
+            launch.set_valign(gtk::Align::Center);
             launch.connect_clicked(move |_| {
                 let _ = std::process::Command::new("steam")
                     .arg(format!("steam://rungameid/{appid}"))
                     .spawn();
             });
-            actions.pack_start(&launch, false, false, 0);
+            row.add_suffix(&launch);
         }
-        row.pack_start(&actions, false, false, 0);
-        ui.library_rows.pack_start(&row, false, false, 0);
+
+        row.set_activatable(false);
+        row.set_selectable(false);
+        ui.library_list.append(&row);
     }
-    ui.library_head.show_all();
-    ui.library_rows.show_all();
 }
 
 fn render_discover(ui: &Ui, items: Vec<Value>) {
-    for child in ui.discover.children() {
+    while let Some(child) = ui.discover.first_child() {
         ui.discover.remove(&child);
-    }
-    if items.is_empty() {
-        let empty = label("Steam did not answer with suggestions.", "empty");
-        ui.discover.add(&empty);
-        ui.discover.show_all();
-        return;
     }
     for item in items {
         let appid = item.get("appid").and_then(Value::as_u64).unwrap_or(0);
@@ -662,171 +565,131 @@ fn render_discover(ui: &Ui, items: Vec<Value>) {
             .unwrap_or("Unknown")
             .to_string();
         let tile = gtk::Button::new();
-        tile.style_context().add_class("tile");
+        tile.add_css_class("flat");
         let inner = GtkBox::new(Orientation::Vertical, 6);
         if let Some(cover) = item
             .get("cover")
             .and_then(Value::as_str)
             .and_then(|path| image_at(path, 210, 98))
         {
-            inner.pack_start(&cover, false, false, 0);
+            inner.append(&cover);
         }
-        let caption = label(&name, "game-name");
+        let caption = gtk::Label::new(Some(&name));
         caption.set_ellipsize(gtk::pango::EllipsizeMode::End);
         caption.set_max_width_chars(26);
-        inner.pack_start(&caption, false, false, 0);
-        tile.add(&inner);
-        let window = ui.window.clone();
+        caption.set_halign(gtk::Align::Start);
+        inner.append(&caption);
+        tile.set_child(Some(&inner));
+        let ui_window = ui.window.clone();
         let sender = ui.sender.clone();
         let hint = name.clone();
         tile.connect_clicked(move |_| {
-            let question = format!("Add {hint} to the library?");
-            let dialog = gtk::MessageDialog::new(
-                Some(&window),
-                gtk::DialogFlags::MODAL,
-                gtk::MessageType::Question,
-                gtk::ButtonsType::YesNo,
-                &question,
+            let dialog = adw::MessageDialog::new(
+                Some(&ui_window),
+                Some("Add to library"),
+                Some(&format!("Add {hint}?")),
             );
-            let response = dialog.run();
-            dialog.close();
-            if response == gtk::ResponseType::Yes {
+            dialog.add_response("cancel", "Cancel");
+            dialog.add_response("add", "Add");
+            dialog.set_response_appearance("add", adw::ResponseAppearance::Suggested);
+            let sender = sender.clone();
+            let hint = hint.clone();
+            dialog.connect_response(None, move |dialog, response| {
+                dialog.close();
+                if response != "add" {
+                    return;
+                }
                 let sender = sender.clone();
                 let hint = hint.clone();
-                std::thread::spawn(move || {
-                    match crate::plans::fetch_plan(appid, Some(&hint)) {
-                        Ok(_) => {
-                            sender.send(Msg::Info(format!("{hint} added"))).ok();
-                            load_library(sender.clone());
-                        }
-                        Err(error) => {
-                            sender.send(Msg::Error(error)).ok();
-                        }
+                std::thread::spawn(move || match crate::plans::fetch_plan(appid, Some(&hint)) {
+                    Ok(_) => {
+                        sender.send(Msg::Info(format!("{hint} added"))).ok();
+                        load_library(sender.clone());
+                    }
+                    Err(error) => {
+                        sender.send(Msg::Error(error)).ok();
                     }
                 });
-            }
+            });
+            dialog.present();
         });
-        ui.discover.add(&tile);
+        ui.discover.append(&tile);
     }
-    ui.discover.show_all();
 }
 
 fn render_doctor(ui: &Ui, value: Value) {
-    clear(&ui.doctor);
-    let head = GtkBox::new(Orientation::Horizontal, 10);
-    let titles = GtkBox::new(Orientation::Vertical, 2);
-    titles.pack_start(&label("System", "content-title"), false, false, 0);
+    clear_list(&ui.doctor_list);
     let items = value
         .get("checks")
         .or_else(|| value.get("items"))
         .and_then(Value::as_array)
         .cloned()
         .unwrap_or_default();
-    let problems = items
-        .iter()
-        .filter(|item| item.get("status").and_then(Value::as_str) != Some("ok"))
-        .count();
-    titles.pack_start(
-        &label(
-            &format!("{} checks · {} need attention", items.len(), problems),
-            "content-sub",
-        ),
-        false,
-        false,
-        0,
-    );
-    head.pack_start(&titles, true, true, 0);
-    let copy = button("Copy report", "action");
-    let report = serde_json::to_string_pretty(&value).unwrap_or_default();
-    copy.connect_clicked(move |_| {
-        gtk::Clipboard::get(&gtk::gdk::SELECTION_CLIPBOARD).set_text(&report);
-    });
-    head.pack_end(&copy, false, false, 0);
-    ui.doctor.pack_start(&head, false, false, 8);
-
-    let card = GtkBox::new(Orientation::Vertical, 0);
-    card.style_context().add_class("card");
-    if items.is_empty() {
-        card.pack_start(&label("Doctor returned nothing.", "empty"), false, false, 0);
-    }
     for item in items {
-        let row = GtkBox::new(Orientation::Horizontal, 10);
-        row.style_context().add_class("check-row");
         let status = item.get("status").and_then(Value::as_str).unwrap_or("warn");
-        let dot = gtk::Label::new(Some(""));
-        dot.set_size_request(8, 8);
-        dot.set_valign(gtk::Align::Start);
-        dot.style_context().add_class("dot");
-        dot.style_context().add_class(status);
-        row.pack_start(&dot, false, false, 0);
-
-        let text = GtkBox::new(Orientation::Vertical, 2);
-        text.pack_start(
-            &label(item.get("label").and_then(Value::as_str).unwrap_or(""), "game-name"),
-            false,
-            false,
-            0,
-        );
-        let detail = label(item.get("detail").and_then(Value::as_str).unwrap_or(""), "mono");
-        text.pack_start(&detail, false, false, 0);
-        row.pack_start(&text, true, true, 0);
-        let hint = item.get("hint").and_then(Value::as_str).unwrap_or("");
-        if !hint.is_empty() {
-            row.pack_start(&label(hint, "faint"), false, false, 0);
+        let icon_name = match status {
+            "ok" => "emblem-ok-symbolic",
+            "bad" => "dialog-error-symbolic",
+            _ => "dialog-warning-symbolic",
+        };
+        let row = adw::ActionRow::builder()
+            .title(item.get("label").and_then(Value::as_str).unwrap_or(""))
+            .subtitle(item.get("detail").and_then(Value::as_str).unwrap_or(""))
+            .build();
+        let icon = gtk::Image::from_icon_name(icon_name);
+        row.add_prefix(&icon);
+        if let Some(hint) = item.get("hint").and_then(Value::as_str) {
+            if !hint.is_empty() {
+                let label = gtk::Label::new(Some(hint));
+                label.add_css_class("dim-label");
+                row.add_suffix(&label);
+            }
         }
-        card.pack_start(&row, false, false, 0);
+        row.set_activatable(false);
+        row.set_selectable(false);
+        ui.doctor_list.append(&row);
     }
-    ui.doctor.pack_start(&card, false, false, 0);
-    ui.doctor.show_all();
 }
 
-fn build_settings(window: &gtk::ApplicationWindow) -> GtkBox {
+fn build_settings(
+    window: &adw::ApplicationWindow,
+    sender: &std::sync::mpsc::Sender<Msg>,
+) -> adw::PreferencesPage {
     let loaded = state::load().unwrap_or_default();
-    let page = GtkBox::new(Orientation::Vertical, 14);
-    page.set_margin_top(18);
-    page.set_margin_bottom(18);
-    page.set_margin_start(24);
-    page.set_margin_end(24);
-    page.pack_start(&label("Settings", "content-title"), false, false, 0);
+    let page = adw::PreferencesPage::new();
 
-    let form = GtkBox::new(Orientation::Vertical, 14);
-    form.set_size_request(540, -1);
-    form.set_halign(gtk::Align::Start);
-
-    let region = GtkBox::new(Orientation::Vertical, 8);
-    region.style_context().add_class("card");
-    region.pack_start(&label("Store & region", "game-name"), false, false, 0);
-    let country = gtk::Entry::new();
+    let region = adw::PreferencesGroup::builder().title("Store &amp; region").build();
+    let country = adw::EntryRow::builder().title("Store country").build();
     country.set_text(&loaded.settings.country);
-    country.set_max_width_chars(12);
-    region.pack_start(&label("Store country", "muted"), false, false, 0);
-    region.pack_start(&country, false, false, 0);
-    form.pack_start(&region, false, false, 0);
+    region.add(&country);
+    page.add(&region);
 
-    let sources = GtkBox::new(Orientation::Vertical, 8);
-    sources.style_context().add_class("card");
-    sources.pack_start(&label("Sources & API keys", "game-name"), false, false, 0);
-    let key = gtk::Entry::new();
-    key.set_visibility(false);
-    key.set_placeholder_text(Some("smm_…"));
+    let sources = adw::PreferencesGroup::builder().title("Sources &amp; API keys").build();
+    let key = adw::EntryRow::builder().title("Hubcap key").build();
     key.set_text(&loaded.settings.hubcap_key);
-    sources.pack_start(&label("Hubcap key", "muted"), false, false, 0);
-    sources.pack_start(&key, false, false, 0);
-    let ryuu = gtk::Entry::new();
-    ryuu.set_visibility(false);
+    sources.add(&key);
+    let ryuu = adw::EntryRow::builder().title("Ryuu key").build();
     ryuu.set_text(&loaded.settings.ryuu_key);
-    sources.pack_start(&label("Ryuu key", "muted"), false, false, 0);
-    sources.pack_start(&ryuu, false, false, 0);
-    let source = gtk::Entry::new();
+    sources.add(&ryuu);
+    let source = adw::EntryRow::builder().title("Default source").build();
     source.set_text(&loaded.settings.default_source);
-    sources.pack_start(&label("Default source", "muted"), false, false, 0);
-    sources.pack_start(&source, false, false, 0);
-    form.pack_start(&sources, false, false, 0);
+    sources.add(&source);
+    page.add(&sources);
 
-    let note = label("", "muted");
-    let save = button("Save settings", "primary");
-    let note_saved = note.clone();
+    let save = gtk::Button::with_label("Save settings");
+    save.add_css_class("suggested-action");
+    save.set_valign(gtk::Align::Center);
+    let save_row = adw::ActionRow::builder()
+        .title("Apply changes")
+        .subtitle("Writes ~/.config/exxatools/state.json")
+        .build();
+    save_row.add_suffix(&save);
+    let save_group = adw::PreferencesGroup::new();
+    save_group.add(&save_row);
+    page.add(&save_group);
+
     let window = window.clone();
+    let sender = sender.clone();
     save.connect_clicked(move |_| {
         let result = state::update(|state| {
             state.settings.country = country.text().to_string().trim().to_lowercase();
@@ -836,98 +699,64 @@ fn build_settings(window: &gtk::ApplicationWindow) -> GtkBox {
             Ok(())
         });
         match result {
-            Ok(()) => note_saved.set_text("Saved to ~/.config/exxatools/state.json"),
+            Ok(()) => {
+                sender.send(Msg::Info("Settings saved".into())).ok();
+            }
             Err(error) => {
-                note_saved.set_text(&error);
-                message(&window, &error);
+                sender.send(Msg::Error(error)).ok();
+                let _ = &window;
             }
         }
     });
-    let row = GtkBox::new(Orientation::Horizontal, 10);
-    row.pack_start(&save, false, false, 0);
-    row.pack_start(&note, true, true, 0);
-    form.pack_start(&row, false, false, 0);
-    form.pack_start(&label("State: ~/.config/exxatools/state.json", "faint"), false, false, 0);
-    page.pack_start(&form, false, false, 0);
     page
 }
 
-fn open_details(window: &gtk::ApplicationWindow, appid: u64, name: &str, sender: std::sync::mpsc::Sender<Msg>) {
-    let dialog = gtk::Dialog::with_buttons(
-        Some(&format!("{name} — {appid}")),
+fn open_details(
+    window: &adw::ApplicationWindow,
+    appid: u64,
+    name: &str,
+    sender: std::sync::mpsc::Sender<Msg>,
+) {
+    let dialog = adw::MessageDialog::new(
         Some(window),
-        gtk::DialogFlags::MODAL,
-        &[("Close", gtk::ResponseType::Close)],
+        Some(&format!("{name} — {appid}")),
+        None,
     );
-    dialog.set_default_size(560, 420);
-    let content = dialog.content_area();
+    dialog.add_response("close", "Close");
     let loaded = state::load().ok();
     let record = loaded
         .as_ref()
         .and_then(|state| state.apps.get(&appid.to_string()))
         .cloned();
-
-    let text = GtkBox::new(Orientation::Vertical, 6);
-    text.set_margin_top(12);
-    text.set_margin_bottom(12);
-    text.set_margin_start(14);
-    text.set_margin_end(14);
+    let body = GtkBox::new(Orientation::Vertical, 6);
     if let Some(record) = record {
-        let summary = gtk::Label::new(Some(&format!(
-            "Branch {} · {} depot(s)",
+        body.append(&gtk::Label::new(Some(&format!(
+            "Branch {} · {} depots",
             record.get("branch").and_then(Value::as_str).unwrap_or("public"),
-            record
-                .get("depots")
-                .and_then(Value::as_array)
-                .map(|list| list.len())
-                .unwrap_or(0)
-        )));
-        summary.set_xalign(0.0);
-        text.pack_start(&summary, false, false, 0);
-        for depot in record
-            .get("depots")
-            .and_then(Value::as_array)
-            .cloned()
-            .unwrap_or_default()
-        {
+            record.get("depots").and_then(Value::as_array).map(|list| list.len()).unwrap_or(0)
+        ))));
+        for depot in record.get("depots").and_then(Value::as_array).cloned().unwrap_or_default() {
             let id = depot.get("depot_id").and_then(Value::as_u64).unwrap_or(0);
             let gid = depot.get("gid").and_then(Value::as_str).unwrap_or("");
-            let enabled = depot.get("enabled").and_then(Value::as_bool).unwrap_or(true);
-            let line = gtk::Label::new(Some(&format!(
-                "{} {} · {}",
-                id,
-                if enabled { "" } else { "(disabled)" },
-                gid
-            )));
-            line.set_xalign(0.0);
-            line.style_context().add_class("muted");
-            text.pack_start(&line, false, false, 0);
+            let line = gtk::Label::new(Some(&format!("{id} · {gid}")));
+            line.add_css_class("mono");
+            line.set_halign(gtk::Align::Start);
+            body.append(&line);
         }
-    } else {
-        text.pack_start(&label("No saved plan for this app yet.", "muted"), false, false, 0);
     }
-
     let actions = GtkBox::new(Orientation::Horizontal, 8);
-    let rebuild = button("Sync manifests", "action");
-    let sender_rebuild = sender.clone();
+    let sync = gtk::Button::with_label("Sync manifests");
+    let sender_sync = sender.clone();
     let sync_name = name.to_string();
-    rebuild.connect_clicked(move |_| {
+    sync.connect_clicked(move |_| {
         match crate::plans::refresh_plan(appid) {
-            Ok(_) => sender_rebuild.send(Msg::Info(format!("{sync_name} synced"))).ok(),
-            Err(error) => sender_rebuild.send(Msg::Error(error)).ok(),
+            Ok(_) => sender_sync.send(Msg::Info(format!("{sync_name} synced"))).ok(),
+            Err(error) => sender_sync.send(Msg::Error(error)).ok(),
         };
     });
-    actions.pack_start(&rebuild, false, false, 0);
-
-    let launch = button("Launch", "action");
-    launch.connect_clicked(move |_| {
-        let _ = std::process::Command::new("steam")
-            .arg(format!("steam://rungameid/{appid}"))
-            .spawn();
-    });
-    actions.pack_start(&launch, false, false, 0);
-
-    let remove = button("Remove", "action");
+    actions.append(&sync);
+    let remove = gtk::Button::with_label("Remove");
+    remove.add_css_class("destructive-action");
     let sender_remove = sender.clone();
     let remove_name = name.to_string();
     remove.connect_clicked(move |_| {
@@ -936,21 +765,16 @@ fn open_details(window: &gtk::ApplicationWindow, appid: u64, name: &str, sender:
             state.apps.remove(&appid.to_string());
             Ok(())
         });
-        match result {
-            Ok(()) => {
-                sender_remove.send(Msg::Info(format!("{remove_name} removed"))).ok();
-                load_library(sender_remove.clone());
-            }
-            Err(error) => {
-                sender_remove.send(Msg::Error(error)).ok();
-            }
-        };
+        if result.is_ok() {
+            sender_remove.send(Msg::Info(format!("{remove_name} removed"))).ok();
+            load_library(sender_remove.clone());
+        } else if let Err(error) = result {
+            sender_remove.send(Msg::Error(error)).ok();
+        }
     });
-    actions.pack_start(&remove, false, false, 0);
-
-    text.pack_start(&actions, false, false, 6);
-    content.pack_start(&text, true, true, 0);
-    dialog.show_all();
-    dialog.run();
-    dialog.close();
+    actions.append(&remove);
+    body.append(&actions);
+    dialog.set_extra_child(Some(&body));
+    dialog.connect_response(None, |dialog, _| dialog.close());
+    dialog.present();
 }
