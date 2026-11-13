@@ -255,7 +255,6 @@ fn main() {
             if let Err(error) = steamctl::launch(&args) {
                 fail(error);
             }
-            return;
         }
         "serve" => {
             let port = arg_value(rest, "--port").and_then(|value| value.parse().ok()).unwrap_or(8765);
