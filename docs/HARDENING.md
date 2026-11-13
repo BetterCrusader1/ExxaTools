@@ -65,6 +65,6 @@ styles into named components.
 
 ## Not in this program
 
-The audit explicitly keeps Rust, GTK/WebKit and vanilla JS; no SPA framework, no
+The audit explicitly keeps Rust and native GTK; no web renderer, no SPA framework, no
 state-format change without a migration, and no security refactor mixed into a
 cosmetic redesign.
