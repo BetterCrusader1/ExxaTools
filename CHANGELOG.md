@@ -1,5 +1,23 @@
 # Changelog
 
+## Unreleased
+
+The desktop window is now a native GTK4/libadwaita depot desk instead of one
+hand-styled list.
+
+- Three-pane Library: navigation rail, game shelf, and a selected-game inspector
+  with a compact depot table and collapsed plan details.
+- `src/ui` is split into model, covers, worker, shell, shelf, inspector,
+  discover, system and settings modules; `src/window.rs` is only a launcher.
+- All network and state work runs on a worker channel; the GTK thread never
+  blocks on Steam, a plan source or a cover download.
+- Discover is a consistent four-column cover grid; System lifts warnings into a
+  Needs attention group and hides hints on healthy checks; Settings is an
+  Adwaita preferences page with masked keys and a save toast.
+- Deep links open a view directly: `?page=discover`, `?page=system`,
+  `?page=settings`.
+- The old hand-written web dashboard files and the WebKit dependency are gone.
+
 ## 0.3.0
 
 The release where the work can be proven without a live Steam session.

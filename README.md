@@ -19,10 +19,9 @@ execs it; the old Python implementation is kept under `legacy/` as a reference.
 The app lives in Steam. `./exxa serve` keeps the integration alive in the background
 and puts the ExxaTools icon back into the Steam menu bar within seconds whenever the
 client restarts; `./exxa autostart install` starts that at login. The panel's
-Open ExxaTools opens the dashboard as a Steam browser window and raises it above the
-client; store pages refuse loopback iframes, so the dashboard never renders inside one.
-The menu entry that gets installed is hidden from the app grid because it only
-re-injects the menu.
+Open ExxaTools launches the native GTK4 dashboard and raises it; it is a real desktop
+window, not a browser tab or an iframe. The menu entry that gets installed is hidden
+from the app grid because it only re-injects the menu.
 
 `./exxa steam` makes Steam and ExxaTools one action: it starts the server when nothing
 answers on 8765, exports `LD_AUDIT` for Vapor Forge, adds `-cef-enable-debugging`, and
@@ -34,8 +33,13 @@ autostart file, launcher wrapper, server, debug port and whether the menu is inj
 A second `./exxa serve` exits cleanly instead of failing on the busy port.
 
 `./exxa window` opens the dashboard as a native GTK4/libadwaita window — no WebKit, no browser tab.
-It is a single instance, so a second launch raises the window that already exists instead
+The library is a three-pane workspace: navigation rail, game shelf and the selected game's
+inspector with its depots and plan details. Discover, System and Settings replace the content
+area. It is a single instance, so a second launch raises the window that already exists instead
 of adding another taskbar entry. Bare `./exxa` prints the usage JSON.
+
+Deep links: `./exxa window --url 'http://127.0.0.1:8765/?page=discover'` (also
+`system` and `settings`) opens that view. `DESIGN.md` has the full design contract.
 
 ## Run
 

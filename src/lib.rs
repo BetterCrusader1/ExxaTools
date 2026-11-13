@@ -27,6 +27,7 @@ pub mod hubcap;
 pub mod steamctl;
 pub mod vfsys;
 pub mod watch;
+pub mod ui;
 pub mod vdf;
 
 pub fn base64_encode(bytes: &[u8]) -> String {
