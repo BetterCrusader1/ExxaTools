@@ -306,6 +306,7 @@ fn status_snapshot() -> Value {
         .collect();
     let incidents = crate::diagnose::from_files();
     json!({
+        "version": env!("CARGO_PKG_VERSION"),
         "engine": crate::engine::detect(),
         "apps": apps,
         "diagnose": incidents.get("incidents").cloned().unwrap_or_else(|| json!([])),

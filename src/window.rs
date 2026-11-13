@@ -32,18 +32,20 @@ const STYLE: &str = r#"
     entry { background: #12161b; border: 1px solid #242b34;
             border-radius: 7px; color: #eef2f7; padding: 7px 9px; }
     entry:focus { border-color: #3b434f; }
-    button.action { background: #171c22; border: 1px solid #29313b;
+    button.action { background-image: none; background: #171c22; border: 1px solid #29313b;
                     box-shadow: none; color: #e6ebf1; border-radius: 7px; padding: 5px 10px; }
     button.action:hover { background: #1e242c; }
-    button.primary { background: #f2f3f5; border: 1px solid #f2f3f5;
+    button.primary { background-image: none; background: #f2f3f5; border: 1px solid #f2f3f5;
                      box-shadow: none; color: #0b0d10; border-radius: 7px; padding: 5px 10px; }
     button.primary:hover { background: #ffffff; }
-    .card { background: #11151a; border: 1px solid #222933; border-radius: 10px; padding: 12px; }
+    .card { background-image: none; background: #141a21; border: 1px solid #2a333e;
+            border-radius: 10px; padding: 12px; }
     .game-name { font-size: 15px; font-weight: 600; color: #f2f5f8; }
     .muted { color: #9aa4b2; font-size: 12px; }
     .faint { color: #6f7883; font-size: 11px; }
     .section-title { font-size: 18px; font-weight: 600; margin: 4px 0 10px 0; }
-    .badge { border-radius: 99px; padding: 1px 7px; font-size: 9px; font-weight: 700; }
+    button.badge { background-image: none; border: none; border-radius: 99px;
+                   padding: 0 8px; font-size: 9px; font-weight: 700; min-height: 20px; }
     .badge.ready { background: #16301f; color: #74d29a; }
     .badge.planned { background: #2a2317; color: #e8bd72; }
     .badge.keys_missing { background: #321d1d; color: #e88a80; }
@@ -54,6 +56,13 @@ const STYLE: &str = r#"
     .dot.bad { background: #e07a6f; }
     .check-row { padding: 8px 2px; border-bottom: 1px solid #1b2027; }
     .empty { color: #8d97a4; padding: 40px; }
+    .empty-title { font-size: 17px; font-weight: 600; color: #dfe5ec; }
+    .cover { border-radius: 8px; background: #171c22; }
+    button.tile { background-image: none; background: #11151a; border: 1px solid #222933; border-radius: 10px;
+                  box-shadow: none; padding: 8px; }
+    button.tile:hover { background: #171c23; border-color: #303945; }
+    .content-title { font-size: 20px; font-weight: 600; color: #f2f5f8; }
+    .content-sub { font-size: 12px; color: #8d97a4; margin-bottom: 6px; }
     statusbar { background: #0e1115; border-top: 1px solid #1e242b; color: #8d97a4;
                 font-size: 11px; padding: 6px 12px; }
 "#;
@@ -83,15 +92,6 @@ pub fn run(_url: &str) -> Result<(), String> {
         if let Some(settings) = gtk::Settings::default() {
             settings.set_gtk_application_prefer_dark_theme(true);
         }
-        if let Some(screen) = gtk::gdk::Screen::default() {
-            let provider = gtk::CssProvider::new();
-            provider.load_from_data(STYLE.as_bytes()).ok();
-            gtk::StyleContext::add_provider_for_screen(
-                &screen,
-                &provider,
-                gtk::STYLE_PROVIDER_PRIORITY_APPLICATION,
-            );
-        }
     });
     app.connect_activate(|app| {
         if let Some(window) = app.active_window() {
@@ -117,7 +117,7 @@ fn button(text: &str, class: &str) -> gtk::Button {
     widget
 }
 
-fn badge(status: &str) -> gtk::Label {
+fn badge(status: &str) -> gtk::Button {
     let text = match status {
         "ready" => "ready",
         "planned" => "planned",
@@ -125,7 +125,11 @@ fn badge(status: &str) -> gtk::Label {
         "disabled" => "disabled",
         other => other,
     };
-    let widget = gtk::Label::new(Some(text));
+    let widget = gtk::Button::with_label(text);
+    widget.set_relief(gtk::ReliefStyle::None);
+    widget.set_valign(gtk::Align::Center);
+    widget.set_can_focus(false);
+    widget.set_size_request(-1, 22);
     widget.style_context().add_class("badge");
     widget.style_context().add_class(status);
     widget
@@ -145,6 +149,17 @@ fn message(parent: &gtk::ApplicationWindow, text: &str) {
 
 fn build(app: &gtk::Application) {
     let window = gtk::ApplicationWindow::new(app);
+    if let Some(screen) = gtk::prelude::GtkWindowExt::screen(&window) {
+        let provider = gtk::CssProvider::new();
+        if let Err(error) = provider.load_from_data(STYLE.as_bytes()) {
+            eprintln!("window css: {error}");
+        }
+        gtk::StyleContext::add_provider_for_screen(
+            &screen,
+            &provider,
+            gtk::STYLE_PROVIDER_PRIORITY_APPLICATION,
+        );
+    }
     window.set_title("ExxaTools");
     window.set_default_size(1240, 820);
     window.set_position(gtk::WindowPosition::Center);
@@ -235,6 +250,15 @@ fn build(app: &gtk::Application) {
     discover.set_margin_end(14);
     let discover_scroll = gtk::ScrolledWindow::new(gtk::Adjustment::NONE, gtk::Adjustment::NONE);
     discover_scroll.add(&discover);
+    let discover_page = GtkBox::new(Orientation::Vertical, 0);
+    let discover_head = GtkBox::new(Orientation::Vertical, 2);
+    discover_head.set_margin_top(16);
+    discover_head.set_margin_start(20);
+    discover_head.set_margin_end(20);
+    discover_head.pack_start(&label("Discover", "content-title"), false, false, 0);
+    discover_head.pack_start(&label("Popular on Steam right now", "content-sub"), false, false, 0);
+    discover_page.pack_start(&discover_head, false, false, 0);
+    discover_page.pack_start(&discover_scroll, true, true, 0);
 
     let doctor = GtkBox::new(Orientation::Vertical, 0);
     doctor.set_margin_top(14);
@@ -249,7 +273,7 @@ fn build(app: &gtk::Application) {
     settings_scroll.add(&settings);
 
     stack.add_named(&library_scroll, "library");
-    stack.add_named(&discover_scroll, "discover");
+    stack.add_named(&discover_page, "discover");
     stack.add_named(&doctor_scroll, "system");
     stack.add_named(&settings_scroll, "settings");
     nav_buttons[0].set_active(true);
@@ -320,13 +344,14 @@ fn build(app: &gtk::Application) {
             stack.set_visible_child_name("library");
             sender.send(Msg::Info("Searching Steam…".into())).ok();
             std::thread::spawn(move || {
-                let result = term
+                let mut result = term
                     .parse::<u64>()
                     .ok()
                     .and_then(|appid| crate::steam::app_info(appid).ok())
                     .map(|info| vec![info])
                     .or_else(|| crate::steam::search(&term, &country).ok())
                     .unwrap_or_default();
+                attach_covers(&mut result);
                 sender.send(Msg::Search(result)).ok();
             });
         });
@@ -345,7 +370,8 @@ fn build(app: &gtk::Application) {
             let country = country.borrow().clone();
             stack.set_visible_child_name("library");
             std::thread::spawn(move || {
-                let result = crate::steam::search(&term, &country).unwrap_or_default();
+                let mut result = crate::steam::search(&term, &country).unwrap_or_default();
+                attach_covers(&mut result);
                 sender.send(Msg::Search(result)).ok();
             });
         });
@@ -366,7 +392,8 @@ fn build(app: &gtk::Application) {
             let sender = sender.clone();
             let country = country.borrow().clone();
             std::thread::spawn(move || {
-                let items = crate::steam::discover(&country, 24);
+                let mut items = crate::steam::discover(&country, 24);
+                attach_covers(&mut items);
                 sender.send(Msg::Discover(items)).ok();
             });
         });
@@ -395,9 +422,36 @@ fn build(app: &gtk::Application) {
     load_doctor(sender);
 }
 
+fn ensure_cover(appid: u64) -> Option<String> {
+    let dir = crate::paths::state_dir().join("covers");
+    std::fs::create_dir_all(&dir).ok()?;
+    let path = dir.join(format!("{appid}.jpg"));
+    if path.is_file() {
+        return Some(path.display().to_string());
+    }
+    let url = format!("https://cdn.akamai.steamstatic.com/steam/apps/{appid}/header.jpg");
+    let body = crate::http::get_with(&url, None, Some(std::time::Duration::from_secs(8))).ok()?;
+    if body.len() < 1024 {
+        return None;
+    }
+    let temp = dir.join(format!("{appid}.jpg.tmp"));
+    std::fs::write(&temp, &body).ok()?;
+    std::fs::rename(&temp, &path).ok()?;
+    Some(path.display().to_string())
+}
+
+fn attach_covers(items: &mut [Value]) {
+    for item in items {
+        let Some(appid) = item.get("appid").and_then(Value::as_u64) else { continue };
+        if let Some(path) = ensure_cover(appid) {
+            item["cover"] = Value::String(path);
+        }
+    }
+}
+
 fn load_library(sender: std::sync::mpsc::Sender<Msg>) {
     std::thread::spawn(move || {
-        let items = state::load()
+        let mut items = state::load()
             .map(|state| {
                 state
                     .apps
@@ -406,6 +460,7 @@ fn load_library(sender: std::sync::mpsc::Sender<Msg>) {
                     .collect::<Vec<_>>()
             })
             .unwrap_or_default();
+        attach_covers(&mut items);
         sender.send(Msg::Library(items)).ok();
     });
 }
@@ -424,19 +479,52 @@ fn clear(container: &GtkBox) {
 
 fn render_library(ui: &Ui, items: Vec<Value>, from_search: bool) {
     clear(&ui.library);
+    let ready = items
+        .iter()
+        .filter(|item| item.get("state").and_then(Value::as_str) == Some("ready"))
+        .count();
+    let head = GtkBox::new(Orientation::Vertical, 2);
+    head.pack_start(
+        &label(if from_search { "Search results" } else { "Library" }, "content-title"),
+        false,
+        false,
+        0,
+    );
+    let summary = if items.is_empty() {
+        "No games yet".to_string()
+    } else if from_search {
+        format!("{} found", items.len())
+    } else {
+        format!("{} {} · {} ready", items.len(), if items.len() == 1 { "game" } else { "games" }, ready)
+    };
+    head.pack_start(&label(&summary, "content-sub"), false, false, 0);
+    ui.library.pack_start(&head, false, false, 0);
+
     if items.is_empty() {
-        let empty = label(
-            if from_search {
-                "Nothing found."
-            } else {
-                "Your library is empty. Search for a game above."
-            },
-            "empty",
+        let empty = GtkBox::new(Orientation::Vertical, 6);
+        empty.set_valign(gtk::Align::Center);
+        empty.set_vexpand(true);
+        let title = label(
+            if from_search { "Nothing found" } else { "Your library is empty" },
+            "empty-title",
         );
-        ui.library.pack_start(&empty, false, false, 0);
+        title.set_xalign(0.5);
+        let hint = label(
+            if from_search {
+                "Try another name or a numeric app id."
+            } else {
+                "Search for a game above, then press Add."
+            },
+            "muted",
+        );
+        hint.set_xalign(0.5);
+        empty.pack_start(&title, false, false, 0);
+        empty.pack_start(&hint, false, false, 0);
+        ui.library.pack_start(&empty, true, true, 0);
         ui.library.show_all();
         return;
     }
+
     for item in items {
         let appid = item.get("appid").and_then(Value::as_u64).unwrap_or(0);
         if appid == 0 {
@@ -447,12 +535,20 @@ fn render_library(ui: &Ui, items: Vec<Value>, from_search: bool) {
             .and_then(Value::as_str)
             .unwrap_or("Unknown app")
             .to_string();
-        let card = GtkBox::new(Orientation::Horizontal, 12);
+        let card = GtkBox::new(Orientation::Horizontal, 14);
         card.style_context().add_class("card");
 
-        let text = GtkBox::new(Orientation::Vertical, 3);
+        if let Some(path) = item.get("cover").and_then(Value::as_str) {
+            let cover = gtk::Image::from_file(path);
+            cover.set_size_request(184, 86);
+            cover.set_valign(gtk::Align::Center);
+            cover.style_context().add_class("cover");
+            card.pack_start(&cover, false, false, 0);
+        }
+
+        let text = GtkBox::new(Orientation::Vertical, 4);
+        text.set_valign(gtk::Align::Center);
         text.pack_start(&label(&name, "game-name"), false, false, 0);
-        text.pack_start(&label(&format!("App {appid}"), "faint"), false, false, 0);
         let meta = item
             .get("depot_count")
             .and_then(Value::as_u64)
@@ -469,7 +565,7 @@ fn render_library(ui: &Ui, items: Vec<Value>, from_search: bool) {
                     .map(|value| format!("{value}"))
                     .unwrap_or_else(|| "Steam".into())
             });
-        text.pack_start(&label(&meta, "muted"), false, false, 0);
+        text.pack_start(&label(&format!("App {appid} · {meta}"), "muted"), false, false, 0);
         card.pack_start(&text, true, true, 0);
 
         if let Some(status) = item.get("state").and_then(Value::as_str) {
@@ -495,15 +591,24 @@ fn render_library(ui: &Ui, items: Vec<Value>, from_search: bool) {
                     }
                 });
             });
-            card.pack_start(&add, false, false, 0);
+            card.pack_end(&add, false, false, 0);
         } else {
-            let launch = button("Launch", "primary");
-            launch.connect_clicked(move |_| {
-                let _ = std::process::Command::new("steam")
-                    .arg(format!("steam://rungameid/{appid}"))
-                    .spawn();
+            let actions = GtkBox::new(Orientation::Horizontal, 6);
+            actions.set_valign(gtk::Align::Center);
+
+            let reinstall = button("Reinstall", "action");
+            let sender = ui.sender.clone();
+            let install_name = name.clone();
+            reinstall.connect_clicked(move |_| {
+                match crate::plans::write_script(appid) {
+                    Ok(true) => sender
+                        .send(Msg::Info(format!("{install_name} reinstalled — restart Steam")))
+                        .ok(),
+                    Ok(false) => sender.send(Msg::Error("no saved plan for this app".into())).ok(),
+                    Err(error) => sender.send(Msg::Error(error)).ok(),
+                };
             });
-            card.pack_start(&launch, false, false, 0);
+            actions.pack_start(&reinstall, false, false, 0);
 
             let details = button("Details", "action");
             let sender = ui.sender.clone();
@@ -512,21 +617,16 @@ fn render_library(ui: &Ui, items: Vec<Value>, from_search: bool) {
             details.connect_clicked(move |_| {
                 open_details(&window, appid, &detail_name, sender.clone());
             });
-            card.pack_start(&details, false, false, 0);
+            actions.pack_start(&details, false, false, 0);
 
-            let install = button("Reinstall", "action");
-            let sender = ui.sender.clone();
-            let install_name = name.clone();
-            install.connect_clicked(move |_| {
-                match crate::plans::write_script(appid) {
-                    Ok(true) => sender
-                        .send(Msg::Info(format!("{install_name} installed — restart Steam")))
-                        .ok(),
-                    Ok(false) => sender.send(Msg::Error("no saved plan for this app".into())).ok(),
-                    Err(error) => sender.send(Msg::Error(error)).ok(),
-                };
+            let launch = button("Launch", "primary");
+            launch.connect_clicked(move |_| {
+                let _ = std::process::Command::new("steam")
+                    .arg(format!("steam://rungameid/{appid}"))
+                    .spawn();
             });
-            card.pack_start(&install, false, false, 0);
+            actions.pack_start(&launch, false, false, 0);
+            card.pack_end(&actions, false, false, 0);
         }
 
         ui.library.pack_start(&card, false, false, 0);
@@ -554,9 +654,19 @@ fn render_discover(ui: &Ui, items: Vec<Value>) {
             .and_then(Value::as_str)
             .unwrap_or("Unknown")
             .to_string();
-        let tile = gtk::Button::with_label(&name);
-        tile.set_size_request(210, 64);
-        tile.style_context().add_class("action");
+        let tile = gtk::Button::new();
+        tile.style_context().add_class("tile");
+        let inner = GtkBox::new(Orientation::Vertical, 6);
+        if let Some(path) = item.get("cover").and_then(Value::as_str) {
+            let cover = gtk::Image::from_file(path);
+            cover.set_size_request(210, 98);
+            inner.pack_start(&cover, false, false, 0);
+        }
+        let caption = label(&name, "game-name");
+        caption.set_ellipsize(gtk::pango::EllipsizeMode::End);
+        caption.set_max_width_chars(26);
+        inner.pack_start(&caption, false, false, 0);
+        tile.add(&inner);
         let window = ui.window.clone();
         let sender = ui.sender.clone();
         let hint = name.clone();

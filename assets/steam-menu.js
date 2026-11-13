@@ -93,29 +93,12 @@ window.__vdPanel = (opts) => {
         padding: 8px 10px; border: 1px solid rgba(237,180,95,.28); border-radius: 8px;
         background: rgba(237,180,95,.06); font-size: 11.5px; color: #E9C48A; }
       #${PANEL} .vd-alert-text { flex: 1; line-height: 1.35; }
-      #${PANEL} .vd-plans { display: flex; flex-direction: column; gap: 1px; }
-      #${PANEL} .vd-plan { display: flex; flex-direction: column; align-items: stretch; gap: 8px;
-        min-height: 36px; padding: 8px; border-radius: 9px; font-size: 12.5px; color: #C9CDD3; }
-      #${PANEL} .vd-plan:hover { background: #14171B; }
-      #${PANEL} .vd-plan-top { display: flex; align-items: center; gap: 8px; min-width: 0; }
-      #${PANEL} .vd-plan-top b { flex: 1; min-width: 0; font-weight: 550; color: #F4F5F7;
-        overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-      #${PANEL} .vd-plan-actions { display: flex; gap: 6px; justify-content: flex-start; flex-wrap: wrap; }
-      #${PANEL} .vd-plan-actions .vd-mini { height: 24px; padding: 0 9px; font-size: 10.5px; }
-      #${PANEL} .vd-flag { font: 600 10px Montserrat, Arial, sans-serif; padding: 2px 7px;
-        border: 0; border-radius: 5px; background: #1B1F24; color: #B0B6BE; }
-      #${PANEL} .vd-flag.ok { color: #83D3A6; background: #16261F; }
-      #${PANEL} .vd-flag.warn { color: #E2B274; background: #2A2116; }
       #${PANEL} .vd-mini { height: 26px; padding: 0 11px; border: 1px solid #2B3037;
         border-radius: 7px; background: #222D3A; color: #E9ECEF;
         font: 600 11px Montserrat, Arial, sans-serif; cursor: pointer; }
       #${PANEL} .vd-mini:hover { background: #1F242B; border-color: #3A424C; color: #FFFFFF; }
       #${PANEL} .vd-mini.strong { background: #F2F3F5; border-color: #F2F3F5; color: #0A0B0D; }
       #${PANEL} .vd-mini.strong:hover { background: #FFFFFF; color: #0A0B0D; }
-      #${PANEL} .vd-empty { display: flex; flex-direction: column; align-items: flex-start;
-        gap: 5px; padding: 2px 8px 2px; font-size: 12px; color: #8E939B; }
-      #${PANEL} .vd-empty span { font-size: 12.5px; font-weight: 600; color: #C9CDD3; }
-      #${PANEL} .vd-empty .vd-hint { font-size: 11.5px; font-weight: 400; color: #A3A7AE; }
       #${PANEL} .vd-primary { height: 28px; margin-top: 4px; padding: 0 11px;
         border: 0; border-radius: 7px; background: #F2F3F5; color: #0A0B0D;
         font: 600 11.5px Montserrat, Arial, sans-serif; cursor: pointer; }
@@ -187,8 +170,6 @@ window.__vdPanel = (opts) => {
           <button class="vd-mini" data-act="keys">Fix</button>
           <button class="vd-mini" data-act="dismiss" title="Hide until it happens again">×</button>
         </div>
-        <div class="vd-label">Plans</div>
-        <div class="vd-plans" id="vd-plans"><div class="vd-empty"><span>No plans yet</span><span class="vd-hint">Planned games appear here.</span><button class="vd-primary" data-act="open">Add a game</button></div></div>
         <div class="vd-label">Actions</div>
         <div class="vd-actions">
           <button class="vd-item" data-act="open">ICON_GLYPH_APP Open dashboard</button>
@@ -253,7 +234,7 @@ window.__vdPanel = (opts) => {
       const stateNode = panel.querySelector("#vd-state");
       const text = panel.querySelector("#vd-state-text");
       const version = panel.querySelector("#vd-ver");
-      version.textContent = engine && engine.version ? engine.version : "";
+      version.textContent = state.version ? "v" + state.version : (engine && engine.version ? engine.version : "");
       if (!engine) {
         stateNode.hidden = true;
       } else if (!engine.installed) {
@@ -270,51 +251,6 @@ window.__vdPanel = (opts) => {
         stateNode.className = "vd-state warn";
       } else {
         stateNode.hidden = true;
-      }
-      const box = panel.querySelector("#vd-plans");
-      const plans = state.apps || [];
-      if (!plans.length) {
-        box.innerHTML = '<div class="vd-empty"><span>No plans yet</span>'
-          + '<span class="vd-hint">Planned games appear here.</span>'
-          + '<button class="vd-primary" data-act="open">Add a game</button></div>';
-      } else {
-        box.replaceChildren(...plans.slice(0, 8).map((plan) => {
-          const missing = (plan.missing_keys || []).length;
-          const flag = plan.installed
-            ? (missing ? { text: "keys", kind: "warn" } : { text: "ready", kind: "ok" })
-            : { text: "plan", kind: "" };
-          const row = document.createElement("div");
-          row.className = "vd-plan";
-          const top = document.createElement("div");
-          top.className = "vd-plan-top";
-          const actions = document.createElement("div");
-          actions.className = "vd-plan-actions";
-          const name = document.createElement("b");
-          name.textContent = plan.name || String(plan.appid);
-          const chip = document.createElement("span");
-          chip.className = "vd-flag " + flag.kind;
-          chip.textContent = flag.text;
-          const install = document.createElement("button");
-          install.className = plan.installed ? "vd-mini" : "vd-mini strong";
-          install.dataset.act = "install:" + plan.appid;
-          install.textContent = plan.installed ? "Sync" : "Install";
-          install.title = "Write this plan into the Vapor Forge scripts folder";
-          const rebuild = document.createElement("button");
-          rebuild.className = "vd-mini";
-          rebuild.dataset.act = "rebuild:" + plan.appid;
-          rebuild.textContent = "Rebuild";
-          rebuild.title = "Rebuild this plan from the current catalog";
-          const flagOn = String(plan.launch_options || "").split(/\s+/).includes("-onlinefix");
-          const flagButton = document.createElement("button");
-          flagButton.className = "vd-mini";
-          flagButton.dataset.act = "launch:" + plan.appid;
-          flagButton.textContent = flagOn ? "Online fix on" : "Online fix";
-          flagButton.title = "Toggle the -onlinefix launch option";
-          top.append(name, chip);
-          actions.append(install, rebuild, flagButton);
-          row.append(top, actions);
-          return row;
-        }));
       }
       window.__vdLastState = state;
       window.__vdHidden = window.__vdHidden || new Set();
@@ -560,7 +496,6 @@ window.__vdAppPage = () => {
         font-weight: 700; letter-spacing: .02em; color: #C9CFD6; }
       #vd-app-card .t span { flex: 1; }
       #vd-app-card .n { margin-top: 6px; font-size: 13.5px; font-weight: 600;
-        overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
       #vd-app-card .s { margin-top: 3px; font-size: 11.5px; color: #A9AFB7; line-height: 1.35; }
       #vd-app-card .a { display: flex; gap: 6px; margin-top: 10px; flex-wrap: wrap; }
       #vd-app-card button { height: 28px; padding: 0 10px; border-radius: 7px; white-space: nowrap;
