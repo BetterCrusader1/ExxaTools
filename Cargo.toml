@@ -28,3 +28,8 @@ lto = "fat"
 strip = true
 codegen-units = 1
 panic = "abort"
+
+# Dependencies do not need debuginfo: it is the bulk of target/debug and is
+# useless for crates we never step into.
+[profile.dev.package."*"]
+debug = false
