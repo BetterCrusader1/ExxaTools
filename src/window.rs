@@ -26,7 +26,8 @@ const STYLE: &str = r#"
     .sidebar button { background: transparent; border: none; box-shadow: none; color: #9aa4b2;
                       padding: 8px 10px; border-radius: 7px; }
     .sidebar button:hover { background: #171b21; color: #eef2f7; }
-    .sidebar button:checked { background: #1b2027; color: #ffffff; }
+    .sidebar button:checked { background: #1b2027; color: #ffffff;
+                              border-left: 2px solid #e8edf4; border-radius: 0 7px 7px 0; }
     .brand { font-size: 18px; font-weight: 700; color: #f2f5f8; padding: 2px 2px 0 2px; }
     .topbar { padding: 12px 16px; border-bottom: 1px solid #1e242b; background: #0d1014; }
     entry { background: #12161b; border: 1px solid #242b34;
@@ -38,10 +39,14 @@ const STYLE: &str = r#"
     button.primary { background-image: none; background: #f2f3f5; border: 1px solid #f2f3f5;
                      box-shadow: none; color: #0b0d10; border-radius: 7px; padding: 5px 10px; }
     button.primary:hover { background: #ffffff; }
+    button.primary label, button.primary image { color: #0b0d10; }
+    button.action label { color: #e6ebf1; }
     .card { background-image: none; background: #141a21; border: 1px solid #2a333e;
             border-radius: 10px; padding: 12px; }
     .game-name { font-size: 15px; font-weight: 600; color: #f2f5f8; }
     .muted { color: #9aa4b2; font-size: 12px; }
+    .mono { font-family: monospace; font-size: 11px; color: #8d97a4; }
+    .online { color: #63c894; font-size: 11px; }
     .faint { color: #6f7883; font-size: 11px; }
     .section-title { font-size: 18px; font-weight: 600; margin: 4px 0 10px 0; }
     button.badge { background-image: none; border: none; border-radius: 99px;
@@ -79,7 +84,8 @@ enum Msg {
 
 struct Ui {
     window: gtk::ApplicationWindow,
-    library: GtkBox,
+    library_head: GtkBox,
+    library_grid: gtk::FlowBox,
     discover: gtk::FlowBox,
     doctor: GtkBox,
     status: gtk::Label,
@@ -214,27 +220,42 @@ fn build(app: &gtk::Application) {
         });
         nav_buttons.push(item);
     }
+    let steam = label(
+        if crate::steamctl::is_running() { "● Steam connected" } else { "○ Steam offline" },
+        if crate::steamctl::is_running() { "online" } else { "faint" },
+    );
+    steam.set_valign(gtk::Align::End);
+    steam.set_vexpand(true);
+    sidebar.pack_end(&steam, false, false, 4);
     let version = label(&format!("v{}", env!("CARGO_PKG_VERSION")), "faint");
-    version.set_valign(gtk::Align::End);
-    version.set_vexpand(true);
     sidebar.pack_end(&version, false, false, 0);
 
     let topbar = GtkBox::new(Orientation::Horizontal, 8);
     topbar.style_context().add_class("topbar");
-    let search = gtk::Entry::new();
+    let search = gtk::SearchEntry::new();
     search.set_placeholder_text(Some("Find a game — name or app id"));
     search.set_hexpand(true);
-    let search_button = button("Search", "primary");
-    let refresh = button("Refresh", "action");
+    let refresh = gtk::Button::from_icon_name(Some("view-refresh-symbolic"), gtk::IconSize::Button);
+    refresh.set_tooltip_text(Some("Refresh library and doctor"));
+    refresh.style_context().add_class("action");
     topbar.pack_start(&search, true, true, 0);
-    topbar.pack_end(&search_button, false, false, 0);
     topbar.pack_end(&refresh, false, false, 0);
 
-    let library = GtkBox::new(Orientation::Vertical, 8);
+    let library = GtkBox::new(Orientation::Vertical, 10);
     library.set_margin_top(16);
     library.set_margin_bottom(16);
     library.set_margin_start(20);
     library.set_margin_end(20);
+    let library_head = GtkBox::new(Orientation::Vertical, 2);
+    let library_grid = gtk::FlowBox::new();
+    library_grid.set_column_spacing(12);
+    library_grid.set_row_spacing(12);
+    library_grid.set_selection_mode(gtk::SelectionMode::None);
+    library_grid.set_valign(gtk::Align::Start);
+    library_grid.set_max_children_per_line(4);
+    library_grid.set_min_children_per_line(1);
+    library.pack_start(&library_head, false, false, 0);
+    library.pack_start(&library_grid, false, false, 0);
     let library_scroll = gtk::ScrolledWindow::new(gtk::Adjustment::NONE, gtk::Adjustment::NONE);
     library_scroll.set_policy(gtk::PolicyType::Never, gtk::PolicyType::Automatic);
     library_scroll.add(&library);
@@ -303,7 +324,8 @@ fn build(app: &gtk::Application) {
     ));
     let ui = Rc::new(Ui {
         window: window.clone(),
-        library: library.clone(),
+        library_head: library_head.clone(),
+        library_grid: library_grid.clone(),
         discover: discover.clone(),
         doctor: doctor.clone(),
         status: status.clone(),
@@ -351,26 +373,6 @@ fn build(app: &gtk::Application) {
                     .map(|info| vec![info])
                     .or_else(|| crate::steam::search(&term, &country).ok())
                     .unwrap_or_default();
-                attach_covers(&mut result);
-                sender.send(Msg::Search(result)).ok();
-            });
-        });
-    }
-    {
-        let sender = sender.clone();
-        let country = country.clone();
-        let stack = stack.clone();
-        let search = search.clone();
-        search_button.connect_clicked(move |_| {
-            let term = search.text().trim().to_string();
-            if term.is_empty() {
-                return;
-            }
-            let sender = sender.clone();
-            let country = country.borrow().clone();
-            stack.set_visible_child_name("library");
-            std::thread::spawn(move || {
-                let mut result = crate::steam::search(&term, &country).unwrap_or_default();
                 attach_covers(&mut result);
                 sender.send(Msg::Search(result)).ok();
             });
@@ -477,14 +479,20 @@ fn clear(container: &GtkBox) {
     }
 }
 
+fn clear_flow(flow: &gtk::FlowBox) {
+    for child in flow.children() {
+        flow.remove(&child);
+    }
+}
+
 fn render_library(ui: &Ui, items: Vec<Value>, from_search: bool) {
-    clear(&ui.library);
+    clear(&ui.library_head);
+    clear_flow(&ui.library_grid);
     let ready = items
         .iter()
         .filter(|item| item.get("state").and_then(Value::as_str) == Some("ready"))
         .count();
-    let head = GtkBox::new(Orientation::Vertical, 2);
-    head.pack_start(
+    ui.library_head.pack_start(
         &label(if from_search { "Search results" } else { "Library" }, "content-title"),
         false,
         false,
@@ -497,8 +505,7 @@ fn render_library(ui: &Ui, items: Vec<Value>, from_search: bool) {
     } else {
         format!("{} {} · {} ready", items.len(), if items.len() == 1 { "game" } else { "games" }, ready)
     };
-    head.pack_start(&label(&summary, "content-sub"), false, false, 0);
-    ui.library.pack_start(&head, false, false, 0);
+    ui.library_head.pack_start(&label(&summary, "content-sub"), false, false, 0);
 
     if items.is_empty() {
         let empty = GtkBox::new(Orientation::Vertical, 6);
@@ -520,8 +527,8 @@ fn render_library(ui: &Ui, items: Vec<Value>, from_search: bool) {
         hint.set_xalign(0.5);
         empty.pack_start(&title, false, false, 0);
         empty.pack_start(&hint, false, false, 0);
-        ui.library.pack_start(&empty, true, true, 0);
-        ui.library.show_all();
+        ui.library_head.pack_start(&empty, true, true, 24);
+        ui.library_head.show_all();
         return;
     }
 
@@ -535,20 +542,6 @@ fn render_library(ui: &Ui, items: Vec<Value>, from_search: bool) {
             .and_then(Value::as_str)
             .unwrap_or("Unknown app")
             .to_string();
-        let card = GtkBox::new(Orientation::Horizontal, 14);
-        card.style_context().add_class("card");
-
-        if let Some(path) = item.get("cover").and_then(Value::as_str) {
-            let cover = gtk::Image::from_file(path);
-            cover.set_size_request(184, 86);
-            cover.set_valign(gtk::Align::Center);
-            cover.style_context().add_class("cover");
-            card.pack_start(&cover, false, false, 0);
-        }
-
-        let text = GtkBox::new(Orientation::Vertical, 4);
-        text.set_valign(gtk::Align::Center);
-        text.pack_start(&label(&name, "game-name"), false, false, 0);
         let meta = item
             .get("depot_count")
             .and_then(Value::as_u64)
@@ -565,13 +558,31 @@ fn render_library(ui: &Ui, items: Vec<Value>, from_search: bool) {
                     .map(|value| format!("{value}"))
                     .unwrap_or_else(|| "Steam".into())
             });
-        text.pack_start(&label(&format!("App {appid} · {meta}"), "muted"), false, false, 0);
-        card.pack_start(&text, true, true, 0);
 
-        if let Some(status) = item.get("state").and_then(Value::as_str) {
-            card.pack_start(&badge(status), false, false, 0);
+        let card = GtkBox::new(Orientation::Vertical, 8);
+        card.style_context().add_class("card");
+        card.set_size_request(264, -1);
+        card.set_tooltip_text(Some(&format!("App {appid} · {meta}")));
+
+        if let Some(path) = item.get("cover").and_then(Value::as_str) {
+            let cover = gtk::Image::from_file(path);
+            cover.set_size_request(238, 111);
+            cover.style_context().add_class("cover");
+            card.pack_start(&cover, false, false, 0);
         }
 
+        let title = label(&name, "game-name");
+        title.set_ellipsize(gtk::pango::EllipsizeMode::End);
+        title.set_max_width_chars(26);
+        card.pack_start(&title, false, false, 0);
+
+        if let Some(status) = item.get("state").and_then(Value::as_str) {
+            let row = GtkBox::new(Orientation::Horizontal, 0);
+            row.pack_start(&badge(status), false, false, 0);
+            card.pack_start(&row, false, false, 0);
+        }
+
+        let actions = GtkBox::new(Orientation::Horizontal, 6);
         let installed = item.get("installed").and_then(Value::as_bool).unwrap_or(false);
         if from_search || !installed {
             let add = button("Add", "primary");
@@ -591,25 +602,8 @@ fn render_library(ui: &Ui, items: Vec<Value>, from_search: bool) {
                     }
                 });
             });
-            card.pack_end(&add, false, false, 0);
+            actions.pack_start(&add, false, false, 0);
         } else {
-            let actions = GtkBox::new(Orientation::Horizontal, 6);
-            actions.set_valign(gtk::Align::Center);
-
-            let reinstall = button("Reinstall", "action");
-            let sender = ui.sender.clone();
-            let install_name = name.clone();
-            reinstall.connect_clicked(move |_| {
-                match crate::plans::write_script(appid) {
-                    Ok(true) => sender
-                        .send(Msg::Info(format!("{install_name} reinstalled — restart Steam")))
-                        .ok(),
-                    Ok(false) => sender.send(Msg::Error("no saved plan for this app".into())).ok(),
-                    Err(error) => sender.send(Msg::Error(error)).ok(),
-                };
-            });
-            actions.pack_start(&reinstall, false, false, 0);
-
             let details = button("Details", "action");
             let sender = ui.sender.clone();
             let window = ui.window.clone();
@@ -626,12 +620,12 @@ fn render_library(ui: &Ui, items: Vec<Value>, from_search: bool) {
                     .spawn();
             });
             actions.pack_start(&launch, false, false, 0);
-            card.pack_end(&actions, false, false, 0);
         }
-
-        ui.library.pack_start(&card, false, false, 0);
+        card.pack_start(&actions, false, false, 2);
+        ui.library_grid.add(&card);
     }
-    ui.library.show_all();
+    ui.library_head.show_all();
+    ui.library_grid.show_all();
 }
 
 fn render_discover(ui: &Ui, items: Vec<Value>) {
@@ -704,19 +698,41 @@ fn render_discover(ui: &Ui, items: Vec<Value>) {
 
 fn render_doctor(ui: &Ui, value: Value) {
     clear(&ui.doctor);
-    ui.doctor
-        .pack_start(&label("System", "section-title"), false, false, 0);
+    let head = GtkBox::new(Orientation::Horizontal, 10);
+    let titles = GtkBox::new(Orientation::Vertical, 2);
+    titles.pack_start(&label("System", "content-title"), false, false, 0);
     let items = value
         .get("checks")
         .or_else(|| value.get("items"))
         .and_then(Value::as_array)
         .cloned()
         .unwrap_or_default();
+    let problems = items
+        .iter()
+        .filter(|item| item.get("status").and_then(Value::as_str) != Some("ok"))
+        .count();
+    titles.pack_start(
+        &label(
+            &format!("{} checks · {} need attention", items.len(), problems),
+            "content-sub",
+        ),
+        false,
+        false,
+        0,
+    );
+    head.pack_start(&titles, true, true, 0);
+    let copy = button("Copy report", "action");
+    let report = serde_json::to_string_pretty(&value).unwrap_or_default();
+    copy.connect_clicked(move |_| {
+        gtk::Clipboard::get(&gtk::gdk::SELECTION_CLIPBOARD).set_text(&report);
+    });
+    head.pack_end(&copy, false, false, 0);
+    ui.doctor.pack_start(&head, false, false, 8);
+
+    let card = GtkBox::new(Orientation::Vertical, 0);
+    card.style_context().add_class("card");
     if items.is_empty() {
-        ui.doctor
-            .pack_start(&label("Doctor returned nothing.", "empty"), false, false, 0);
-        ui.doctor.show_all();
-        return;
+        card.pack_start(&label("Doctor returned nothing.", "empty"), false, false, 0);
     }
     for item in items {
         let row = GtkBox::new(Orientation::Horizontal, 10);
@@ -724,73 +740,77 @@ fn render_doctor(ui: &Ui, value: Value) {
         let status = item.get("status").and_then(Value::as_str).unwrap_or("warn");
         let dot = gtk::Label::new(Some(""));
         dot.set_size_request(8, 8);
+        dot.set_valign(gtk::Align::Start);
         dot.style_context().add_class("dot");
         dot.style_context().add_class(status);
         row.pack_start(&dot, false, false, 0);
 
         let text = GtkBox::new(Orientation::Vertical, 2);
         text.pack_start(
-            &label(
-                item.get("label").and_then(Value::as_str).unwrap_or(""),
-                "game-name",
-            ),
+            &label(item.get("label").and_then(Value::as_str).unwrap_or(""), "game-name"),
             false,
             false,
             0,
         );
-        text.pack_start(
-            &label(
-                item.get("detail").and_then(Value::as_str).unwrap_or(""),
-                "muted",
-            ),
-            false,
-            false,
-            0,
-        );
+        let detail = label(item.get("detail").and_then(Value::as_str).unwrap_or(""), "mono");
+        text.pack_start(&detail, false, false, 0);
         row.pack_start(&text, true, true, 0);
         let hint = item.get("hint").and_then(Value::as_str).unwrap_or("");
         if !hint.is_empty() {
             row.pack_start(&label(hint, "faint"), false, false, 0);
         }
-        ui.doctor.pack_start(&row, false, false, 0);
+        card.pack_start(&row, false, false, 0);
     }
+    ui.doctor.pack_start(&card, false, false, 0);
     ui.doctor.show_all();
 }
 
 fn build_settings(window: &gtk::ApplicationWindow) -> GtkBox {
     let loaded = state::load().unwrap_or_default();
-    let boxed = GtkBox::new(Orientation::Vertical, 10);
-    boxed.set_margin_top(18);
-    boxed.set_margin_bottom(18);
-    boxed.set_margin_start(20);
-    boxed.set_margin_end(20);
-    boxed.pack_start(&label("Settings", "section-title"), false, false, 0);
+    let page = GtkBox::new(Orientation::Vertical, 14);
+    page.set_margin_top(18);
+    page.set_margin_bottom(18);
+    page.set_margin_start(24);
+    page.set_margin_end(24);
+    page.pack_start(&label("Settings", "content-title"), false, false, 0);
 
+    let form = GtkBox::new(Orientation::Vertical, 14);
+    form.set_size_request(540, -1);
+    form.set_halign(gtk::Align::Start);
+
+    let region = GtkBox::new(Orientation::Vertical, 8);
+    region.style_context().add_class("card");
+    region.pack_start(&label("Store & region", "game-name"), false, false, 0);
     let country = gtk::Entry::new();
     country.set_text(&loaded.settings.country);
     country.set_max_width_chars(12);
-    boxed.pack_start(&label("Store country", "muted"), false, false, 0);
-    boxed.pack_start(&country, false, false, 0);
+    region.pack_start(&label("Store country", "muted"), false, false, 0);
+    region.pack_start(&country, false, false, 0);
+    form.pack_start(&region, false, false, 0);
 
+    let sources = GtkBox::new(Orientation::Vertical, 8);
+    sources.style_context().add_class("card");
+    sources.pack_start(&label("Sources & API keys", "game-name"), false, false, 0);
     let key = gtk::Entry::new();
     key.set_visibility(false);
     key.set_placeholder_text(Some("smm_…"));
     key.set_text(&loaded.settings.hubcap_key);
-    boxed.pack_start(&label("Hubcap key", "muted"), false, false, 0);
-    boxed.pack_start(&key, false, false, 0);
-
+    sources.pack_start(&label("Hubcap key", "muted"), false, false, 0);
+    sources.pack_start(&key, false, false, 0);
     let ryuu = gtk::Entry::new();
     ryuu.set_visibility(false);
     ryuu.set_text(&loaded.settings.ryuu_key);
-    boxed.pack_start(&label("Ryuu key", "muted"), false, false, 0);
-    boxed.pack_start(&ryuu, false, false, 0);
-
+    sources.pack_start(&label("Ryuu key", "muted"), false, false, 0);
+    sources.pack_start(&ryuu, false, false, 0);
     let source = gtk::Entry::new();
     source.set_text(&loaded.settings.default_source);
-    boxed.pack_start(&label("Default source", "muted"), false, false, 0);
-    boxed.pack_start(&source, false, false, 0);
+    sources.pack_start(&label("Default source", "muted"), false, false, 0);
+    sources.pack_start(&source, false, false, 0);
+    form.pack_start(&sources, false, false, 0);
 
+    let note = label("", "muted");
     let save = button("Save settings", "primary");
+    let note_saved = note.clone();
     let window = window.clone();
     save.connect_clicked(move |_| {
         let result = state::update(|state| {
@@ -801,18 +821,20 @@ fn build_settings(window: &gtk::ApplicationWindow) -> GtkBox {
             Ok(())
         });
         match result {
-            Ok(()) => message(&window, "Settings saved."),
-            Err(error) => message(&window, &error),
+            Ok(()) => note_saved.set_text("Saved to ~/.config/exxatools/state.json"),
+            Err(error) => {
+                note_saved.set_text(&error);
+                message(&window, &error);
+            }
         }
     });
-    boxed.pack_start(&save, false, false, 4);
-    boxed.pack_start(
-        &label("State: ~/.config/exxatools/state.json", "faint"),
-        false,
-        false,
-        0,
-    );
-    boxed
+    let row = GtkBox::new(Orientation::Horizontal, 10);
+    row.pack_start(&save, false, false, 0);
+    row.pack_start(&note, true, true, 0);
+    form.pack_start(&row, false, false, 0);
+    form.pack_start(&label("State: ~/.config/exxatools/state.json", "faint"), false, false, 0);
+    page.pack_start(&form, false, false, 0);
+    page
 }
 
 fn open_details(window: &gtk::ApplicationWindow, appid: u64, name: &str, sender: std::sync::mpsc::Sender<Msg>) {
