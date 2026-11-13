@@ -135,7 +135,6 @@ fn plugin_bootstrap(plugin: &crate::plugins::Plugin) -> String {
     root.querySelectorAll('[data-exxa-plugin="' + PLUGIN.id + '"]').forEach((old) => old.remove());
     const wrap = document.createElement("section");
     wrap.setAttribute("data-exxa-plugin", PLUGIN.id);
-    wrap.style.cssText = "padding:0";
     if (title) {{
       const label = document.createElement("div");
       label.className = "vd-label";
@@ -704,8 +703,15 @@ pub fn open_dashboard_at(route: &str) -> Result<(), String> {
 /// others or the page.
 pub fn inject_plugins(ws: &str) -> Result<usize, String> {
     cdp::evaluate(ws, PLUGIN_BUS_JS, std::time::Duration::from_secs(5))?;
+    let frontends = crate::plugins::frontends();
+    let keep: Vec<String> = frontends.iter().map(|(plugin, _)| plugin.id.clone()).collect();
+    let cleanup = format!(
+        "(() => {{ const keep = new Set({}); document.querySelectorAll('#exxa-plugin-root > section[data-exxa-plugin]').forEach((node) => {{ if (!keep.has(node.getAttribute('data-exxa-plugin'))) node.remove(); }}); }})()",
+        serde_json::to_string(&keep).unwrap_or_else(|_| "[]".into())
+    );
+    let _ = cdp::evaluate(ws, &cleanup, std::time::Duration::from_secs(5));
     let mut loaded = 0;
-    for (plugin, source) in crate::plugins::frontends() {
+    for (plugin, source) in frontends {
         let body = format!(
             "{}\ntry {{\n{}\n}} catch (error) {{ console.error('[exxa] plugin {} failed', error); }}\n",
             plugin_bootstrap(&plugin),
