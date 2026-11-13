@@ -13,6 +13,13 @@ pub fn version(port: u16) -> Option<Value> {
     http::get_json_with(&url, None).ok()
 }
 
+/// Open a URL as a new Steam browser window and return its target.
+pub fn create_target(port: u16, url: &str) -> Result<Value, String> {
+    let body = http::put(&format!("http://127.0.0.1:{port}/json/new?{url}"))
+        .map_err(|error| format!("cannot open a Steam window: {error}"))?;
+    serde_json::from_slice(&body).map_err(|error| format!("bad target from CDP: {error}"))
+}
+
 pub fn targets(port: u16) -> Vec<Value> {
     let url = format!("http://127.0.0.1:{port}/json/list");
     match http::get_json_with(&url, None) {
@@ -98,6 +105,33 @@ pub fn evaluate(ws_url: &str, expression: &str, timeout: std::time::Duration) ->
         }
         keep_socket(ws_url, socket);
         return Ok(result.pointer("/result/value").cloned().unwrap_or(Value::Null));
+    }
+}
+
+/// Send any CDP command and return its result. Used for Page.bringToFront.
+pub fn command(ws_url: &str, method: &str, params: Value, timeout: std::time::Duration) -> Result<Value, String> {
+    use tungstenite::Message;
+    let mut socket = take_socket(ws_url, timeout)?;
+    let request = json!({ "id": 1, "method": method, "params": params });
+    socket
+        .send(Message::Text(request.to_string().into()))
+        .map_err(|error| format!("cannot send to CDP: {error}"))?;
+    let deadline = std::time::Instant::now() + timeout;
+    loop {
+        if std::time::Instant::now() > deadline {
+            return Err(format!("CDP timed out on {method}"));
+        }
+        let message = socket.read().map_err(|error| format!("CDP read failed: {error}"))?;
+        let Message::Text(text) = message else { continue };
+        let Ok(parsed) = serde_json::from_str::<Value>(&text) else { continue };
+        if parsed.get("id").and_then(Value::as_i64) != Some(1) {
+            continue;
+        }
+        if let Some(error) = parsed.get("error") {
+            return Err(error.to_string());
+        }
+        keep_socket(ws_url, socket);
+        return Ok(parsed.get("result").cloned().unwrap_or_else(|| json!({})));
     }
 }
 

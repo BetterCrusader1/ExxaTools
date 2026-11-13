@@ -513,6 +513,19 @@ fn pump() {
                 let _ = cdp::evaluate(page_ws, "window.__vdPageRequest = null", std::time::Duration::from_millis(600));
                 handle_page_request(page_ws, &request);
             }
+            let act = cdp::evaluate(page_ws, "window.__vdAction || ''", std::time::Duration::from_millis(600))
+                .ok()
+                .and_then(|value| value.as_str().map(str::to_string))
+                .unwrap_or_default();
+            if !act.is_empty() {
+                let _ = cdp::evaluate(page_ws, "window.__vdAction = null", std::time::Duration::from_millis(600));
+                let message = run_action(&act);
+                if act == "dashboard" || act == "settings" {
+                    let _ = cdp::evaluate(page_ws, "window.__vdPanel && window.__vdPanel({open:false})", std::time::Duration::from_millis(800));
+                }
+                let say = format!("window.__vdSay && window.__vdSay({message:?})");
+                let _ = cdp::evaluate(page_ws, &say, std::time::Duration::from_millis(800));
+            }
         }
         let open = cdp::evaluate(ws, "Boolean(window.__vdPanelOpen)", std::time::Duration::from_millis(800))
             .ok()
@@ -681,20 +694,28 @@ pub fn open_dashboard_at(route: &str) -> Result<(), String> {
     if !debug_ready() {
         return Err(format!("Steam has no debugging port: restart Steam with {FLAG}"));
     }
-    // Only the shell window can host the dashboard: store and community pages
-    // refuse a loopback iframe with their CSP, which reads as "content blocked".
-    let target = main_target().ok_or_else(|| "the Steam menu is not injected yet".to_string())?;
+    let base = format!("http://127.0.0.1:{}/", crate::server::port());
+    let wanted = format!("{}{}", base.trim_end_matches('/'), route);
+    // A Steam browser window, not an iframe: store pages block loopback frames
+    // with their CSP, and an overlay in the shell window is covered by them.
+    let existing = cdp::targets(DEBUG_PORT).into_iter().find(|target| {
+        target.get("type").and_then(Value::as_str) == Some("page")
+            && target.get("url").and_then(Value::as_str).map(|url| url.starts_with(&base)).unwrap_or(false)
+    });
+    let target = match existing {
+        Some(target) => {
+            let ws = target.get("webSocketDebuggerUrl").and_then(Value::as_str).unwrap_or("");
+            let current = target.get("url").and_then(Value::as_str).unwrap_or("");
+            if current != wanted {
+                let script = format!("window.location.href = {wanted:?}");
+                let _ = cdp::evaluate(ws, &script, std::time::Duration::from_secs(4));
+            }
+            target
+        }
+        None => cdp::create_target(DEBUG_PORT, &wanted)?,
+    };
     let ws = target.get("webSocketDebuggerUrl").and_then(Value::as_str).unwrap_or("");
-    if ws.is_empty() {
-        return Err("the Steam menu is not injected yet".into());
-    }
-    let script = format!(
-        "window.__vdOpenDashboard ? (window.__vdOpenDashboard({route:?}), 'opened') : 'missing'"
-    );
-    let value = cdp::evaluate(ws, &script, std::time::Duration::from_secs(4))?;
-    if value.as_str() != Some("opened") {
-        return Err("the Steam menu is not injected yet".into());
-    }
+    let _ = cdp::command(ws, "Page.bringToFront", json!({}), std::time::Duration::from_secs(4));
     Ok(())
 }
 

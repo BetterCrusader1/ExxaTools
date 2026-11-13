@@ -49,6 +49,23 @@ fn agent_for(headers: Option<&str>) -> String {
     headers.unwrap_or(USER_AGENT).to_string()
 }
 
+/// Used by the CDP target endpoint, which answers a new target only on PUT.
+pub fn put(url: &str) -> Result<Vec<u8>, HttpError> {
+    let config = ureq::Agent::config_builder()
+        .timeout_global(Some(Duration::from_secs(10)))
+        .user_agent(USER_AGENT)
+        .build();
+    let agent: ureq::Agent = config.into();
+    let mut response = agent.put(url).send_empty().map_err(HttpError::from)?;
+    let mut body = Vec::new();
+    response
+        .body_mut()
+        .as_reader()
+        .read_to_end(&mut body)
+        .map_err(HttpError::from)?;
+    Ok(body)
+}
+
 pub fn get_with(url: &str, user_agent: Option<&str>, timeout: Option<Duration>) -> Result<Vec<u8>, HttpError> {
     let config = ureq::Agent::config_builder()
         .timeout_global(Some(timeout.unwrap_or(TIMEOUT)))

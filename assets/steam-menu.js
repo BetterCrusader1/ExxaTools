@@ -242,6 +242,7 @@ window.__vdPanel = (opts) => {
         }, 5000);
       }
     };
+    window.__vdSay = (text) => msg(text);
 
     // Steam's store and community pages send a CSP that blocks requests to
     // loopback, so the panel never talks to the API itself: the server pushes a

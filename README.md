@@ -19,8 +19,10 @@ execs it; the old Python implementation is kept under `legacy/` as a reference.
 The app lives in Steam. `./exxa serve` keeps the integration alive in the background
 and puts the ExxaTools icon back into the Steam menu bar within seconds whenever the
 client restarts; `./exxa autostart install` starts that at login. The panel's
-Open ExxaTools shows the dashboard inside the Steam window itself, and the menu entry
-that gets installed is hidden from the app grid because it only re-injects the menu.
+Open ExxaTools opens the dashboard as a Steam browser window and raises it above the
+client; store pages refuse loopback iframes, so the dashboard never renders inside one.
+The menu entry that gets installed is hidden from the app grid because it only
+re-injects the menu.
 
 `./exxa steam` makes Steam and ExxaTools one action: it starts the server when nothing
 answers on 8765, exports `LD_AUDIT` for Vapor Forge, adds `-cef-enable-debugging`, and
