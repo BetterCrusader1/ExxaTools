@@ -665,8 +665,8 @@ fn post_route(path: &str, body: &Value, query: &[(String, String)]) -> Result<Va
                 other => Err((400, format!("action must be inject, remove, or enable, not {other}"))),
             }
         }
-        "/api/app/launch" => Ok(match crate::steamui::open_dashboard() {
-            Ok(()) => json!({ "opened": true, "where": "steam" }),
+        "/api/app/launch" => Ok(match crate::desktop::open_window("") {
+            Ok(()) => json!({ "opened": true, "where": "native" }),
             Err(error) => json!({ "opened": false, "error": error }),
         }),
         "/api/desktop" => {

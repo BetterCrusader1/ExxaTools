@@ -373,8 +373,8 @@ fn run_action(action: &str) -> String {
                 count => format!("refreshed {count} scripts"),
             }
         }
-        "open" => match open_dashboard() {
-            Ok(()) => "dashboard opened in Steam".into(),
+        "open" => match crate::desktop::open_window("") {
+            Ok(()) => "dashboard opened".into(),
             Err(error) => error,
         },
         "restart" => match crate::steamctl::restart(&[]) {
@@ -392,12 +392,12 @@ fn run_action(action: &str) -> String {
                 Err(error) => error,
             }
         }
-        "dashboard" => match open_dashboard() {
-            Ok(()) => "dashboard opened in Steam".into(),
+        "dashboard" => match crate::desktop::open_window("") {
+            Ok(()) => "dashboard opened".into(),
             Err(error) => error,
         },
-        "settings" => match open_dashboard_at("/#settings") {
-            Ok(()) => "settings opened in Steam".into(),
+        "settings" => match crate::desktop::open_window("") {
+            Ok(()) => "settings opened".into(),
             Err(error) => error,
         },
         "close" => {
@@ -435,15 +435,15 @@ fn handle_page_request(ws: &str, request: &Value) {
         .unwrap_or(false);
     let (status, can_add, can_sync, can_setup) = match want {
         "dashboard" => {
-            let message = match open_dashboard() {
-                Ok(()) => "Dashboard opened in Steam".to_string(),
+            let message = match crate::desktop::open_window("") {
+                Ok(()) => "Dashboard opened".to_string(),
                 Err(error) => error,
             };
             (message, false, planned, false)
         }
         "settings" => {
-            let message = match open_dashboard_at("/#settings") {
-                Ok(()) => "Settings opened in Steam".to_string(),
+            let message = match crate::desktop::open_window("") {
+                Ok(()) => "Settings opened".to_string(),
                 Err(error) => error,
             };
             (message, false, planned, false)
@@ -678,45 +678,6 @@ pub fn status() -> Value {
         "server": server,
         "error": error,
     })
-}
-
-/// Show the dashboard as an overlay inside Steam. Callers that used to spawn a
-/// desktop window (the panel button, an older injected panel) go through here so
-/// the app never splits into a second application.
-pub fn open_dashboard() -> Result<(), String> {
-    open_dashboard_at("/")
-}
-
-pub fn open_dashboard_at(route: &str) -> Result<(), String> {
-    if !steamctl::is_running() {
-        return Err("Steam is not running".into());
-    }
-    if !debug_ready() {
-        return Err(format!("Steam has no debugging port: restart Steam with {FLAG}"));
-    }
-    let base = format!("http://127.0.0.1:{}/", crate::server::port());
-    let wanted = format!("{}{}", base.trim_end_matches('/'), route);
-    // A Steam browser window, not an iframe: store pages block loopback frames
-    // with their CSP, and an overlay in the shell window is covered by them.
-    let existing = cdp::targets(DEBUG_PORT).into_iter().find(|target| {
-        target.get("type").and_then(Value::as_str) == Some("page")
-            && target.get("url").and_then(Value::as_str).map(|url| url.starts_with(&base)).unwrap_or(false)
-    });
-    let target = match existing {
-        Some(target) => {
-            let ws = target.get("webSocketDebuggerUrl").and_then(Value::as_str).unwrap_or("");
-            let current = target.get("url").and_then(Value::as_str).unwrap_or("");
-            if current != wanted {
-                let script = format!("window.location.href = {wanted:?}");
-                let _ = cdp::evaluate(ws, &script, std::time::Duration::from_secs(4));
-            }
-            target
-        }
-        None => cdp::create_target(DEBUG_PORT, &wanted)?,
-    };
-    let ws = target.get("webSocketDebuggerUrl").and_then(Value::as_str).unwrap_or("");
-    let _ = cdp::command(ws, "Page.bringToFront", json!({}), std::time::Duration::from_secs(4));
-    Ok(())
 }
 
 /// Puts the bus into the page and one isolated world per enabled plugin into the

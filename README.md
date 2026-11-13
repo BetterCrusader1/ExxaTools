@@ -10,8 +10,8 @@ downloading.
 
 ![ExxaTools](docs/game.png)
 
-Rust, one binary; the GTK/WebKit window needs `gtk3` and `webkit2gtk-4.1` at
-runtime. `./exxa` builds it on first use and
+Rust, one binary; the native GTK3 window needs `gtk3` at runtime. `./exxa` builds it on
+first use and
 execs it; the old Python implementation is kept under `legacy/` as a reference.
 
 ## Window and menu
@@ -33,9 +33,9 @@ override so the stock launcher returns. `./exxa steamui status` reports the whol
 autostart file, launcher wrapper, server, debug port and whether the menu is injected.
 A second `./exxa serve` exits cleanly instead of failing on the busy port.
 
-`./exxa window` still opens the dashboard in a real GTK/WebKit window for development;
-it is a single instance, so a second launch raises the window that already exists
-instead of adding another taskbar entry. Bare `./exxa` prints the usage JSON.
+`./exxa window` opens the dashboard as a native GTK3 window — no WebKit, no browser tab.
+It is a single instance, so a second launch raises the window that already exists instead
+of adding another taskbar entry. Bare `./exxa` prints the usage JSON.
 
 ## Run
 
@@ -57,9 +57,9 @@ cargo build --release
 ```
 
 ```sh
-./exxa window                 # the dashboard in a GTK/WebKit window
+./exxa window                 # the native GTK dashboard
 ./exxa                        # print the usage JSON
-./exxa serve --window         # same UI in a GTK/WebKit app window
+./exxa serve --window         # native window plus the background API
 ./exxa serve --port 9000
 ./exxa engine install         # fetch, verify, and wire the Vapor Forge engine
 ./exxa engine status
@@ -323,7 +323,7 @@ newest kept, so an import mistake never costs collected keys.
 | Plan written, nothing unlocks | missing depot key: `verify` shows which depots have none |
 | "Update required" loops after a restart | appmanifest flags; run `./exxa fix <appid>` with Steam closed |
 | Download stalls on "content servers unreachable" | every request-code provider is rate limited; wait or add a source |
-| Window opens dark and empty | WebKit's DMA-BUF renderer; the launcher already forces the shm path |
+| Window does not appear | launch from Steam or `./exxa window`; the window raises itself for a moment |
 | `luac` missing | `pacman -S lua` for real parse checks; lint still runs |
 
 ## Layout
