@@ -15,61 +15,61 @@ use crate::state;
 const APP_ID: &str = "dev.exxatools.ExxaTools";
 
 const STYLE: &str = r#"
-    window, .background { background: #0b0d10; color: #eef2f7; }
-    headerbar { background: #101318; border-bottom: 1px solid #20252d; box-shadow: none; }
-    headerbar .title { color: #eef2f7; font-weight: 600; }
-    .nav button { background: transparent; border: none; box-shadow: none;
-                  color: #9aa4b2; padding: 6px 12px; border-radius: 6px; }
-    .nav button:hover { background: #171b21; color: #eef2f7; }
-    .nav button:checked { background: #1b2027; color: #ffffff; }
-    .sidebar { background: #0e1115; border-right: 1px solid #1e242b; padding: 14px 10px; }
-    .sidebar button { background: transparent; border: none; box-shadow: none; color: #9aa4b2;
-                      padding: 8px 10px; border-radius: 7px; }
-    .sidebar button:hover { background: #171b21; color: #eef2f7; }
-    .sidebar button:checked { background: #1b2027; color: #ffffff;
-                              border-left: 2px solid #e8edf4; border-radius: 0 7px 7px 0; }
-    .brand { font-size: 18px; font-weight: 700; color: #f2f5f8; padding: 2px 2px 0 2px; }
-    .topbar { padding: 12px 16px; border-bottom: 1px solid #1e242b; background: #0d1014; }
-    entry { background: #12161b; border: 1px solid #242b34;
-            border-radius: 7px; color: #eef2f7; padding: 7px 9px; }
-    entry:focus { border-color: #3b434f; }
-    button.action { background-image: none; background: #171c22; border: 1px solid #29313b;
-                    box-shadow: none; color: #e6ebf1; border-radius: 7px; padding: 5px 10px; }
-    button.action:hover { background: #1e242c; }
-    button.primary { background-image: none; background: #f2f3f5; border: 1px solid #f2f3f5;
-                     box-shadow: none; color: #0b0d10; border-radius: 7px; padding: 5px 10px; }
+    window, .background { background: #08090b; color: #e8edf4; font-family: "Noto Sans"; }
+    headerbar { background: #08090b; border-bottom: 1px solid #1b2129; box-shadow: none; }
+    headerbar .title { color: #e8edf4; font-weight: 600; }
+    .sidebar { background: #0b0d10; border-right: 1px solid #1b2129; padding: 18px 12px; }
+    .brand { font-size: 19px; font-weight: 700; letter-spacing: -0.01em; color: #e8edf4; }
+    .tagline { font-family: "Noto Sans Mono"; font-size: 10px; color: #5f6874; }
+    .sidebar button { background: transparent; border: none; border-left: 2px solid transparent;
+                      border-radius: 0; color: #8a94a2; padding: 7px 10px; }
+    .sidebar button:hover { color: #e8edf4; background: #0e1115; }
+    .sidebar button:checked { color: #e8edf4; background: #0e1115; border-left-color: #e8edf4;
+                              font-weight: 600; }
+    .topbar { background: #08090b; border-bottom: 1px solid #1b2129; padding: 14px 22px; }
+    entry { background: #0f1216; border: 1px solid #232b35; border-radius: 3px;
+            color: #e8edf4; padding: 8px 10px; }
+    entry:focus { border-color: #3a4553; }
+    button.action { background: transparent; border: 1px solid #2a3340; border-radius: 3px;
+                    box-shadow: none; color: #d8dee6; padding: 4px 10px; }
+    button.action:hover { background: #12161b; border-color: #3a4553; }
+    button.primary { background: #e8edf4; border: 1px solid #e8edf4; border-radius: 3px;
+                     box-shadow: none; color: #08090b; padding: 4px 12px; }
     button.primary:hover { background: #ffffff; }
-    button.primary label, button.primary image { color: #0b0d10; }
-    button.action label { color: #e6ebf1; }
-    .card { background-image: none; background: #141a21; border: 1px solid #2a333e;
-            border-radius: 10px; padding: 12px; }
-    .game-name { font-size: 15px; font-weight: 600; color: #f2f5f8; }
-    .muted { color: #9aa4b2; font-size: 12px; }
-    .mono { font-family: monospace; font-size: 11px; color: #8d97a4; }
-    .online { color: #63c894; font-size: 11px; }
-    .faint { color: #6f7883; font-size: 11px; }
-    .section-title { font-size: 18px; font-weight: 600; margin: 4px 0 10px 0; }
-    button.badge { background-image: none; border: none; border-radius: 99px;
-                   padding: 0 8px; font-size: 9px; font-weight: 700; min-height: 20px; }
-    .badge.ready { background: #16301f; color: #74d29a; }
-    .badge.planned { background: #2a2317; color: #e8bd72; }
-    .badge.keys_missing { background: #321d1d; color: #e88a80; }
-    .badge.disabled { background: #20242b; color: #9aa4b2; }
-    .dot { border-radius: 99px; min-width: 8px; min-height: 8px; }
-    .dot.ok { background: #63c894; }
-    .dot.warn { background: #edb45f; }
-    .dot.bad { background: #e07a6f; }
-    .check-row { padding: 8px 2px; border-bottom: 1px solid #1b2027; }
-    .empty { color: #8d97a4; padding: 40px; }
-    .empty-title { font-size: 17px; font-weight: 600; color: #dfe5ec; }
-    .cover { border-radius: 8px; background: #171c22; }
-    button.tile { background-image: none; background: #11151a; border: 1px solid #222933; border-radius: 10px;
-                  box-shadow: none; padding: 8px; }
-    button.tile:hover { background: #171c23; border-color: #303945; }
-    .content-title { font-size: 20px; font-weight: 600; color: #f2f5f8; }
-    .content-sub { font-size: 12px; color: #8d97a4; margin-bottom: 6px; }
-    statusbar { background: #0e1115; border-top: 1px solid #1e242b; color: #8d97a4;
-                font-size: 11px; padding: 6px 12px; }
+    button.primary label, button.primary image { color: #08090b; }
+    button.action label { color: #d8dee6; }
+    .row { padding: 9px 2px; border-bottom: 1px solid #161b21; }
+    .row:hover { background: #0d1014; }
+    .game-name { font-size: 14px; font-weight: 600; color: #e8edf4; }
+    .muted { color: #8a94a2; font-size: 11.5px; }
+    .faint { color: #5f6874; font-size: 10.5px; }
+    .mono { font-family: "Noto Sans Mono"; font-size: 10.5px; color: #7c8795; }
+    .online { color: #7ed6a5; font-family: "Noto Sans Mono"; font-size: 10.5px; }
+    .content-title { font-size: 22px; font-weight: 700; letter-spacing: -0.02em; color: #e8edf4; }
+    .content-sub { font-family: "Noto Sans Mono"; font-size: 10.5px; color: #5f6874;
+                   margin-bottom: 4px; }
+    .columns { font-family: "Noto Sans Mono"; font-size: 10px; color: #6b7686;
+               padding: 3px 2px 4px; border-bottom: 1px solid #1b2129; }
+    .empty-title { font-size: 16px; font-weight: 600; color: #cdd4dd; }
+    .empty { color: #7c8795; padding: 32px 0; }
+    .cover { border-radius: 2px; background: #12161b; }
+    button.tile { background: transparent; border: none; box-shadow: none; padding: 6px;
+                  border-radius: 3px; }
+    button.tile:hover { background: #0d1014; }
+    .status { font-family: "Noto Sans Mono"; font-size: 10px; font-weight: 600; color: #8a94a2; }
+    .status.ready { color: #7ed6a5; }
+    .status.planned { color: #d9b36c; }
+    .status.keys_missing { color: #e08a80; }
+    .status.disabled { color: #8a94a2; }
+    .dot { border-radius: 99px; min-width: 7px; min-height: 7px; }
+    .dot.ok { background: #7ed6a5; }
+    .dot.warn { background: #d9b36c; }
+    .dot.bad { background: #e08a80; }
+    .card { background: transparent; border-top: 1px solid #232b35; border-radius: 0;
+            padding: 14px 0; }
+    .check-row { padding: 7px 0; border-bottom: 1px solid #14191f; }
+    statusbar { background: #08090b; border-top: 1px solid #1b2129; color: #5f6874;
+                font-family: "Noto Sans Mono"; font-size: 10px; padding: 6px 22px; }
 "#;
 
 #[derive(Clone)]
@@ -85,7 +85,7 @@ enum Msg {
 struct Ui {
     window: gtk::ApplicationWindow,
     library_head: GtkBox,
-    library_grid: gtk::FlowBox,
+    library_rows: GtkBox,
     discover: gtk::FlowBox,
     doctor: GtkBox,
     status: gtk::Label,
@@ -117,27 +117,14 @@ fn label(text: &str, class: &str) -> gtk::Label {
     widget
 }
 
+fn image_at(path: &str, width: i32, height: i32) -> Option<gtk::Image> {
+    let pixbuf = gtk::gdk_pixbuf::Pixbuf::from_file_at_scale(path, width, height, false).ok()?;
+    Some(gtk::Image::from_pixbuf(Some(&pixbuf)))
+}
+
 fn button(text: &str, class: &str) -> gtk::Button {
     let widget = gtk::Button::with_label(text);
     widget.style_context().add_class(class);
-    widget
-}
-
-fn badge(status: &str) -> gtk::Button {
-    let text = match status {
-        "ready" => "ready",
-        "planned" => "planned",
-        "keys_missing" => "keys missing",
-        "disabled" => "disabled",
-        other => other,
-    };
-    let widget = gtk::Button::with_label(text);
-    widget.set_relief(gtk::ReliefStyle::None);
-    widget.set_valign(gtk::Align::Center);
-    widget.set_can_focus(false);
-    widget.set_size_request(-1, 22);
-    widget.style_context().add_class("badge");
-    widget.style_context().add_class(status);
     widget
 }
 
@@ -247,15 +234,9 @@ fn build(app: &gtk::Application) {
     library.set_margin_start(20);
     library.set_margin_end(20);
     let library_head = GtkBox::new(Orientation::Vertical, 2);
-    let library_grid = gtk::FlowBox::new();
-    library_grid.set_column_spacing(12);
-    library_grid.set_row_spacing(12);
-    library_grid.set_selection_mode(gtk::SelectionMode::None);
-    library_grid.set_valign(gtk::Align::Start);
-    library_grid.set_max_children_per_line(4);
-    library_grid.set_min_children_per_line(1);
+    let library_rows = GtkBox::new(Orientation::Vertical, 0);
     library.pack_start(&library_head, false, false, 0);
-    library.pack_start(&library_grid, false, false, 0);
+    library.pack_start(&library_rows, false, false, 0);
     let library_scroll = gtk::ScrolledWindow::new(gtk::Adjustment::NONE, gtk::Adjustment::NONE);
     library_scroll.set_policy(gtk::PolicyType::Never, gtk::PolicyType::Automatic);
     library_scroll.add(&library);
@@ -325,7 +306,7 @@ fn build(app: &gtk::Application) {
     let ui = Rc::new(Ui {
         window: window.clone(),
         library_head: library_head.clone(),
-        library_grid: library_grid.clone(),
+        library_rows: library_rows.clone(),
         discover: discover.clone(),
         doctor: doctor.clone(),
         status: status.clone(),
@@ -479,15 +460,9 @@ fn clear(container: &GtkBox) {
     }
 }
 
-fn clear_flow(flow: &gtk::FlowBox) {
-    for child in flow.children() {
-        flow.remove(&child);
-    }
-}
-
 fn render_library(ui: &Ui, items: Vec<Value>, from_search: bool) {
     clear(&ui.library_head);
-    clear_flow(&ui.library_grid);
+    clear(&ui.library_rows);
     let ready = items
         .iter()
         .filter(|item| item.get("state").and_then(Value::as_str) == Some("ready"))
@@ -506,6 +481,30 @@ fn render_library(ui: &Ui, items: Vec<Value>, from_search: bool) {
         format!("{} {} · {} ready", items.len(), if items.len() == 1 { "game" } else { "games" }, ready)
     };
     ui.library_head.pack_start(&label(&summary, "content-sub"), false, false, 0);
+
+    if !items.is_empty() {
+        let columns = GtkBox::new(Orientation::Horizontal, 12);
+        columns.style_context().add_class("columns");
+        let cover_space = GtkBox::new(Orientation::Horizontal, 0);
+        cover_space.set_size_request(96, -1);
+        columns.pack_start(&cover_space, false, false, 0);
+        columns.pack_start(&label("game", "columns"), true, true, 0);
+        let app = label("app", "columns");
+        app.set_xalign(1.0);
+        app.set_size_request(64, -1);
+        columns.pack_start(&app, false, false, 0);
+        let depots = label("depots", "columns");
+        depots.set_xalign(1.0);
+        depots.set_size_request(54, -1);
+        columns.pack_start(&depots, false, false, 0);
+        let status = label("status", "columns");
+        status.set_size_request(82, -1);
+        columns.pack_start(&status, false, false, 0);
+        let actions = label("actions", "columns");
+        actions.set_size_request(150, -1);
+        columns.pack_start(&actions, false, false, 0);
+        ui.library_head.pack_start(&columns, false, false, 0);
+    }
 
     if items.is_empty() {
         let empty = GtkBox::new(Orientation::Vertical, 6);
@@ -542,47 +541,61 @@ fn render_library(ui: &Ui, items: Vec<Value>, from_search: bool) {
             .and_then(Value::as_str)
             .unwrap_or("Unknown app")
             .to_string();
-        let meta = item
+        let depots = item
             .get("depot_count")
             .and_then(Value::as_u64)
-            .map(|count| {
-                format!(
-                    "{} {} · {}",
-                    count,
-                    if count == 1 { "depot" } else { "depots" },
-                    item.get("branch").and_then(Value::as_str).unwrap_or("public")
-                )
-            })
-            .unwrap_or_else(|| {
-                item.get("price")
-                    .map(|value| format!("{value}"))
-                    .unwrap_or_else(|| "Steam".into())
-            });
+            .map(|count| format!("{count}"))
+            .unwrap_or_else(|| "—".into());
+        let branch = item
+            .get("branch")
+            .and_then(Value::as_str)
+            .unwrap_or("public")
+            .to_string();
 
-        let card = GtkBox::new(Orientation::Vertical, 8);
-        card.style_context().add_class("card");
-        card.set_size_request(264, -1);
-        card.set_tooltip_text(Some(&format!("App {appid} · {meta}")));
+        let row = GtkBox::new(Orientation::Horizontal, 12);
+        row.style_context().add_class("row");
 
-        if let Some(path) = item.get("cover").and_then(Value::as_str) {
-            let cover = gtk::Image::from_file(path);
-            cover.set_size_request(238, 111);
+        if let Some(cover) = item
+            .get("cover")
+            .and_then(Value::as_str)
+            .and_then(|path| image_at(path, 96, 45))
+        {
             cover.style_context().add_class("cover");
-            card.pack_start(&cover, false, false, 0);
+            row.pack_start(&cover, false, false, 0);
         }
 
+        let text = GtkBox::new(Orientation::Vertical, 2);
         let title = label(&name, "game-name");
         title.set_ellipsize(gtk::pango::EllipsizeMode::End);
-        title.set_max_width_chars(26);
-        card.pack_start(&title, false, false, 0);
+        title.set_max_width_chars(34);
+        text.pack_start(&title, false, false, 0);
+        text.pack_start(&label(&format!("{branch} branch"), "mono"), false, false, 0);
+        row.pack_start(&text, true, true, 0);
 
-        if let Some(status) = item.get("state").and_then(Value::as_str) {
-            let row = GtkBox::new(Orientation::Horizontal, 0);
-            row.pack_start(&badge(status), false, false, 0);
-            card.pack_start(&row, false, false, 0);
-        }
+        let app = label(&appid.to_string(), "mono");
+        app.set_xalign(1.0);
+        app.set_size_request(64, -1);
+        row.pack_start(&app, false, false, 0);
+
+        let depots_label = label(&depots, "mono");
+        depots_label.set_xalign(1.0);
+        depots_label.set_size_request(54, -1);
+        row.pack_start(&depots_label, false, false, 0);
+
+        let status_cell = GtkBox::new(Orientation::Horizontal, 5);
+        status_cell.set_size_request(82, -1);
+        let status = item.get("state").and_then(Value::as_str).unwrap_or("planned");
+        let dot = gtk::Label::new(Some("●"));
+        dot.style_context().add_class("status");
+        dot.style_context().add_class(status);
+        status_cell.pack_start(&dot, false, false, 0);
+        let status_text = label(status, "status");
+        status_text.style_context().add_class(status);
+        status_cell.pack_start(&status_text, false, false, 0);
+        row.pack_start(&status_cell, false, false, 0);
 
         let actions = GtkBox::new(Orientation::Horizontal, 6);
+        actions.set_valign(gtk::Align::Center);
         let installed = item.get("installed").and_then(Value::as_bool).unwrap_or(false);
         if from_search || !installed {
             let add = button("Add", "primary");
@@ -621,11 +634,11 @@ fn render_library(ui: &Ui, items: Vec<Value>, from_search: bool) {
             });
             actions.pack_start(&launch, false, false, 0);
         }
-        card.pack_start(&actions, false, false, 2);
-        ui.library_grid.add(&card);
+        row.pack_start(&actions, false, false, 0);
+        ui.library_rows.pack_start(&row, false, false, 0);
     }
     ui.library_head.show_all();
-    ui.library_grid.show_all();
+    ui.library_rows.show_all();
 }
 
 fn render_discover(ui: &Ui, items: Vec<Value>) {
@@ -651,9 +664,11 @@ fn render_discover(ui: &Ui, items: Vec<Value>) {
         let tile = gtk::Button::new();
         tile.style_context().add_class("tile");
         let inner = GtkBox::new(Orientation::Vertical, 6);
-        if let Some(path) = item.get("cover").and_then(Value::as_str) {
-            let cover = gtk::Image::from_file(path);
-            cover.set_size_request(210, 98);
+        if let Some(cover) = item
+            .get("cover")
+            .and_then(Value::as_str)
+            .and_then(|path| image_at(path, 210, 98))
+        {
             inner.pack_start(&cover, false, false, 0);
         }
         let caption = label(&name, "game-name");
