@@ -1,5 +1,6 @@
 //! Steam client control: roots, pid, running state, LD_AUDIT, restart.
 
+use std::os::unix::process::CommandExt;
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
 
@@ -189,7 +190,7 @@ pub fn apply_session_env(command: &mut Command) {
     }
 }
 
-pub fn start(extra_args: &[String]) -> Result<serde_json::Value, String> {
+fn steam_command(extra_args: &[String]) -> Result<(Command, String), String> {
     let binary = steam_binary().ok_or("steam executable not found in PATH")?;
     let libs = audit_libs();
     let mut command = Command::new(binary);
@@ -202,12 +203,47 @@ pub fn start(extra_args: &[String]) -> Result<serde_json::Value, String> {
         let merged = if existing.is_empty() { libs.clone() } else { format!("{libs}:{existing}") };
         command.env("LD_AUDIT", merged);
     }
+    Ok((command, libs))
+}
+
+pub fn start(extra_args: &[String]) -> Result<serde_json::Value, String> {
+    let (mut command, libs) = steam_command(extra_args)?;
     command
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .spawn()
         .map_err(|error| format!("cannot start Steam: {error}"))?;
     Ok(serde_json::json!({ "started": true, "ld_audit": libs, "args": extra_args }))
+}
+
+/// Replace this process with Steam, so the client inherits the session and the
+/// terminal that launched it does not own Steam's lifetime.
+pub fn launch(extra_args: &[String]) -> Result<(), String> {
+    let (mut command, _) = steam_command(extra_args)?;
+    let error = command.exec();
+    Err(format!("cannot launch Steam: {error}"))
+}
+
+/// Start the local server unless something already answers on the port. Returns
+/// true when this call started it.
+pub fn ensure_server(port: u16) -> Result<bool, String> {
+    if std::net::TcpStream::connect(("127.0.0.1", port)).is_ok() {
+        return Ok(false);
+    }
+    let exe = std::env::current_exe().map_err(|error| error.to_string())?;
+    Command::new(exe)
+        .args(["serve", "--port", &port.to_string()])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .map_err(|error| format!("cannot start ExxaTools: {error}"))?;
+    for _ in 0..50 {
+        std::thread::sleep(std::time::Duration::from_millis(100));
+        if std::net::TcpStream::connect(("127.0.0.1", port)).is_ok() {
+            return Ok(true);
+        }
+    }
+    Err(format!("ExxaTools did not answer on 127.0.0.1:{port}"))
 }
 
 pub fn restart(extra_args: &[String]) -> Result<serde_json::Value, String> {

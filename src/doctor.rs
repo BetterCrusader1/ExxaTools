@@ -69,6 +69,23 @@ pub fn run() -> Value {
         if loaded { "" } else { "restart_steam" },
     ));
 
+    let ui = steamui::status();
+    let autostart = ui.get("autostart").and_then(Value::as_bool).unwrap_or(false);
+    let wrapper = ui.get("launcher_wrapper").and_then(Value::as_bool).unwrap_or(false);
+    items.push(item(
+        "lifecycle",
+        "Starts with Steam",
+        if autostart && wrapper { "ok" } else { "warn" },
+        match (autostart, wrapper) {
+            (true, true) => "autostart and the Steam launcher wrapper are in place".into(),
+            (false, true) => "Steam starts ExxaTools, but nothing starts it at login".into(),
+            (true, false) => "autostart exists, but the Steam icon still starts Steam directly".into(),
+            (false, false) => "neither autostart nor the Steam launcher wrapper is installed".into(),
+        },
+        "Run `exxa autostart install` and `exxa steamui install`",
+        "",
+    ));
+
     items.push(item(
         "ld_audit",
         "LD_AUDIT wired",

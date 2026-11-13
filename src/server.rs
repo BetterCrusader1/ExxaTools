@@ -1032,6 +1032,12 @@ fn handle(mut stream: TcpStream) {
 pub fn serve(config: Config) -> Result<(), String> {
     let _ = PORT.set(config.port);
     let _ = TOKEN.set(crate::state::ensure_token()?);
+    if let Ok(value) = crate::http::get_json(&format!("http://127.0.0.1:{}/api/session", config.port)) {
+        if value.get("token").and_then(Value::as_str).is_some() {
+            eprintln!("exxa is already serving on http://127.0.0.1:{}/", config.port);
+            return Ok(());
+        }
+    }
     let listener = TcpListener::bind(("127.0.0.1", config.port))
         .map_err(|error| format!("cannot bind 127.0.0.1:{}: {error}", config.port))?;
     eprintln!("exxa {} on http://127.0.0.1:{}/", env!("CARGO_PKG_VERSION"), config.port);

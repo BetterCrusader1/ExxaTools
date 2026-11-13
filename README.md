@@ -22,6 +22,15 @@ client restarts; `./exxa autostart install` starts that at login. The panel's
 Open ExxaTools shows the dashboard inside the Steam window itself, and the menu entry
 that gets installed is hidden from the app grid because it only re-injects the menu.
 
+`./exxa steam` makes Steam and ExxaTools one action: it starts the server when nothing
+answers on 8765, exports `LD_AUDIT` for Vapor Forge, adds `-cef-enable-debugging`, and
+then replaces itself with `/usr/bin/steam`, passing every argument through.
+`./exxa steamui install` rewrites the local Steam desktop entry so its icon and its
+`steam://` actions go through that wrapper; `./exxa steamui uninstall` removes the local
+override so the stock launcher returns. `./exxa steamui status` reports the whole chain:
+autostart file, launcher wrapper, server, debug port and whether the menu is injected.
+A second `./exxa serve` exits cleanly instead of failing on the busy port.
+
 `./exxa window` still opens the dashboard in a real GTK/WebKit window for development;
 it is a single instance, so a second launch raises the window that already exists
 instead of adding another taskbar entry. Bare `./exxa` prints the usage JSON.

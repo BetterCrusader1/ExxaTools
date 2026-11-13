@@ -66,7 +66,8 @@ fn main() {
                 "exxa discover [limit]",
                 "exxa provider [--write]",
                 "exxa serve [--port 8765] [--window]",
-                "exxa steamui status|inject|remove|enable",
+                "exxa steam [steam args...]",
+                "exxa steamui status|inject|remove|install|uninstall|enable",
                 "exxa shortcut [install|remove]",
                 "exxa pins <appid> [--branch]",
                 "exxa autostart [install|remove]",
@@ -243,6 +244,19 @@ fn main() {
                 .collect();
             print_json(&providers::fetch_code(app, depot, gid, &order).unwrap_or_else(|error| fail(error)));
         }
+        "steam" => {
+            let mut args: Vec<String> = rest.to_vec();
+            if !args.iter().any(|value| value == steamui::FLAG) {
+                args.insert(0, steamui::FLAG.to_string());
+            }
+            if let Err(error) = steamctl::ensure_server(8765) {
+                fail(error);
+            }
+            if let Err(error) = steamctl::launch(&args) {
+                fail(error);
+            }
+            return;
+        }
         "serve" => {
             let port = arg_value(rest, "--port").and_then(|value| value.parse().ok()).unwrap_or(8765);
             if has_flag(rest, "--window") {
@@ -306,7 +320,9 @@ fn main() {
                 "inject" => print_json(&steamui::inject().unwrap_or_else(|error| fail(error))),
                 "remove" => print_json(&steamui::remove()),
                 "enable" => print_json(&steamui::enable_debug().unwrap_or_else(|error| fail(error))),
-                other => fail(format!("unknown steamui action {other}; use status, inject, remove, enable")),
+                "install" => print_json(&steamui::install_launcher().unwrap_or_else(|error| fail(error))),
+                "uninstall" => print_json(&steamui::uninstall_launcher()),
+                other => fail(format!("unknown steamui action {other}; use status, inject, remove, install, uninstall, enable")),
             }
         }
         "shortcut" => {

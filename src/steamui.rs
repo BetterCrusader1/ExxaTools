@@ -645,6 +645,14 @@ pub fn status() -> Value {
             Err(message) => error = Some(message),
         }
     }
+    let desktop = desktop_override();
+    let launcher = desktop
+        .as_ref()
+        .and_then(|path| std::fs::read_to_string(path).ok())
+        .map(|text| launcher_uses_wrapper(&text))
+        .unwrap_or(false);
+    let autostart = crate::desktop::autostart_path().is_file();
+    let server = crate::http::get_json(&format!("http://127.0.0.1:{}/api/session", crate::server::port())).is_ok();
     json!({
         "steam_running": running,
         "debug_port": DEBUG_PORT,
@@ -652,6 +660,10 @@ pub fn status() -> Value {
         "target": target.as_ref().and_then(|value| value.get("url")).cloned(),
         "injected": injected,
         "flag": FLAG,
+        "autostart": autostart,
+        "desktop_entry": desktop.map(|path| path.display().to_string()),
+        "launcher_wrapper": launcher,
+        "server": server,
         "error": error,
     })
 }
@@ -841,6 +853,108 @@ pub fn desktop_override() -> Option<PathBuf> {
 }
 
 const DESKTOP_MARK: &str = "X-Vapor-Forge-Override=true";
+const WRAPPER_MARK: &str = "X-Exxa-Steam-Wrapper=true";
+const BACKUP_SUFFIX: &str = "exxatools.bak";
+
+fn wrapper_exe() -> std::path::PathBuf {
+    let launcher = paths::project_dir().join("exxa");
+    if launcher.is_file() {
+        launcher
+    } else {
+        std::env::current_exe().unwrap_or_else(|_| std::path::PathBuf::from("exxa"))
+    }
+}
+
+fn launcher_backup(path: &std::path::Path) -> std::path::PathBuf {
+    let name = format!("{}.{BACKUP_SUFFIX}", path.file_name().and_then(|value| value.to_str()).unwrap_or("steam.desktop"));
+    path.with_file_name(name)
+}
+
+/// The command part changes, the arguments do not: `%U` stays `%U`, and every
+/// `steam://` action keeps its target.
+fn rewrite_steam_entry(text: &str, exe: &std::path::Path) -> String {
+    let mut lines: Vec<String> = Vec::new();
+    for raw in text.lines() {
+        if let Some(rest) = raw.strip_prefix("Exec=") {
+            if let Some(index) = rest.find("/usr/bin/steam") {
+                let tail = rest[index + "/usr/bin/steam".len()..].trim_start();
+                let tail = tail.strip_prefix(FLAG).unwrap_or(tail).trim_start();
+                let line = if tail.is_empty() {
+                    format!("Exec={} steam", exe.display())
+                } else {
+                    format!("Exec={} steam {tail}", exe.display())
+                };
+                lines.push(line);
+                continue;
+            }
+        }
+        lines.push(raw.to_string());
+    }
+    if !lines.iter().any(|line| line == WRAPPER_MARK) {
+        lines.push(WRAPPER_MARK.to_string());
+    }
+    format!("{}\n", lines.join("\n"))
+}
+
+/// Point every Steam desktop action at `exxa steam`, which starts the server and
+/// then replaces itself with Steam. Arguments such as `%U` and `steam://...` are
+/// kept verbatim; the wrapper sets LD_AUDIT and the debug flag itself.
+pub fn install_launcher() -> Result<Value, String> {
+    let path = paths::data_home().join("applications/steam.desktop");
+    let stock = std::path::PathBuf::from("/usr/share/applications/steam.desktop");
+    let backup = launcher_backup(&path);
+    let original = if backup.is_file() {
+        std::fs::read_to_string(&backup).map_err(|error| error.to_string())?
+    } else if path.is_file() {
+        std::fs::read_to_string(&path).map_err(|error| error.to_string())?
+    } else if stock.is_file() {
+        std::fs::read_to_string(&stock).map_err(|error| error.to_string())?
+    } else {
+        return Err("no Steam desktop entry to rewrite".into());
+    };
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).map_err(|error| error.to_string())?;
+    }
+    if !backup.is_file() {
+        std::fs::write(&backup, &original).map_err(|error| format!("cannot back up {}: {error}", backup.display()))?;
+    }
+    let text = original;
+    let exe = wrapper_exe();
+    let updated = rewrite_steam_entry(&text, &exe);
+    std::fs::write(&path, &updated).map_err(|error| format!("cannot write {}: {error}", path.display()))?;
+    Ok(json!({ "path": path.display().to_string(), "backup": backup.display().to_string(), "exec": format!("{} steam", exe.display()) }))
+}
+
+pub fn uninstall_launcher() -> Value {
+    let Some(path) = desktop_override() else {
+        return json!({ "restored": false, "error": "no local Steam desktop entry" });
+    };
+    let backup = launcher_backup(&path);
+    if !backup.is_file() {
+        return json!({ "restored": false, "path": path.display().to_string(), "error": "no backup to restore" });
+    }
+    let backed_up = std::fs::read_to_string(&backup).unwrap_or_default();
+    // The local override is ours when it carries the Vapor Forge marker. Removing
+    // it lets Steam fall back to the stock entry instead of restoring our own file.
+    let restored = if backed_up.contains(DESKTOP_MARK) {
+        let removed = std::fs::remove_file(&path).is_ok();
+        let _ = std::fs::remove_file(&backup);
+        removed
+    } else {
+        let copied = std::fs::copy(&backup, &path).is_ok();
+        if copied {
+            let _ = std::fs::remove_file(&backup);
+        }
+        copied
+    };
+    json!({ "restored": restored, "path": path.display().to_string(), "stock": restored })
+}
+
+fn launcher_uses_wrapper(text: &str) -> bool {
+    text.lines().any(|line| line.contains(&format!("{} steam", wrapper_exe().display())))
+        || text.contains(WRAPPER_MARK)
+}
+
 
 
 /// The flag is an argument of the steam binary, not a command: putting it before
@@ -993,6 +1107,25 @@ mod tests {
     fn flag_is_not_added_twice() {
         let entry = "Exec=/usr/bin/steam -cef-enable-debugging %U\n";
         assert_eq!(add_debug_flag(entry), entry);
+    }
+
+    #[test]
+    fn wrapper_keeps_placeholders_and_actions() {
+        let entry = "[Desktop Entry]\nExec=env \"LD_AUDIT=/x\" /usr/bin/steam -cef-enable-debugging %U\n"
+            .to_string()
+            + "Exec=env \"LD_AUDIT=/x\" /usr/bin/steam steam://store\n";
+        let out = super::rewrite_steam_entry(&entry, std::path::Path::new("/opt/exxa"));
+        assert!(out.contains("Exec=/opt/exxa steam %U"));
+        assert!(out.contains("Exec=/opt/exxa steam steam://store"));
+        assert!(!out.contains("/usr/bin/steam"));
+        assert!(out.contains(super::WRAPPER_MARK));
+    }
+
+    #[test]
+    fn wrapper_ignores_entries_that_do_not_run_steam() {
+        let entry = "Exec=/usr/bin/other %U\n";
+        let out = super::rewrite_steam_entry(entry, std::path::Path::new("/opt/exxa"));
+        assert!(out.contains("Exec=/usr/bin/other %U"));
     }
 }
 
