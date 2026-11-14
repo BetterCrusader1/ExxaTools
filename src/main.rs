@@ -252,6 +252,20 @@ fn main() {
             if let Err(error) = steamctl::ensure_server(8765) {
                 fail(error);
             }
+            // A Steam that was already running without the CEF flag ignores the
+            // flag passed to a second launch. Restart it once, but never over a
+            // running game.
+            if steamctl::is_running() && !steamui::debug_ready() {
+                if steamctl::game_running() {
+                    eprintln!("steam: a game is running without CEF debugging; close it and launch ExxaTools again");
+                } else {
+                    eprintln!("steam: enabling CEF debugging (one Steam restart)");
+                    if let Err(error) = steamctl::restart(&[steamui::FLAG.to_string()]) {
+                        fail(error);
+                    }
+                    return;
+                }
+            }
             if let Err(error) = steamctl::launch(&args) {
                 fail(error);
             }

@@ -1,9 +1,9 @@
 [Desktop Entry]
 Type=Application
 Name=ExxaTools
-Comment=Steam depots and manifests on Vapor Forge, from the Steam menu
-Exec=exxa steamui inject
+Comment=Steam depots and manifests on Vapor Forge
+Exec=exxa window
 Icon=exxatools
+StartupWMClass=exxa
 Terminal=false
-NoDisplay=true
 Categories=Game;Utility;

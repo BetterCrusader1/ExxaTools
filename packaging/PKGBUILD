@@ -21,6 +21,8 @@ package() {
   cd "ExxaTools-$pkgver"
   install -Dm755 target/release/exxa "$pkgdir/usr/bin/exxa"
   install -Dm644 web/logo.png "$pkgdir/usr/share/icons/hicolor/512x512/apps/exxatools.png"
+  install -Dm644 web/logo-128.png "$pkgdir/usr/share/icons/hicolor/128x128/apps/exxatools.png"
+  install -Dm644 web/logo-48.png "$pkgdir/usr/share/icons/hicolor/48x48/apps/exxatools.png"
   install -Dm644 packaging/exxatools.desktop "$pkgdir/usr/share/applications/exxatools.desktop"
   install -d "$pkgdir/usr/share/exxatools"
   cp -r web "$pkgdir/usr/share/exxatools/web"

@@ -40,6 +40,30 @@ pub fn pid() -> Option<i32> {
     }
 }
 
+/// True when a game (not the client itself) is running under Steam. Used before
+/// restarting the client to enable CEF debugging, so a running game is never
+/// interrupted.
+pub fn game_running() -> bool {
+    let Ok(entries) = std::fs::read_dir("/proc") else { return false };
+    for entry in entries.flatten() {
+        let name = entry.file_name();
+        let Some(pid) = name.to_str().filter(|value| value.bytes().all(|byte| byte.is_ascii_digit())) else {
+            continue;
+        };
+        let Ok(bytes) = std::fs::read(format!("/proc/{pid}/environ")) else { continue };
+        for item in bytes.split(|byte| *byte == 0) {
+            for key in [b"SteamAppId=".as_slice(), b"SteamGameId=".as_slice()] {
+                if let Some(value) = item.strip_prefix(key) {
+                    if !value.is_empty() && value != b"0" {
+                        return true;
+                    }
+                }
+            }
+        }
+    }
+    false
+}
+
 pub fn is_running() -> bool {
     if pid().is_some() {
         return true;

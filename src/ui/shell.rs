@@ -122,6 +122,7 @@ fn build(app: &adw::Application, initial: Page) {
     let window = adw::ApplicationWindow::builder()
         .application(app)
         .title("ExxaTools")
+        .icon_name("exxatools")
         .default_width(1280)
         .default_height(820)
         .build();

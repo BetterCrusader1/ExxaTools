@@ -48,12 +48,12 @@ pub fn install_desktop_entry() -> Result<Value, String> {
     let exe = if launcher.is_file() { launcher } else { std::env::current_exe().map_err(|error| error.to_string())? };
     let icon = paths::web_dir().join("logo.png");
     let content = format!(
-        "[Desktop Entry]\nType=Application\nName=ExxaTools\nComment=Steam depots and manifests on Vapor Forge, from the Steam menu\nExec={} steamui inject\nIcon={}\nTerminal=false\nNoDisplay=true\nCategories=Game;Utility;\n",
+        "[Desktop Entry]\nType=Application\nName=ExxaTools\nComment=Steam depots and manifests on Vapor Forge\nExec={} window\nIcon={}\nStartupWMClass=exxa\nTerminal=false\nCategories=Game;Utility;\n",
         exe.display(),
         icon.display()
     );
     std::fs::write(&target, content).map_err(|error| format!("cannot write {}: {error}", target.display()))?;
-    Ok(json!({ "path": target.display().to_string(), "exec": format!("{} steamui inject", exe.display()) }))
+    Ok(json!({ "path": target.display().to_string(), "exec": format!("{} window", exe.display()) }))
 }
 
 pub fn uninstall_desktop_entry() -> Value {

@@ -28,6 +28,13 @@ hand-styled list.
   that still has no artwork instead of showing a letter placeholder.
 - The hand cursor is set on every clickable surface: navigation, shelf rows,
   Discover cards, buttons and the plan expander.
+- The app now publishes its existing logo to the icon theme and sets it as the
+  window icon, so the dock/taskbar shows ExxaTools instead of a fallback mark.
+  `exxa shortcut install` now creates a visible dashboard launcher with
+  `StartupWMClass=exxa`; the packaged desktop entry matches it.
+- `exxa steam` detects a Steam client that was already running without
+  `-cef-enable-debugging` and restarts it once, unless a game is running, so the
+  panel is available even when Steam was opened from an old shortcut.
 
 ## 0.3.0
 
