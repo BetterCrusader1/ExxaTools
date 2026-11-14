@@ -499,13 +499,31 @@ fn pump() {
         if ws.is_empty() {
             continue;
         }
-        // The icon opens and closes the panel inside the page; the pump only
-        // refreshes what is on screen and turns clicks into Rust calls.
+        // The icon asks Rust to place the panel: the shell is below the store
+        // and library windows, so a page-local panel would be covered.
         let _ = cdp::evaluate(ws, "window.__vdWantPanel = null", std::time::Duration::from_millis(600));
         for target in page_targets() {
             let page_ws = target.get("webSocketDebuggerUrl").and_then(Value::as_str).unwrap_or("");
             if page_ws.is_empty() {
                 continue;
+            }
+            let panel_request = cdp::evaluate(page_ws, "window.__vdPanelRequest || null", std::time::Duration::from_millis(600))
+                .ok()
+                .unwrap_or(Value::Null);
+            if panel_request.is_object() {
+                let _ = cdp::evaluate(page_ws, "window.__vdPanelRequest = null", std::time::Duration::from_millis(600));
+                if panel_request.get("close").and_then(Value::as_bool).unwrap_or(false) {
+                    hide_panel();
+                } else {
+                    let x = panel_request.get("x").and_then(Value::as_i64).unwrap_or(0);
+                    let y = panel_request.get("y").and_then(Value::as_i64).unwrap_or(0);
+                    let screen_x = panel_request.get("screen_x").and_then(Value::as_i64).unwrap_or(0);
+                    let screen_y = panel_request.get("screen_y").and_then(Value::as_i64).unwrap_or(0);
+                    let toggle = panel_request.get("toggle").and_then(Value::as_bool).unwrap_or(false);
+                    if let Err(error) = panel(true, toggle, x, y, screen_x, screen_y) {
+                        eprintln!("steamui: panel placement failed: {error}");
+                    }
+                }
             }
             let request = cdp::evaluate(page_ws, "window.__vdPageRequest || null", std::time::Duration::from_millis(600))
                 .ok()
@@ -522,38 +540,43 @@ fn pump() {
                 let _ = cdp::evaluate(page_ws, "window.__vdAction = null", std::time::Duration::from_millis(600));
                 let message = run_action(&act);
                 if act == "dashboard" || act == "settings" {
-                    let _ = cdp::evaluate(page_ws, "window.__vdPanel && window.__vdPanel({open:false})", std::time::Duration::from_millis(800));
+                    hide_panel();
                 }
                 let say = format!("window.__vdSay && window.__vdSay({message:?})");
                 let _ = cdp::evaluate(page_ws, &say, std::time::Duration::from_millis(800));
             }
         }
-        let open = cdp::evaluate(ws, "Boolean(window.__vdPanelOpen)", std::time::Duration::from_millis(800))
+        let panel_ws = PANEL_HOST
+            .lock()
+            .ok()
+            .and_then(|guard| guard.clone())
+            .unwrap_or_else(|| ws.to_string());
+        let open = cdp::evaluate(&panel_ws, "Boolean(window.__vdPanelOpen)", std::time::Duration::from_millis(800))
             .ok()
             .and_then(|value| value.as_bool())
             .unwrap_or(false);
         if !open {
             continue;
         }
-        let action = cdp::evaluate(ws, "window.__vdAction || ''", std::time::Duration::from_secs(2))
+        let action = cdp::evaluate(&panel_ws, "window.__vdAction || ''", std::time::Duration::from_secs(2))
             .ok()
             .and_then(|value| value.as_str().map(str::to_string))
             .unwrap_or_default();
         if !action.is_empty() {
-            let _ = cdp::evaluate(ws, "window.__vdAction = ''", std::time::Duration::from_secs(2));
+            let _ = cdp::evaluate(&panel_ws, "window.__vdAction = ''", std::time::Duration::from_secs(2));
             let message = run_action(&action);
         if action == "dashboard" || action == "settings" {
-            let _ = cdp::evaluate(ws, "window.__vdPanel && window.__vdPanel({open:false})", std::time::Duration::from_millis(800));
+            hide_panel();
         }
             let state = status_snapshot();
             let payload = json!({ "engine": state["engine"], "apps": state["apps"], "msg": message });
             let expression = format!("window.__vdUpdate({payload})");
-            let _ = cdp::evaluate(ws, &expression, std::time::Duration::from_secs(2));
+            let _ = cdp::evaluate(&panel_ws, &expression, std::time::Duration::from_secs(2));
             continue;
         }
         let state = status_snapshot();
         let expression = format!("window.__vdUpdate({state})");
-        let _ = cdp::evaluate(ws, &expression, std::time::Duration::from_secs(2));
+        let _ = cdp::evaluate(&panel_ws, &expression, std::time::Duration::from_secs(2));
     }
 }
 

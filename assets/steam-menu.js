@@ -303,6 +303,7 @@ window.__vdPanel = (opts) => {
       const button = event.target.closest("[data-act]");
       if (!button) return;
       if (button.dataset.act === "close") {
+        window.__vdPanelRequest = { close: true };
         if (window.__vdPanel) window.__vdPanel({ open: false });
         return;
       }
@@ -410,25 +411,17 @@ window.__vdInject = () => {
   // The page has no HTTP path to the app: Steam's CSP blocks loopback, and the
   // API now refuses unauthenticated writes. A flag read over CDP is enough.
   const toggle = () => {
+    // The menu icon lives in the shell, but the store and library are separate
+    // CEF windows layered above it. Opening locally would put the panel behind
+    // those windows, so ask Rust which window is actually under the icon.
     const rect = item.getBoundingClientRect();
-    const panel = document.getElementById("__PANEL__");
-    if (panel && panel.classList.contains("open")) {
-      // Close locally; asking the pump to close as well raced with a second click
-      // and shut the panel right after it opened.
-      if (window.__vdPanel) window.__vdPanel({ open: false });
-      return;
-    }
-    // Open from the page immediately with whatever state was last pushed; the
-    // pump refreshes it a moment later. Waiting for the round trip was the reason
-    // the menu felt slow.
-    if (window.__vdPanel) {
-      window.__vdPanel({
-        open: true,
-        x: Math.round(rect.left),
-        y: Math.round(rect.bottom),
-        state: window.__vdLastState || null,
-      });
-    }
+    window.__vdPanelRequest = {
+      toggle: true,
+      x: Math.round(rect.left),
+      y: Math.round(rect.bottom),
+      screen_x: Math.round(window.screenX),
+      screen_y: Math.round(window.screenY),
+    };
   };
 
   item.addEventListener("click", (event) => {
@@ -443,6 +436,7 @@ window.__vdInject = () => {
     if (event.key === "Escape") {
       const shell = document.getElementById("__PANEL__-dash");
       if (shell && shell.classList.contains("open")) { shell.classList.remove("open"); return; }
+      window.__vdPanelRequest = { close: true };
       if (window.__vdPanel) window.__vdPanel({ open: false });
     }
   });

@@ -35,6 +35,12 @@ hand-styled list.
 - `exxa steam` detects a Steam client that was already running without
   `-cef-enable-debugging` and restarts it once, unless a game is running, so the
   panel is available even when Steam was opened from an old shortcut.
+- The menu icon asks Rust to open the panel in the Steam window under the icon.
+  The store and library are separate CEF windows layered above the shell, so the
+  old page-local panel could be painted behind Steam's own chrome; it now opens
+  in the active content window and stays fully visible. Closing from the panel
+  also clears the host state, so the next click reopens instead of toggling a
+  ghost.
 
 ## 0.3.0
 
