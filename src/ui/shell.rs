@@ -511,10 +511,6 @@ fn build_nav() -> NavRail {
     let brand = gtk::Label::new(Some("ExxaTools"));
     brand.add_css_class("brand-name");
     brand.set_halign(gtk::Align::Start);
-    let tagline = gtk::Label::new(Some("Steam depot desk"));
-    tagline.add_css_class("brand-sub");
-    tagline.set_halign(gtk::Align::Start);
-
     let mark = gtk::Picture::for_filename(crate::paths::web_dir().join("logo-48.png"));
     mark.set_size_request(28, 28);
     mark.set_valign(gtk::Align::Center);
@@ -522,7 +518,6 @@ fn build_nav() -> NavRail {
 
     let brand_text = GtkBox::new(Orientation::Vertical, 0);
     brand_text.append(&brand);
-    brand_text.append(&tagline);
     let brand_row = GtkBox::new(Orientation::Horizontal, 10);
     brand_row.set_margin_top(18);
     brand_row.set_margin_bottom(18);
@@ -538,7 +533,7 @@ fn build_nav() -> NavRail {
     for (icon, label) in [
         ("view-list-symbolic", "Library"),
         ("system-search-symbolic", "Discover"),
-        ("utilities-system-monitor-symbolic", "System"),
+        ("applications-utilities-symbolic", "System"),
         ("emblem-system-symbolic", "Settings"),
     ]
     .iter()

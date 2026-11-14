@@ -155,11 +155,16 @@ headerbar { background: #000000; box-shadow: none; border-bottom: 1px solid alph
                 box-shadow 260ms ease, color 200ms ease, opacity 200ms ease;
 }
 .nav-row { border-radius: 10px; }
-.nav-row:hover { background-color: alpha(#b9a4ff, 0.07); }
+.nav-row:hover { background-color: transparent; }
+.nav-row:hover .nav-label,
+.nav-row:hover .nav-icon { color: #d8c7ff; }
 .nav-row:selected {
-    background-image: linear-gradient(120deg, alpha(#8f6bff, 0.30), alpha(#7fd9ff, 0.10));
-    box-shadow: inset 0 0 0 1px alpha(#d3c6ff, 0.22);
+    background-color: alpha(#b9a4ff, 0.10);
+    background-image: none;
+    box-shadow: none;
 }
+.nav-row:selected .nav-icon,
+.nav-row:selected .nav-label { color: #f6f1ff; }
 .game-row { border-radius: 12px; }
 .game-row:hover { background-color: alpha(#b9a4ff, 0.06); }
 .game-row:selected {
@@ -275,12 +280,19 @@ headerbar button, headerbar image { color: #3F3354; }
 .hero-panel .pill-planned { background-color: rgba(242, 199, 139, 0.18); color: #FFDFB2; }
 .hero-panel .pill-warning { background-color: rgba(255, 138, 168, 0.18); color: #FFC2D2; }
 .hero-panel .pill-disabled { background-color: rgba(255, 255, 255, 0.10); color: #DDD2F0; }
-.nav-row:hover, .game-row:hover, .depot-row:hover, button.flat:hover { background-color: alpha(#6D3FD1, 0.08); }
-.nav-row:selected, .game-row:selected {
+.nav-row:hover { background-color: transparent; }
+.nav-row:hover .nav-label, .nav-row:hover .nav-icon { color: #5B21B6; }
+.game-row:hover, .depot-row:hover, button.flat:hover { background-color: alpha(#6D3FD1, 0.08); }
+.nav-row:selected {
+    background-color: alpha(#7C3AED, 0.10);
+    background-image: none;
+    box-shadow: none;
+}
+.game-row:selected {
     background-image: linear-gradient(90deg, alpha(#7C3AED, 0.16), alpha(#7C3AED, 0.02));
     box-shadow: inset 0 0 0 1px alpha(#7C3AED, 0.14);
 }
-.nav-row:selected .nav-icon, .nav-row:selected .nav-label { color: #5B21B6; }
+.nav-row:selected .nav-icon, .nav-row:selected .nav-label { color: #1A0B2E; }
 .count-pill { background-image: linear-gradient(135deg, #FFFFFF, #C9B6FF); color: #1A0B2E; border: 1px solid alpha(#7C3AED, 0.18); }
 .depot-table, .summary-card {
     background-image: linear-gradient(145deg, #FFFFFF 0%, #F8F2FF 55%, #EEE4FF 100%);
