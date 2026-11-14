@@ -189,10 +189,12 @@ fn build(app: &adw::Application, initial: Page) {
     let refresh = gtk::Button::from_icon_name("view-refresh-symbolic");
     refresh.add_css_class("flat");
     refresh.set_tooltip_text(Some("Refresh the library and system checks"));
+    refresh.set_cursor_from_name(Some("pointer"));
 
     let theme_button = gtk::Button::from_icon_name(initial_theme.icon());
     theme_button.add_css_class("flat");
     theme_button.set_tooltip_text(Some(initial_theme.tooltip()));
+    theme_button.set_cursor_from_name(Some("pointer"));
     {
         let current = current_theme.clone();
         let commands = worker.clone();
@@ -540,6 +542,7 @@ fn build_nav() -> NavRail {
     {
         let row = gtk::ListBoxRow::new();
         row.add_css_class("nav-row");
+        row.set_cursor_from_name(Some("pointer"));
         let image = gtk::Image::from_icon_name(icon);
         image.set_pixel_size(16);
         image.add_css_class("nav-icon");
@@ -559,6 +562,7 @@ fn build_nav() -> NavRail {
 
     let sync_all = gtk::Button::with_label("Refresh all manifests");
     sync_all.add_css_class("flat");
+    sync_all.set_cursor_from_name(Some("pointer"));
     sync_all.add_css_class("nav-action");
     sync_all.set_halign(gtk::Align::Fill);
     sync_all.set_margin_start(8);

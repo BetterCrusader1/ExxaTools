@@ -83,6 +83,7 @@ pub fn build(ctx: &Ctx) -> DiscoverPage {
         .build();
     let retry = gtk::Button::with_label("Try again");
     retry.add_css_class("suggested-action");
+    retry.set_cursor_from_name(Some("pointer"));
     retry.set_halign(gtk::Align::Center);
     let commands = ctx.commands.clone();
     retry.connect_clicked(move |_| commands.send(Command::LoadDiscover));
@@ -136,6 +137,7 @@ impl DiscoverPage {
 fn card(ctx: &Ctx, game: &Game) -> gtk::FlowBoxChild {
     let button = gtk::Button::new();
     button.add_css_class("discover-card");
+    button.set_cursor_from_name(Some("pointer"));
     button.set_size_request(232, -1);
     button.set_valign(gtk::Align::Start);
 

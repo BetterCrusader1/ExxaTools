@@ -17,15 +17,43 @@ pub fn ensure_cover(appid: u64) -> Option<PathBuf> {
         return None;
     }
     let path = cover_path(appid);
-    if path.is_file() {
+    if path.is_file() && std::fs::metadata(&path).map(|meta| meta.len() > 1024).unwrap_or(false) {
         return Some(path);
     }
+    let _ = std::fs::remove_file(&path);
+    let urls = [
+        format!("https://cdn.akamai.steamstatic.com/steam/apps/{appid}/header.jpg"),
+        format!("https://cdn.akamai.steamstatic.com/steam/apps/{appid}/capsule_231x87.jpg"),
+    ];
+    for url in urls {
+        if let Some(path) = download(appid, &url) {
+            return Some(path);
+        }
+    }
+    None
+}
+
+/// Downloads a store-provided capsule URL, which is the only reliable image
+/// for apps whose generic CDN path was renamed.
+pub fn ensure_cover_url(appid: u64, url: &str) -> Option<PathBuf> {
+    if appid == 0 || !url.starts_with("https://") {
+        return None;
+    }
+    let path = cover_path(appid);
+    if path.is_file() && std::fs::metadata(&path).map(|meta| meta.len() > 1024).unwrap_or(false) {
+        return Some(path);
+    }
+    let _ = std::fs::remove_file(&path);
+    download(appid, url)
+}
+
+fn download(appid: u64, url: &str) -> Option<PathBuf> {
     std::fs::create_dir_all(cover_dir()).ok()?;
-    let url = format!("https://cdn.akamai.steamstatic.com/steam/apps/{appid}/header.jpg");
-    let body = crate::http::get_with(&url, None, Some(std::time::Duration::from_secs(5))).ok()?;
+    let body = crate::http::get_with(url, None, Some(std::time::Duration::from_secs(7))).ok()?;
     if body.len() < 1024 {
         return None;
     }
+    let path = cover_path(appid);
     let temp = cover_dir().join(format!("{appid}.jpg.tmp"));
     std::fs::write(&temp, body).ok()?;
     std::fs::rename(&temp, &path).ok()?;

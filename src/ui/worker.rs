@@ -94,11 +94,13 @@ fn run(command: Command, events: Sender<Event>) {
             let country = crate::state::load()
                 .map(|state| state.settings.country)
                 .unwrap_or_else(|_| "us".into());
-            let mut games: Vec<Game> = crate::steam::discover(&country, 30)
+            let mut games: Vec<Game> = crate::steam::discover(&country, 60)
                 .iter()
                 .filter_map(Game::from_discover)
                 .collect();
             decorate(&mut games);
+            games.retain(|game| game.cover.is_some());
+            games.truncate(30);
             let _ = events.send(Event::Discover(games));
         }
         Command::LoadDoctor => {
@@ -254,9 +256,19 @@ fn search(term: &str) -> Vec<Game> {
 }
 
 fn decorate(games: &mut [Game]) {
-    for game in games {
-        game.cover = covers::ensure_cover(game.appid);
-    }
+    std::thread::scope(|scope| {
+        for chunk in games.chunks_mut(6) {
+            scope.spawn(move || {
+                for game in chunk {
+                    game.cover = game
+                        .cover_url
+                        .as_deref()
+                        .and_then(|url| covers::ensure_cover_url(game.appid, url))
+                        .or_else(|| covers::ensure_cover(game.appid));
+                }
+            });
+        }
+    });
 }
 
 fn toast(events: &Sender<Event>, text: String, error: bool) {

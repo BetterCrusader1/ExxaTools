@@ -130,6 +130,7 @@ impl Shelf {
 fn row(game: &Game) -> gtk::ListBoxRow {
     let row = gtk::ListBoxRow::new();
     row.add_css_class("game-row");
+    row.set_cursor_from_name(Some("pointer"));
     row.set_tooltip_text(Some(&format!("{} · {}", game.name, game.state.label())));
 
     let cover = match &game.cover {

@@ -23,6 +23,11 @@ hand-styled list.
   choice persists with the rest of the settings.
 - Steam's wide `library_hero.jpg` is cached for the inspector; header art stays
   as the shelf fallback.
+- Discover keeps games only (featured DLC entries are filtered out), uses the
+  store capsule URL when the generic CDN path is missing, and drops any tile
+  that still has no artwork instead of showing a letter placeholder.
+- The hand cursor is set on every clickable surface: navigation, shelf rows,
+  Discover cards, buttons and the plan expander.
 
 ## 0.3.0
 

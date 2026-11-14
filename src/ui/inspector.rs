@@ -74,6 +74,7 @@ impl Inspector {
         if syncing {
             let sync = gtk::Button::with_label("Sync manifests");
             sync.add_css_class("flat");
+            sync.set_cursor_from_name(Some("pointer"));
             let commands = ctx.commands.clone();
             let appid = game.appid;
             sync.connect_clicked(move |_| commands.send(Command::Sync(appid)));
@@ -82,6 +83,7 @@ impl Inspector {
 
         let more = gtk::MenuButton::new();
         more.set_icon_name("view-more-symbolic");
+        more.set_cursor_from_name(Some("pointer"));
         more.add_css_class("flat");
         more.set_tooltip_text(Some("More actions"));
         let popover = gtk::Popover::new();
@@ -166,6 +168,7 @@ fn primary_button(ctx: &Ctx, game: &Game) -> gtk::Button {
     if game.origin == Origin::Search {
         let add = gtk::Button::with_label("Add to library");
         add.add_css_class("suggested-action");
+        add.set_cursor_from_name(Some("pointer"));
         let commands = ctx.commands.clone();
         let appid = game.appid;
         let name = game.name.clone();
@@ -180,6 +183,7 @@ fn primary_button(ctx: &Ctx, game: &Game) -> gtk::Button {
     if game.installed && game.state != GameState::KeysMissing {
         let launch = gtk::Button::with_label("Launch");
         launch.add_css_class("suggested-action");
+        launch.set_cursor_from_name(Some("pointer"));
         let commands = ctx.commands.clone();
         let appid = game.appid;
         launch.connect_clicked(move |_| commands.send(Command::Launch(appid)));
@@ -187,6 +191,7 @@ fn primary_button(ctx: &Ctx, game: &Game) -> gtk::Button {
     }
     let sync = gtk::Button::with_label("Sync manifests");
     sync.add_css_class("suggested-action");
+    sync.set_cursor_from_name(Some("pointer"));
     let commands = ctx.commands.clone();
     let appid = game.appid;
     sync.connect_clicked(move |_| commands.send(Command::Sync(appid)));
@@ -382,6 +387,7 @@ fn plan_group(game: &Game) -> adw::PreferencesGroup {
         .title("Plan details")
         .subtitle(format!("{} · {}", source, game.branch))
         .build();
+    expander.set_cursor_from_name(Some("pointer"));
     expander.add_row(
         &adw::ActionRow::builder()
             .title("Source")
@@ -426,6 +432,7 @@ fn plan_group(game: &Game) -> adw::PreferencesGroup {
 fn menu_button(label: &str, icon: &str) -> gtk::Button {
     let button = gtk::Button::with_label(label);
     button.add_css_class("flat");
+    button.set_cursor_from_name(Some("pointer"));
     button.set_halign(gtk::Align::Start);
     let image = gtk::Image::from_icon_name(icon);
     button.set_child(Some(&row_with_icon(&image, label)));

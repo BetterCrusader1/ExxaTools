@@ -59,6 +59,7 @@ pub fn build(ctx: &Ctx) -> SettingsPage {
 
     let save = gtk::Button::with_label("Save changes");
     save.add_css_class("suggested-action");
+    save.set_cursor_from_name(Some("pointer"));
     save.set_valign(gtk::Align::Center);
     let save_row = adw::ActionRow::builder()
         .title("Save to disk")

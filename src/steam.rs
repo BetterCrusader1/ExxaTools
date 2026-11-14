@@ -283,7 +283,7 @@ fn shuffle(items: &mut [Value]) {
 fn discover_pool(cc: &str) -> Vec<Value> {
     let mut pool: Vec<Value> = Vec::new();
     let mut seen: Vec<u64> = Vec::new();
-    let push = |appid: u64, name: &str, pool: &mut Vec<Value>, seen: &mut Vec<u64>| {
+    let push = |appid: u64, name: &str, image: Option<&str>, pool: &mut Vec<Value>, seen: &mut Vec<u64>| {
         if name.is_empty() || seen.contains(&appid) {
             return;
         }
@@ -292,14 +292,18 @@ fn discover_pool(cc: &str) -> Vec<Value> {
             return;
         }
         seen.push(appid);
-        pool.push(json!({ "appid": appid, "name": name }));
+        let mut item = json!({ "appid": appid, "name": name });
+        if let Some(image) = image {
+            item["image"] = json!(image);
+        }
+        pool.push(item);
     };
 
     if let Ok(spy) = http::get_json_with(STEAMSPY, None) {
         if let Some(map) = spy.as_object() {
             for item in map.values() {
                 if let (Some(appid), Some(name)) = (item.get("appid").and_then(Value::as_u64), item.get("name").and_then(Value::as_str)) {
-                    push(appid, name, &mut pool, &mut seen);
+                    push(appid, name, None, &mut pool, &mut seen);
                 }
             }
         }
@@ -310,7 +314,7 @@ fn discover_pool(cc: &str) -> Vec<Value> {
             let Some(items) = featured.pointer(&format!("/{section}/items")).and_then(Value::as_array) else { continue };
             for item in items {
                 if let (Some(appid), Some(name)) = (item.get("id").and_then(Value::as_u64), item.get("name").and_then(Value::as_str)) {
-                    push(appid, name, &mut pool, &mut seen);
+                    push(appid, name, None, &mut pool, &mut seen);
                 }
             }
         }
