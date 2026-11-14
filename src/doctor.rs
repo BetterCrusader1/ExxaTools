@@ -42,6 +42,41 @@ fn human(bytes: u64) -> String {
     format!("{value:.1} {}", units[index])
 }
 
+/// Severity and wording for the engine check.
+///
+/// `loaded` must mean the shim is mapped inside the process that owns
+/// `steamclient.so`; `shim_mapped` only means some Steam process mapped it.
+/// Neither reading alone is enough to call the engine live.
+struct EngineCheck {
+    status: &'static str,
+    detail: String,
+    hint: &'static str,
+    action: &'static str,
+}
+
+fn engine_check(loaded: bool, shim_mapped: bool, running: bool) -> EngineCheck {
+    if loaded {
+        return EngineCheck {
+            status: "ok",
+            detail: "the shim is mapped in the Steam client process".into(),
+            hint: "Plans do not apply until the client itself loads the engine",
+            action: "",
+        };
+    }
+    EngineCheck {
+        status: "bad",
+        detail: if !running {
+            "Steam is not running".into()
+        } else if shim_mapped {
+            "the shim is mapped, but not in the process that owns steamclient.so".into()
+        } else {
+            "Steam runs in a container that does not load the shim".into()
+        },
+        hint: "Plans do not apply until the client itself loads the engine",
+        action: "engine_container",
+    }
+}
+
 pub fn run() -> Value {
     let status = engine::detect();
     let st = state::load().unwrap_or_default();
@@ -60,14 +95,13 @@ pub fn run() -> Value {
         if installed { "" } else { "engine_install" },
     ));
 
-    items.push(item(
-        "engine_loaded",
-        "Engine loaded inside Steam",
-        if loaded { "ok" } else { "warn" },
-        if loaded { "LD_AUDIT picked it up".into() } else if running { "Steam is running without the shim".into() } else { "Steam is not running".into() },
-        "Restart Steam so the client loads the engine",
-        if loaded { "" } else { "restart_steam" },
-    ));
+    // Steam's runtime launches the client inside pressure-vessel. LD_AUDIT stays
+    // in the wrapper but the library is not mapped into the process that owns
+    // steamclient.so, so the licence and manifest hooks never install. Report
+    // that state instead of a green "loaded" that only proves the variable.
+    let shim_mapped = status.get("steam_engine_mapped").and_then(Value::as_bool).unwrap_or(false);
+    let engine = engine_check(loaded, shim_mapped, running);
+    items.push(item("engine_loaded", "Engine loaded inside Steam", engine.status, engine.detail, engine.hint, engine.action));
 
     let ui = steamui::status();
     let autostart = ui.get("autostart").and_then(Value::as_bool).unwrap_or(false);
@@ -210,4 +244,21 @@ pub fn run() -> Value {
     let ok = items.iter().all(|entry| entry.get("status").and_then(Value::as_str) != Some("bad"));
     let warnings = items.iter().filter(|entry| entry.get("status").and_then(Value::as_str) == Some("warn")).count();
     json!({ "ok": ok, "warnings": warnings, "items": items })
+}
+#[cfg(test)]
+mod tests {
+    use super::engine_check;
+
+    #[test]
+    fn engine_is_ok_only_when_mapped_in_the_client() {
+        assert_eq!(engine_check(true, true, true).status, "ok");
+        // The variable shows up in the wrapper even when the client container
+        // never loads the library; that must not read as healthy.
+        let wrapper_only = engine_check(false, true, true);
+        assert_eq!(wrapper_only.status, "bad");
+        assert_eq!(wrapper_only.action, "engine_container");
+        assert!(wrapper_only.detail.contains("steamclient.so"));
+        let nowhere = engine_check(false, false, true);
+        assert_eq!(nowhere.status, "bad");
+    }
 }

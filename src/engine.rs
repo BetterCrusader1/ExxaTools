@@ -136,6 +136,9 @@ pub fn detect() -> Value {
             }
         }
     }
+    // `loaded` means the shim is mapped inside the process that owns
+    // steamclient.so, not merely present in LD_AUDIT: a container runtime
+    // keeps the variable but never loads the library.
     let loaded = audit.get("loaded").and_then(Value::as_bool).unwrap_or(false);
     json!({
         // A directory with one stray file is not an installation: every library
@@ -156,6 +159,8 @@ pub fn detect() -> Value {
         "steam_running": running,
         "steam_pid": audit.get("pid").cloned().unwrap_or(Value::Null),
         "steam_engine_loaded": loaded,
+        "steam_engine_mapped": audit.get("mapped").and_then(Value::as_bool).unwrap_or(false),
+        "steam_engine_active": audit.get("active").and_then(Value::as_bool).unwrap_or(false),
         "steam_ld_audit": audit.get("ld_audit").cloned().unwrap_or_else(|| json!("")),
         "needs_restart": running && has("x86_64") && !loaded,
         "lua": { "luac": luac(), "syntax_check": luac().is_some() },

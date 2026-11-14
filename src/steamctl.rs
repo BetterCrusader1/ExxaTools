@@ -104,24 +104,88 @@ fn audit_value(p: i32) -> Option<String> {
     Some(String::new())
 }
 
-/// The client runs several processes called `steam`; the shim shows up in the
-/// environment of the real one, so every candidate is checked instead of the
-/// first pid that happens to match.
+/// What the live Steam processes prove about the engine.
+///
+/// The client runs several processes called `steam`, and the environment alone
+/// is not evidence: a Steam started with `LD_AUDIT` keeps the variable in the
+/// wrapper even when its runtime moves the real client into a container that
+/// never loads the shim. `active` therefore means the library is mapped inside
+/// the process that owns `steamclient.so`, which is where the hooks live.
 pub fn audit_loaded() -> serde_json::Value {
-    let mut fallback: Option<(i32, String)> = None;
+    let mut audit = String::new();
+    let mut pid: Option<i32> = None;
+    let mut mapped = false;
+    let mut active = false;
     for candidate in steam_pids() {
-        let Some(value) = audit_value(candidate) else { continue };
-        if value.contains("libvapor_forge.so") {
-            return serde_json::json!({ "pid": candidate, "ld_audit": value, "loaded": true });
+        let maps = process_maps(candidate).map(|maps| map_state(&maps));
+        let value = audit_value(candidate);
+        let state = maps.unwrap_or(MapState { shim: false, client: false });
+        mapped |= state.shim;
+        if state.active() {
+            active = true;
+            pid = Some(candidate);
+            audit = value.unwrap_or_default();
+            break;
         }
-        if fallback.is_none() && !value.is_empty() {
-            fallback = Some((candidate, value));
+        if pid.is_none() {
+            if let Some(value) = value.filter(|value| !value.is_empty()) {
+                pid = Some(candidate);
+                audit = value;
+            }
         }
     }
-    match fallback {
-        Some((pid, value)) => serde_json::json!({ "pid": pid, "ld_audit": value, "loaded": false }),
-        None => serde_json::json!({ "pid": null, "ld_audit": "", "loaded": false }),
+    serde_json::json!({
+        "pid": pid,
+        "ld_audit": audit,
+        "loaded": active,
+        "mapped": mapped,
+        "active": active,
+    })
+}
+
+/// Which modules a process actually mapped.
+///
+/// The environment is not evidence: a Steam launched with `LD_AUDIT` keeps the
+/// variable in the wrapper process even when the runtime moves the real client
+/// into a container that never loads the shim. Only the mapped file proves the
+/// engine is live, and only in the process that owns `steamclient.so` — the
+/// hooks live there, so a shim mapped anywhere else changes nothing.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct MapState {
+    pub shim: bool,
+    pub client: bool,
+}
+
+impl MapState {
+    pub fn active(self) -> bool {
+        self.shim && self.client
     }
+}
+
+pub fn map_state(maps: &str) -> MapState {
+    let mut state = MapState { shim: false, client: false };
+    for line in maps.lines() {
+        let Some(path) = line.split_whitespace().last() else { continue };
+        if path.ends_with("libvapor_forge.so") {
+            state.shim = true;
+        } else if path.ends_with("steamclient.so") {
+            state.client = true;
+        }
+    }
+    state
+}
+
+fn process_maps(pid: i32) -> Option<String> {
+    std::fs::read_to_string(format!("/proc/{pid}/maps")).ok()
+}
+
+/// True when some live Steam process maps both the shim and `steamclient.so`.
+pub fn engine_active() -> bool {
+    process_maps_of_steam().into_iter().any(|maps| map_state(&maps).active())
+}
+
+fn process_maps_of_steam() -> Vec<String> {
+    steam_pids().into_iter().filter_map(process_maps).collect()
 }
 
 /// Only the audit shim goes in LD_AUDIT; the Proton helper is injected elsewhere.
@@ -538,6 +602,31 @@ mod tests {
     #[test]
     fn refuses_unknown_app() {
         assert!(apply_launch_option(CONFIG, 620, "-onlinefix").is_err());
+    }
+
+    const WRAPPER_MAPS: &str = "\
+55d0-55e0 r--p 00000000 08:02 1 /home/x/.local/share/Steam/steamrt64/steam
+7f00-7f10 r-xp 00000000 08:02 2 /usr/lib/libc.so.6
+7f20-7f30 r--p 00000000 08:02 3 /home/x/.local/share/vapor-forge/x86_64/libvapor_forge.so
+";
+
+    const CLIENT_MAPS: &str = "\
+7f00-7f10 r-xp 00000000 08:02 2 /usr/lib/libc.so.6
+7f30-7f40 r-xp 00000000 08:02 4 /home/x/.local/share/Steam/steamrt64/steamclient.so
+7f50-7f60 r--p 00000000 08:02 3 /home/x/.local/share/vapor-forge/x86_64/libvapor_forge.so
+";
+
+    #[test]
+    fn maps_state_separates_the_shim_from_the_client() {
+        let wrapper = map_state(WRAPPER_MAPS);
+        assert!(wrapper.shim, "the launcher maps the shim");
+        assert!(!wrapper.client, "the launcher owns no steamclient.so");
+        assert!(!wrapper.active(), "a shim outside steamclient changes nothing");
+
+        let client = map_state(CLIENT_MAPS);
+        assert!(client.shim);
+        assert!(client.client);
+        assert!(client.active(), "the shim is only effective inside steamclient");
     }
 
     #[test]

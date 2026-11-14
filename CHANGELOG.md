@@ -35,6 +35,11 @@ hand-styled list.
 - `exxa steam` detects a Steam client that was already running without
   `-cef-enable-debugging` and restarts it once, unless a game is running, so the
   panel is available even when Steam was opened from an old shortcut.
+- The engine check no longer trusts `LD_AUDIT` alone. Steam's runtime starts the
+  client inside pressure-vessel, which keeps the variable in the wrapper but
+  never maps the shim into the process that owns `steamclient.so`; the Doctor
+  now reads the live process maps, reports that case as a failure with its own
+  action, and only reads `ok` when the shim is mapped where the hooks live.
 - The store-page ExxaTools card had a missing brace in its injected stylesheet,
   which dropped every rule after the game name and left raw browser buttons.
   The block is closed, buttons get consistent 28 px height, 7 px radius, spacing
