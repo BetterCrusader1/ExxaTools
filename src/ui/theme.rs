@@ -91,7 +91,7 @@ window, window * {
     color: #d5c8e8;
 }
 .inspector-title, .page-title { font-size: 30px; font-weight: 800; }
-.brand-name { font-size: 18px; font-weight: 800; }
+.brand-name { font-size: 24px; font-weight: 800; letter-spacing: -0.025em; }
 .shelf-title { font-size: 17px; font-weight: 700; }
 .section-title { font-size: 14px; font-weight: 600; color: #d9ccff; }
 .game-name, .discover-title, .nav-label { font-weight: 600; }

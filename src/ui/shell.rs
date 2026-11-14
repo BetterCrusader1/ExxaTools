@@ -89,8 +89,6 @@ struct NavRail {
     root: gtk::Widget,
     list: gtk::ListBox,
     sync_all: gtk::Button,
-    steam: gtk::Label,
-    steam_dot: gtk::Box,
 }
 
 pub fn run(url: &str) -> Result<(), String> {
@@ -462,22 +460,10 @@ fn build(app: &adw::Application, initial: Page) {
         });
     }
 
-    update_steam_status(&nav.steam, &nav.steam_dot);
-
     window.present();
     nav.list
         .select_row(nav.list.row_at_index(initial.index()).as_ref());
     worker.send(Command::LoadLibrary);
-}
-
-fn update_steam_status(label: &gtk::Label, dot: &gtk::Box) {
-    if crate::steamctl::is_running() {
-        label.set_text("Steam running");
-        dot.add_css_class("dot-ready");
-    } else {
-        label.set_text("Steam offline");
-        dot.add_css_class("dot-disabled");
-    }
 }
 
 fn apply_theme(slot: &Rc<RefCell<Option<gtk::CssProvider>>>, selected: Theme) {
@@ -514,16 +500,18 @@ fn build_nav() -> NavRail {
     let brand = gtk::Label::new(Some("ExxaTools"));
     brand.add_css_class("brand-name");
     brand.set_halign(gtk::Align::Start);
+    brand.set_valign(gtk::Align::Center);
     let mark = gtk::Picture::for_filename(crate::paths::web_dir().join("logo-48.png"));
-    mark.set_size_request(28, 28);
+    mark.set_size_request(34, 34);
     mark.set_valign(gtk::Align::Center);
     mark.set_can_shrink(true);
 
     let brand_text = GtkBox::new(Orientation::Vertical, 0);
+    brand_text.set_valign(gtk::Align::Center);
     brand_text.append(&brand);
-    let brand_row = GtkBox::new(Orientation::Horizontal, 10);
-    brand_row.set_margin_top(18);
-    brand_row.set_margin_bottom(18);
+    let brand_row = GtkBox::new(Orientation::Horizontal, 11);
+    brand_row.set_margin_top(20);
+    brand_row.set_margin_bottom(20);
     brand_row.set_margin_start(16);
     brand_row.set_margin_end(12);
     brand_row.append(&mark);
@@ -577,19 +565,6 @@ fn build_nav() -> NavRail {
     sync_box.append(&sync_label);
     sync_all.set_child(Some(&sync_box));
 
-    let steam_dot = gtk::Box::new(Orientation::Horizontal, 0);
-    steam_dot.add_css_class("status-dot");
-    steam_dot.set_valign(gtk::Align::Center);
-    let steam = gtk::Label::new(Some("Checking Steam"));
-    steam.add_css_class("footer-label");
-    steam.set_halign(gtk::Align::Start);
-    let steam_row = GtkBox::new(Orientation::Horizontal, 7);
-    steam_row.set_margin_start(16);
-    steam_row.set_margin_end(12);
-    steam_row.set_margin_bottom(8);
-    steam_row.append(&steam_dot);
-    steam_row.append(&steam);
-
     let version = gtk::Label::new(Some(&format!("v{}", env!("CARGO_PKG_VERSION"))));
     version.add_css_class("footer-label");
     version.set_halign(gtk::Align::Start);
@@ -606,15 +581,12 @@ fn build_nav() -> NavRail {
     root.append(&list);
     root.append(&spacer);
     root.append(&sync_all);
-    root.append(&steam_row);
     root.append(&version);
 
     NavRail {
         root: root.upcast(),
         list,
         sync_all,
-        steam,
-        steam_dot,
     }
 }
 
