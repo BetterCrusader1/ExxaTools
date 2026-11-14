@@ -489,14 +489,20 @@ window.__vdAppPage = () => {
       #vd-app-card .t { display: flex; align-items: center; gap: 8px; font-size: 11.5px;
         font-weight: 700; letter-spacing: .02em; color: #C9CFD6; }
       #vd-app-card .t span { flex: 1; }
-      #vd-app-card .n { margin-top: 6px; font-size: 13.5px; font-weight: 600;
+      #vd-app-card .n { margin-top: 6px; font-size: 13.5px; font-weight: 600; }
       #vd-app-card .s { margin-top: 3px; font-size: 11.5px; color: #A9AFB7; line-height: 1.35; }
       #vd-app-card .a { display: flex; gap: 6px; margin-top: 10px; flex-wrap: wrap; }
-      #vd-app-card button { height: 28px; padding: 0 10px; border-radius: 7px; white-space: nowrap;
+      #vd-app-card button { box-sizing: border-box; height: 28px; padding: 0 10px;
+        border-radius: 7px; white-space: nowrap; line-height: 1;
         border: 1px solid #2B3037; background: #16191E; color: #E2E7EC;
-        font: 600 11.5px Montserrat, Arial, sans-serif; cursor: pointer; }
+        font: 600 11.5px Montserrat, Arial, sans-serif; cursor: pointer;
+        transition: background-color 120ms ease, border-color 120ms ease, color 120ms ease; }
       #vd-app-card button.primary { background: #F2F3F5; border-color: #F2F3F5; color: #0A0B0D; }
-      #vd-app-card button:hover { border-color: #3A424C; }
+      #vd-app-card button:hover { border-color: #3A424C; background: #1D2229; }
+      #vd-app-card button.primary:hover { background: #FFFFFF; border-color: #FFFFFF; }
+      #vd-app-card button[data-want="close"] { width: 26px; padding: 0; margin-left: auto;
+        color: #A9AFB7; font-size: 14px; }
+      #vd-app-card button[data-want="close"]:hover { color: #F4F5F7; }
       #vd-app-card button[disabled] { opacity: .55; cursor: default; }
     `;
     document.head.appendChild(style);

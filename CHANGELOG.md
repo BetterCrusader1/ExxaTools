@@ -35,6 +35,10 @@ hand-styled list.
 - `exxa steam` detects a Steam client that was already running without
   `-cef-enable-debugging` and restarts it once, unless a game is running, so the
   panel is available even when Steam was opened from an old shortcut.
+- The store-page ExxaTools card had a missing brace in its injected stylesheet,
+  which dropped every rule after the game name and left raw browser buttons.
+  The block is closed, buttons get consistent 28 px height, 7 px radius, spacing
+  and a separated close control.
 - The sidebar no longer carries a separate "Steam running" dot: the brand row is
   now just the logo and a larger ExxaTools wordmark, and the Steam state stays
   on the games and in the runtime checks.
