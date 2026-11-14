@@ -261,7 +261,8 @@ headerbar { background: #FBF7FF; border-bottom: 1px solid alpha(#5A328C, 0.10); 
 window label { color: #1A0B2E; }
 .brand-name, .shelf-title, .section-title, .page-title, .game-name, .discover-title, .nav-label, .inspector-title, .summary-title { color: #1A0B2E; }
 .brand-sub, .footer-label, .section-note, .game-meta, .mono, .dim-label, .caption { color: #3F3354; }
-.game-meta, .footer-label, .section-note, .mono, .caption { font-size: 12px; }
+.game-meta, .footer-label, .section-note, .mono, .caption { font-size: 12.5px; }
+.dim-label { opacity: 1; }
 headerbar button, headerbar image { color: #3F3354; }
 .hero-panel label { color: #F6F1FF; }
 .hero-panel .dim-label, .hero-panel .mono { color: #D8CDF0; }
