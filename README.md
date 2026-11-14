@@ -41,6 +41,10 @@ of adding another taskbar entry. Bare `./exxa` prints the usage JSON.
 Deep links: `./exxa window --url 'http://127.0.0.1:8765/?page=discover'` (also
 `system` and `settings`) opens that view. `DESIGN.md` has the full design contract.
 
+The window has two **Nacre** themes: pure-black dark violet and a light lilac
+pearl. The moon/sun button in the title bar switches them live and the choice is
+saved in `state.json`; no restart is needed.
+
 ## Run
 
 ```sh

@@ -66,44 +66,8 @@ impl Inspector {
         };
         clear(&self.body);
 
-        let hero = hero(game);
-        self.body.append(&hero);
-
-        let title = gtk::Label::new(Some(&game.name));
-        title.add_css_class("inspector-title");
-        title.set_halign(gtk::Align::Start);
-        title.set_wrap(true);
-        title.set_wrap_mode(gtk::pango::WrapMode::WordChar);
-        title.set_xalign(0.0);
-        title.set_margin_top(18);
-
-        let meta = gtk::Label::new(Some(&game.meta()));
-        meta.add_css_class("mono");
-        meta.add_css_class("dim-label");
-        meta.set_halign(gtk::Align::Start);
-        meta.set_margin_top(4);
-
-        let pill = gtk::Label::new(Some(game.state.label()));
-        pill.add_css_class("status-pill");
-        pill.add_css_class(game.state.pill_class());
-
-        let heading = GtkBox::new(Orientation::Horizontal, 10);
-        heading.set_margin_top(10);
-        heading.append(&pill);
-        if game.dlc > 0 {
-            let dlc = gtk::Label::new(Some(&format!("{} DLC", game.dlc)));
-            dlc.add_css_class("dim-label");
-            dlc.add_css_class("caption");
-            heading.append(&dlc);
-        }
-
-        self.body.append(&title);
-        self.body.append(&meta);
-        self.body.append(&heading);
-
         let actions = GtkBox::new(Orientation::Horizontal, 8);
-        actions.set_margin_top(18);
-        actions.set_margin_bottom(6);
+        actions.set_margin_top(14);
         actions.append(&primary_button(ctx, game));
 
         let syncing = game.origin != Origin::Search;
@@ -174,7 +138,8 @@ impl Inspector {
         let menu_spacer = GtkBox::new(Orientation::Horizontal, 0);
         menu_spacer.set_hexpand(true);
         actions.append(&menu_spacer);
-        self.body.append(&actions);
+
+        self.body.append(&hero(game, &actions));
 
         if game.origin == Origin::Search {
             let note = gtk::Label::new(Some(
@@ -228,15 +193,16 @@ fn primary_button(ctx: &Ctx, game: &Game) -> gtk::Button {
     sync
 }
 
-fn hero(game: &Game) -> gtk::Widget {
-    match &game.cover {
+fn hero(game: &Game, actions: &GtkBox) -> gtk::Widget {
+    let art = game.hero.as_ref().or(game.cover.as_ref());
+    let base: gtk::Widget = match art {
         Some(path) => {
             let picture = gtk::Picture::for_filename(path);
             picture.set_content_fit(gtk::ContentFit::Cover);
-            picture.set_size_request(-1, 140);
+            picture.set_size_request(-1, 260);
             picture.set_hexpand(true);
             picture.add_css_class("hero");
-            picture.upcast::<gtk::Widget>()
+            picture.upcast()
         }
         None => {
             let letter = gtk::Label::new(Some(&game.initial()));
@@ -245,12 +211,62 @@ fn hero(game: &Game) -> gtk::Widget {
             letter.set_valign(gtk::Align::Center);
             let fallback = gtk::Overlay::new();
             fallback.add_css_class("hero-fallback");
-            fallback.set_size_request(-1, 140);
+            fallback.set_size_request(-1, 260);
             fallback.set_hexpand(true);
             fallback.set_child(Some(&letter));
-            fallback.upcast::<gtk::Widget>()
+            fallback.upcast()
         }
+    };
+
+    let scrim = GtkBox::new(Orientation::Vertical, 0);
+    scrim.add_css_class("hero-scrim");
+    scrim.set_vexpand(true);
+    scrim.set_hexpand(true);
+
+    let pill = gtk::Label::new(Some(game.state.label()));
+    pill.add_css_class("status-pill");
+    pill.add_css_class(game.state.pill_class());
+    let top = GtkBox::new(Orientation::Horizontal, 8);
+    top.append(&pill);
+    if game.dlc > 0 {
+        let dlc = gtk::Label::new(Some(&format!("{} DLC", game.dlc)));
+        dlc.add_css_class("hero-meta");
+        top.append(&dlc);
     }
+
+    let title = gtk::Label::new(Some(&game.name));
+    title.add_css_class("hero-title");
+    title.set_halign(gtk::Align::Start);
+    title.set_xalign(0.0);
+    title.set_wrap(true);
+    title.set_wrap_mode(gtk::pango::WrapMode::WordChar);
+    title.set_max_width_chars(42);
+
+    let meta = gtk::Label::new(Some(&game.meta()));
+    meta.add_css_class("hero-meta");
+    meta.set_halign(gtk::Align::Start);
+    meta.set_xalign(0.0);
+
+    let content = GtkBox::new(Orientation::Vertical, 0);
+    content.add_css_class("hero-panel");
+    content.set_valign(gtk::Align::End);
+    content.set_hexpand(true);
+    content.set_margin_start(22);
+    content.set_margin_end(22);
+    content.set_margin_bottom(18);
+    content.append(&top);
+    content.append(&title);
+    content.append(&meta);
+    content.append(actions);
+
+    let overlay = gtk::Overlay::new();
+    overlay.add_css_class("hero-wrap");
+    overlay.set_size_request(-1, 260);
+    overlay.set_hexpand(true);
+    overlay.set_child(Some(&base));
+    overlay.add_overlay(&scrim);
+    overlay.add_overlay(&content);
+    overlay.upcast()
 }
 
 fn depots_section(game: &Game) -> gtk::Widget {

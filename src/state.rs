@@ -18,15 +18,22 @@ pub struct Settings {
     pub hubcap_key: String,
     pub ryuu_key: String,
     pub plan_sources: BTreeMap<String, serde_json::Value>,
+    pub theme: String,
 }
 
 impl Default for Settings {
     fn default() -> Self {
         Self {
-            manifest_providers: ["steamrun", "20770407", "wudrm", "manifestdex", "opensteamtool"]
-                .iter()
-                .map(|value| value.to_string())
-                .collect(),
+            manifest_providers: [
+                "steamrun",
+                "20770407",
+                "wudrm",
+                "manifestdex",
+                "opensteamtool",
+            ]
+            .iter()
+            .map(|value| value.to_string())
+            .collect(),
             key_source_url: String::new(),
             country: "us".into(),
             default_os: "linux".into(),
@@ -35,6 +42,7 @@ impl Default for Settings {
             hubcap_key: String::new(),
             ryuu_key: String::new(),
             plan_sources: BTreeMap::new(),
+            theme: "dark".into(),
         }
     }
 }
@@ -88,7 +96,8 @@ pub fn load() -> Result<State, String> {
     if !path.is_file() {
         return Ok(State::default());
     }
-    let text = std::fs::read_to_string(&path).map_err(|error| format!("cannot read {}: {error}", path.display()))?;
+    let text = std::fs::read_to_string(&path)
+        .map_err(|error| format!("cannot read {}: {error}", path.display()))?;
     // A file written before permissions were enforced is repaired on the next read.
     if let Some(parent) = path.parent() {
         let _ = lock_down(parent, 0o700);
@@ -116,7 +125,9 @@ fn snapshot(path: &Path) -> std::io::Result<()> {
     if !path.is_file() {
         return Ok(());
     }
-    let Some(parent) = path.parent() else { return Ok(()) };
+    let Some(parent) = path.parent() else {
+        return Ok(());
+    };
     let dir = parent.join("backups");
     std::fs::create_dir_all(&dir)?;
     let stamp = std::time::SystemTime::now()
@@ -143,7 +154,10 @@ fn snapshot(path: &Path) -> std::io::Result<()> {
 }
 
 pub fn backup_dir() -> PathBuf {
-    state_path().parent().map(|path| path.join("backups")).unwrap_or_else(|| PathBuf::from("backups"))
+    state_path()
+        .parent()
+        .map(|path| path.join("backups"))
+        .unwrap_or_else(|| PathBuf::from("backups"))
 }
 
 /// Serialises writers so two requests cannot interleave read-modify-write.
@@ -151,14 +165,18 @@ static WRITE_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 static TEMP_SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
 pub fn save(state: &State) -> Result<(), String> {
-    let _guard = WRITE_LOCK.lock().map_err(|_| "state lock is poisoned".to_string())?;
+    let _guard = WRITE_LOCK
+        .lock()
+        .map_err(|_| "state lock is poisoned".to_string())?;
     save_locked(state)
 }
 
 /// One transaction: the write lock covers the read, the change and the write, so
 /// two requests cannot interleave read-modify-write.
 pub fn update<T>(f: impl FnOnce(&mut State) -> Result<T, String>) -> Result<T, String> {
-    let _guard = WRITE_LOCK.lock().map_err(|_| "state lock is poisoned".to_string())?;
+    let _guard = WRITE_LOCK
+        .lock()
+        .map_err(|_| "state lock is poisoned".to_string())?;
     let mut state = load()?;
     let out = f(&mut state)?;
     save_locked(&state)?;
@@ -168,8 +186,11 @@ pub fn update<T>(f: impl FnOnce(&mut State) -> Result<T, String>) -> Result<T, S
 fn save_locked(state: &State) -> Result<(), String> {
     let path = state_path();
     let _ = snapshot(&path);
-    let parent = path.parent().ok_or_else(|| "state path has no parent".to_string())?;
-    std::fs::create_dir_all(parent).map_err(|error| format!("cannot create {}: {error}", parent.display()))?;
+    let parent = path
+        .parent()
+        .ok_or_else(|| "state path has no parent".to_string())?;
+    std::fs::create_dir_all(parent)
+        .map_err(|error| format!("cannot create {}: {error}", parent.display()))?;
     lock_down(parent, 0o700)?;
     let text = serde_json::to_string_pretty(state).map_err(|error| error.to_string())?;
     // A unique temporary name: a shared `state.tmp` raced between writers.
@@ -179,7 +200,8 @@ fn save_locked(state: &State) -> Result<(), String> {
         .unwrap_or(0);
     let seq = TEMP_SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     let temp = parent.join(format!(".state-{}-{nanos}-{seq}.tmp", std::process::id()));
-    std::fs::write(&temp, format!("{text}\n")).map_err(|error| format!("cannot write {}: {error}", temp.display()))?;
+    std::fs::write(&temp, format!("{text}\n"))
+        .map_err(|error| format!("cannot write {}: {error}", temp.display()))?;
     lock_down(&temp, 0o600)?;
     if let Err(error) = std::fs::rename(&temp, &path) {
         let _ = std::fs::remove_file(&temp);
@@ -203,11 +225,23 @@ fn lock_down(_path: &std::path::Path, _mode: u32) -> Result<(), String> {
 /// One shape for an app as every surface shows it: the library route, the status
 /// route and the Steam panel all read these fields, so they cannot drift apart.
 pub fn app_summary(state: &State, record: &serde_json::Value) -> serde_json::Value {
-    let appid = record.get("appid").and_then(serde_json::Value::as_u64).unwrap_or(0);
-    let depots = record.get("depots").and_then(serde_json::Value::as_array).cloned().unwrap_or_default();
+    let appid = record
+        .get("appid")
+        .and_then(serde_json::Value::as_u64)
+        .unwrap_or(0);
+    let depots = record
+        .get("depots")
+        .and_then(serde_json::Value::as_array)
+        .cloned()
+        .unwrap_or_default();
     let missing: Vec<u64> = depots
         .iter()
-        .filter(|depot| depot.get("enabled").and_then(serde_json::Value::as_bool).unwrap_or(true))
+        .filter(|depot| {
+            depot
+                .get("enabled")
+                .and_then(serde_json::Value::as_bool)
+                .unwrap_or(true)
+        })
         .filter_map(|depot| depot.get("depot_id").and_then(serde_json::Value::as_u64))
         .filter(|id| !state.depot_keys.contains_key(&id.to_string()))
         .collect();
@@ -241,7 +275,12 @@ pub fn ensure_token() -> Result<String, String> {
     if state.token.len() == 64 {
         return Ok(state.token);
     }
-    let mut seed = format!("{}-{}-{:?}", std::process::id(), super::vfsys::stamp(), std::time::SystemTime::now());
+    let mut seed = format!(
+        "{}-{}-{:?}",
+        std::process::id(),
+        super::vfsys::stamp(),
+        std::time::SystemTime::now()
+    );
     let mut token = String::with_capacity(64);
     while token.len() < 64 {
         let digest = sha2::Sha256::digest(seed.as_bytes());
@@ -256,7 +295,12 @@ pub fn ensure_token() -> Result<String, String> {
 
 /// A depot key is 64 hex characters; anything else is not a key.
 pub fn valid_key(value: &str) -> Option<String> {
-    let text: String = value.trim().to_lowercase().chars().filter(|ch| !ch.is_whitespace()).collect();
+    let text: String = value
+        .trim()
+        .to_lowercase()
+        .chars()
+        .filter(|ch| !ch.is_whitespace())
+        .collect();
     if text.len() == 64 && text.chars().all(|ch| ch.is_ascii_hexdigit()) {
         Some(text)
     } else {
@@ -267,7 +311,9 @@ pub fn valid_key(value: &str) -> Option<String> {
 pub fn set_key(state: &mut State, depot_id: u64, key: Option<&str>) {
     match key {
         Some(value) => {
-            state.depot_keys.insert(depot_id.to_string(), value.to_string());
+            state
+                .depot_keys
+                .insert(depot_id.to_string(), value.to_string());
         }
         None => {
             state.depot_keys.remove(&depot_id.to_string());
@@ -275,7 +321,14 @@ pub fn set_key(state: &mut State, depot_id: u64, key: Option<&str>) {
     }
 }
 /// Remember a branch gid we observed, newest first, deduplicated, capped.
-pub fn record_gid(state: &mut State, appid: u64, depot_id: u64, gid: &str, size: Option<u64>, branch: &str) -> bool {
+pub fn record_gid(
+    state: &mut State,
+    appid: u64,
+    depot_id: u64,
+    gid: &str,
+    size: Option<u64>,
+    branch: &str,
+) -> bool {
     if gid.is_empty() {
         return false;
     }
@@ -311,7 +364,10 @@ mod tests {
         assert!(record_gid(&mut state, 620, 621, "222", Some(11), "public"));
         let entries = state.build_history["620"]["621"].clone();
         assert_eq!(entries.len(), 2);
-        assert_eq!(entries[0].get("gid").and_then(serde_json::Value::as_str), Some("222"));
+        assert_eq!(
+            entries[0].get("gid").and_then(serde_json::Value::as_str),
+            Some("222")
+        );
     }
 
     #[test]
@@ -329,7 +385,6 @@ mod tests {
         assert!(!record_gid(&mut state, 1, 2, "", None, "public"));
     }
 }
-
 
 #[cfg(test)]
 mod summary_tests {

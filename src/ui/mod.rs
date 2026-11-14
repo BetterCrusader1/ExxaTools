@@ -8,6 +8,7 @@ pub mod settings;
 pub mod shelf;
 pub mod shell;
 pub mod system;
+pub mod theme;
 pub mod worker;
 
 pub use shell::run;

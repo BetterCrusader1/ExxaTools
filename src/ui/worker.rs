@@ -27,6 +27,8 @@ pub enum Command {
     SaveSettings(SettingsDraft),
     CopyDiagnostics,
     SyncAll,
+    LoadHero(u64),
+    SetTheme(String),
 }
 
 #[derive(Debug)]
@@ -35,9 +37,17 @@ pub enum Event {
     Search(Vec<Game>),
     Discover(Vec<Game>),
     Doctor(DoctorReport),
-    Toast { text: String, error: bool },
+    Toast {
+        text: String,
+        error: bool,
+    },
     Clipboard(String),
     RefreshLibrary,
+    Hero {
+        appid: u64,
+        path: Option<std::path::PathBuf>,
+    },
+    Theme(String),
 }
 
 #[derive(Clone)]
@@ -176,6 +186,22 @@ fn run(command: Command, events: Sender<Event>) {
             }
             Err(error) => toast(&events, error, true),
         },
+        Command::LoadHero(appid) => {
+            let path = covers::ensure_hero(appid);
+            let _ = events.send(Event::Hero { appid, path });
+        }
+        Command::SetTheme(value) => {
+            let result = crate::state::update(|state| {
+                state.settings.theme = value.clone();
+                Ok(())
+            });
+            match result {
+                Ok(()) => {
+                    let _ = events.send(Event::Theme(value));
+                }
+                Err(error) => toast(&events, error, true),
+            }
+        }
         Command::CopyDiagnostics => {
             let text = serde_json::to_string_pretty(&crate::diagnostics::build())
                 .unwrap_or_else(|error| format!("could not render diagnostics: {error}"));

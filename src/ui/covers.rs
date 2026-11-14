@@ -31,3 +31,24 @@ pub fn ensure_cover(appid: u64) -> Option<PathBuf> {
     std::fs::rename(&temp, &path).ok()?;
     Some(path)
 }
+
+/// The wide Steam library art used behind the inspector's title.
+pub fn ensure_hero(appid: u64) -> Option<PathBuf> {
+    if appid == 0 {
+        return None;
+    }
+    let path = cover_dir().join(format!("{appid}-hero.jpg"));
+    if path.is_file() {
+        return Some(path);
+    }
+    std::fs::create_dir_all(cover_dir()).ok()?;
+    let url = format!("https://cdn.akamai.steamstatic.com/steam/apps/{appid}/library_hero.jpg");
+    let body = crate::http::get_with(&url, None, Some(std::time::Duration::from_secs(7))).ok()?;
+    if body.len() < 2048 {
+        return None;
+    }
+    let temp = cover_dir().join(format!("{appid}-hero.jpg.tmp"));
+    std::fs::write(&temp, body).ok()?;
+    std::fs::rename(&temp, &path).ok()?;
+    Some(path)
+}

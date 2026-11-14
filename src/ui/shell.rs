@@ -7,6 +7,7 @@ use adw::prelude::*;
 use gtk::{Box as GtkBox, Orientation};
 
 use crate::ui::model::Game;
+use crate::ui::theme::{self, Theme};
 use crate::ui::worker::{Command, Event, Worker};
 use crate::ui::{discover, inspector, settings, shelf, system};
 
@@ -96,7 +97,6 @@ pub fn run(url: &str) -> Result<(), String> {
     let initial = page_from_url(url);
     let app = adw::Application::builder().application_id(APP_ID).build();
     app.connect_startup(|_| {
-        adw::StyleManager::default().set_color_scheme(adw::ColorScheme::ForceDark);
         if let Some(display) = gtk::gdk::Display::default() {
             let provider = gtk::CssProvider::new();
             provider.load_from_data(STYLE);
@@ -127,6 +127,13 @@ fn build(app: &adw::Application, initial: Page) {
         .build();
 
     let overlay = adw::ToastOverlay::new();
+    let initial_theme = crate::state::load()
+        .map(|state| Theme::from_setting(&state.settings.theme))
+        .unwrap_or(Theme::Dark);
+    let current_theme = Rc::new(Cell::new(initial_theme));
+    let theme_slot: Rc<RefCell<Option<gtk::CssProvider>>> = Rc::new(RefCell::new(None));
+    apply_theme(&theme_slot, initial_theme);
+
     let (worker, events) = Worker::start();
     let hooks = Rc::new(Hooks {
         navigate: RefCell::new(None),
@@ -156,6 +163,8 @@ fn build(app: &adw::Application, initial: Page) {
     let stack = gtk::Stack::new();
     stack.set_hexpand(true);
     stack.set_vexpand(true);
+    stack.set_transition_type(gtk::StackTransitionType::Crossfade);
+    stack.set_transition_duration(220);
     stack.add_named(&paned, Some(Page::Library.name()));
     stack.add_named(&discover.root, Some(Page::Discover.name()));
     stack.add_named(&system.root, Some(Page::System.name()));
@@ -181,8 +190,20 @@ fn build(app: &adw::Application, initial: Page) {
     refresh.add_css_class("flat");
     refresh.set_tooltip_text(Some("Refresh the library and system checks"));
 
+    let theme_button = gtk::Button::from_icon_name(initial_theme.icon());
+    theme_button.add_css_class("flat");
+    theme_button.set_tooltip_text(Some(initial_theme.tooltip()));
+    {
+        let current = current_theme.clone();
+        let commands = worker.clone();
+        theme_button.connect_clicked(move |_| {
+            commands.send(Command::SetTheme(current.get().next().as_str().into()));
+        });
+    }
+
     let header = adw::HeaderBar::new();
     header.set_title_widget(Some(&search));
+    header.pack_end(&theme_button);
     header.pack_end(&refresh);
 
     let root = GtkBox::new(Orientation::Vertical, 0);
@@ -248,6 +269,9 @@ fn build(app: &adw::Application, initial: Page) {
                     .find(|game| game.appid == appid)
                     .cloned()
             });
+            if let Some(id) = appid {
+                ctx.commands.send(Command::LoadHero(id));
+            }
             inspector.show(&ctx, game.as_ref());
         }));
     }
@@ -399,6 +423,32 @@ fn build(app: &adw::Application, initial: Page) {
                         ctx.clipboard(&text);
                         ctx.toast_text("Diagnostics copied to the clipboard");
                     }
+                    Event::Hero { appid, path } => {
+                        if view.borrow().selected == Some(appid) {
+                            if let Some(game) = view
+                                .borrow_mut()
+                                .games
+                                .iter_mut()
+                                .find(|game| game.appid == appid)
+                            {
+                                game.hero = path;
+                            }
+                            let game = view
+                                .borrow()
+                                .games
+                                .iter()
+                                .find(|game| game.appid == appid)
+                                .cloned();
+                            inspector.show(&ctx, game.as_ref());
+                        }
+                    }
+                    Event::Theme(name) => {
+                        let selected = Theme::from_setting(&name);
+                        current_theme.set(selected);
+                        apply_theme(&theme_slot, selected);
+                        theme_button.set_icon_name(selected.icon());
+                        theme_button.set_tooltip_text(Some(selected.tooltip()));
+                    }
                     Event::RefreshLibrary => {
                         let worker = ctx.commands.clone();
                         worker.send(Command::LoadLibrary);
@@ -425,6 +475,24 @@ fn update_steam_status(label: &gtk::Label, dot: &gtk::Box) {
         label.set_text("Steam offline");
         dot.add_css_class("dot-disabled");
     }
+}
+
+fn apply_theme(slot: &Rc<RefCell<Option<gtk::CssProvider>>>, selected: Theme) {
+    let Some(display) = gtk::gdk::Display::default() else {
+        return;
+    };
+    adw::StyleManager::default().set_color_scheme(selected.color_scheme());
+    if let Some(old) = slot.borrow_mut().take() {
+        gtk::style_context_remove_provider_for_display(&display, &old);
+    }
+    let provider = gtk::CssProvider::new();
+    provider.load_from_data(&theme::css(selected));
+    gtk::style_context_add_provider_for_display(
+        &display,
+        &provider,
+        gtk::STYLE_PROVIDER_PRIORITY_APPLICATION + 1,
+    );
+    *slot.borrow_mut() = Some(provider);
 }
 
 fn page_from_url(url: &str) -> Page {

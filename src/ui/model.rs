@@ -88,6 +88,7 @@ pub struct Game {
     pub dlc: usize,
     pub origin: Origin,
     pub cover: Option<std::path::PathBuf>,
+    pub hero: Option<std::path::PathBuf>,
 }
 
 impl Game {
@@ -157,6 +158,7 @@ impl Game {
                 .unwrap_or(0),
             origin: Origin::Library,
             cover: None,
+            hero: None,
         })
     }
 
@@ -178,6 +180,7 @@ impl Game {
             dlc: 0,
             origin: Origin::Search,
             cover: None,
+            hero: None,
         })
     }
 

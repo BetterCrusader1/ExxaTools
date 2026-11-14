@@ -17,6 +17,12 @@ hand-styled list.
 - Deep links open a view directly: `?page=discover`, `?page=system`,
   `?page=settings`.
 - The old hand-written web dashboard files and the WebKit dependency are gone.
+- The **Nacre** visual system: pure-black dark violet and light lilac pearl
+  themes, a frosted hero panel over the game art, a deep pearl primary action,
+  a live theme switch in the title bar, and a crossfade between views. The
+  choice persists with the rest of the settings.
+- Steam's wide `library_hero.jpg` is cached for the inspector; header art stays
+  as the shelf fallback.
 
 ## 0.3.0
 
