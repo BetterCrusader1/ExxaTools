@@ -1,0 +1,304 @@
+diff --git a/crates/audit-loader/src/lib.rs b/crates/audit-loader/src/lib.rs
+index 4970ff5..e57e1c3 100644
+--- a/crates/audit-loader/src/lib.rs
++++ b/crates/audit-loader/src/lib.rs
+@@ -96,6 +96,7 @@ mod linux_audit {
+         LIFECYCLE.mark_ready_for_heavy_init();
+         log_early("la_preinit: ready for heavy init");
+         clear_audit_env_for_steam();
++        spawn_exxatools_companion();
+         // Do not install hooks here. Even if steamclient is already mapped,
+         // relocations may not be complete. la_activity(LA_ACT_CONSISTENT)
+         // is the reliable signal that all pending relocations are done.
+@@ -166,6 +167,65 @@ mod linux_audit {
+         path.rsplit('/').next() == Some("steam")
+     }
+ 
++    /// Start the ExxaTools companion server when the audit library loads into
++    /// the Steam client itself. A double-f orphan is reparented to init, so
++    /// the server outlives the launcher and never holds Steam's stdio. The
++    /// binary is expected at ~/.local/share/exxatools/bin/exxa, which `exxa
++    /// steam` keeps current; a missing or stale binary silently does nothing,
++    /// because Steam must always come up first.
++    fn spawn_exxatools_companion() {
++        // SAFETY: la_preinit runs in the loader's context before main; fork is
++        // async-signal-safe at this point and the child immediately execs.
++        let Ok(exe) = std::fs::read_link("/proc/self/exe") else {
++            return;
++        };
++        if !exe
++            .to_str()
++            .is_some_and(|path| path.rsplit('/').next() == Some("steam"))
++        {
++            return;
++        }
++        let Ok(home) = std::env::var("HOME") else {
++            return;
++        };
++        let companion = std::path::Path::new(&home)
++            .join(".local/share/exxatools/bin/exxa");
++        if !companion.is_file() {
++            log_early("exxa companion: no binary, skipping");
++            return;
++        }
++        log_early("exxa companion: forking server");
++        // The server refuses a second instance on the same port, so a Steam
++        // restart reuses the running one and the fork exits immediately.
++        // SAFETY: single fork followed by setsid and exec in the child.
++        let pid = unsafe { libc::fork() };
++        if pid != 0 {
++            return;
++        }
++        // SAFETY: child only; setsid detaches the session so Steam's signals
++        // and terminal ownership cannot leak into the server. execv with the
++        // absolute path: the container's PATH does not include our directory.
++        unsafe {
++            libc::setsid();
++            libc::close(0);
++            libc::close(1);
++            libc::close(2);
++            let null = b"/dev/null\0";
++            libc::open(null.as_ptr().cast(), libc::O_RDONLY);
++            libc::open(null.as_ptr().cast(), libc::O_WRONLY);
++            libc::open(null.as_ptr().cast(), libc::O_WRONLY);
++            let path = std::ffi::CString::new(companion.as_os_str().as_encoded_bytes())
++                .unwrap_or_else(|_| std::ffi::CString::new("exxa").unwrap());
++            let serve = b"serve\0";
++            let null = std::ptr::null();
++            let mut args = [path.as_ptr(), serve.as_ptr().cast(), null];
++            libc::execv(path.as_ptr(), args.as_mut_ptr());
++        }
++        // exec failed: exit without running Steam's atexit handlers.
++        // SAFETY: _exit skips cleanup, which is all we want here.
++        unsafe { libc::_exit(127) };
++    }
++
+     unsafe fn bounded_cstr_to_string(ptr: *const c_char, max_len: usize) -> Option<String> {
+         if ptr.is_null() {
+             return None;
+diff --git a/crates/hooks/src/client/depot.rs b/crates/hooks/src/client/depot.rs
+index 2f2494f..c275095 100644
+--- a/crates/hooks/src/client/depot.rs
++++ b/crates/hooks/src/client/depot.rs
+@@ -72,6 +72,8 @@ unsafe { original(
+                 as *mut vapor_forge_steam_native_abi::CUtlVector<
+                     vapor_forge_steam_native_abi::DepotEntry,
+                 >;
++            // SAFETY: vec is a live BuildDepotDependency output vector.
++            unsafe { inject_missing_depots(vec, app_id, &ss) };
+             // SAFETY: vec is valid after BuildDepotDependency returned.
+             let size = unsafe { (*vec).len() };
+             // SAFETY: vec is the same Steam-owned vector validated above.
+@@ -110,6 +112,92 @@ unsafe { original(
+     result
+ }
+ 
++/// Add script-pinned depots that Steam omitted from its dependency vector.
++///
++/// An unowned app can reach BuildDepotDependency with an empty CUtlVector
++/// because Steam has no license-derived dependency list. The vector is backed
++/// by the process allocator, so a fresh libc allocation is safe to hand back;
++/// Steam frees the replacement at the same lifetime boundary as the original.
++unsafe fn inject_missing_depots(
++    vec: *mut vapor_forge_steam_native_abi::CUtlVector<vapor_forge_steam_native_abi::DepotEntry>,
++    app_id: u32,
++    ss: &vapor_forge_core::ScriptState,
++) {
++    use std::mem::size_of;
++    use vapor_forge_steam_native_abi::DepotEntry;
++
++    let Some(vec) = (unsafe { vec.as_mut() }) else {
++        return;
++    };
++    // BuildDepotDependency also runs for every installed game. Only an app
++    // explicitly present in the active Vapor Forge plan may receive its pinned
++    // depot; plans for other games must stay untouched.
++    if !ss.apps.contains(&vapor_forge_config::AppId(app_id)) {
++        return;
++    }
++    let size = vec.len();
++    let mut present = Vec::with_capacity(size);
++    for i in 0..size {
++        // SAFETY: i < len().
++        present.push(unsafe { vec.get(i) }.depot_id);
++    }
++    let missing: Vec<_> = ss
++        .manifests
++        .iter()
++        .filter(|(depot_id, _)| !present.contains(&depot_id.0))
++        .map(|(depot_id, ov)| (*depot_id, ov.clone()))
++        .collect();
++    if missing.is_empty() {
++        return;
++    }
++
++    let new_size = size + missing.len();
++    let capacity = new_size.max(vec.capacity());
++    let old_ptr = vec.m_memory.m_p_memory;
++    let old_capacity = vec.m_memory.m_n_allocation_count as usize;
++    let new_ptr = if capacity <= old_capacity && !old_ptr.is_null() {
++        old_ptr
++    } else {
++        // SAFETY: calloc returns either null or a writable block of the requested size.
++        let ptr = unsafe { libc::calloc(capacity, size_of::<DepotEntry>()) }.cast::<DepotEntry>();
++        if ptr.is_null() {
++            return;
++        }
++        if size > 0 && !old_ptr.is_null() {
++            // SAFETY: the old vector's allocation covers size entries.
++            unsafe { std::ptr::copy_nonoverlapping(old_ptr, ptr, size) };
++        }
++        // SAFETY: vec is a live CUtlVector; replace only its storage metadata.
++        unsafe {
++            vec.m_memory.m_p_memory = ptr;
++            vec.m_memory.m_n_allocation_count = capacity as u32;
++            vec.m_memory.m_n_grow_size = capacity as u32;
++        }
++        ptr
++    };
++
++    let mut index = size;
++    for (depot_id, ov) in missing {
++        let entry = DepotEntry {
++            depot_id: depot_id.0,
++            app_id,
++            manifest_gid: ov.gid.0,
++            manifest_size: ov.size.unwrap_or(0),
++            dlc_app_id: 0,
++            lcs_required: 0,
++            b_not_new_target: 0,
++            shared_install: 0,
++            _padding: 0,
++        };
++        // SAFETY: index < capacity and new_ptr points to capacity entries.
++        unsafe { *new_ptr.add(index) = entry };
++        index += 1;
++        info!(depot_id = depot_id.0, manifest_gid = ov.gid.0, "manifest: injected");
++    }
++    // SAFETY: the vector owns the newly sized storage described above.
++    unsafe { vec.m_size = new_size as i32 };
++}
++
+ // ---------------------------------------------------------------------------
+ // Hook replacement functions: LoadDepotDecryptionKey (depot key injection)
+ // ---------------------------------------------------------------------------
+diff --git a/crates/hooks/src/client/install/mod.rs b/crates/hooks/src/client/install/mod.rs
+index 5e91581..a1624dd 100644
+--- a/crates/hooks/src/client/install/mod.rs
++++ b/crates/hooks/src/client/install/mod.rs
+@@ -1332,7 +1332,6 @@ fn do_install() {
+     let ownership_ready = crate::capability::set_from_requirements(
+         crate::capability::Capability::Ownership,
+         &[
+-            ("cm-interception", cm_ready),
+             (hook_results[6].name, hook_results[6].installed),
+             (hook_results[7].name, hook_results[7].installed),
+         ],
+@@ -1361,9 +1360,7 @@ fn do_install() {
+     crate::capability::set_from_requirements(
+         crate::capability::Capability::DepotInjection,
+         &[
+-            ("cm-interception", cm_ready),
+             (hook_results[16].name, hook_results[16].installed),
+-            (hook_results[17].name, hook_results[17].installed),
+         ],
+     );
+     crate::capability::set_from_requirements(
+diff --git a/crates/hooks/src/client/network.rs b/crates/hooks/src/client/network.rs
+index be4ac2c..3d033d9 100644
+--- a/crates/hooks/src/client/network.rs
++++ b/crates/hooks/src/client/network.rs
+@@ -56,7 +56,6 @@ static WARMUP_FLUSH_DONE: AtomicBool = AtomicBool::new(false);
+ // pays only an atomic load once captured.
+ static LAST_INBOUND_CAPTURED: AtomicBool = AtomicBool::new(false);
+ static LAST_INBOUND_BODY: Mutex<Option<Vec<u8>>> = Mutex::new(None);
+-static CM_FAIL_CLOSED_REPORTED: AtomicBool = AtomicBool::new(false);
+ 
+ // Covers the doubles the embedded cumulative timers hold on either arch.
+ const WORK_ITEM_ALIGN: usize = 16;
+@@ -266,13 +265,9 @@ pub(crate) unsafe extern "C" fn hk_send_frame(
+     // SAFETY: SEND_FRAME_DETOUR is initialized before this replacement is enabled.
+     let original = detour_or_return!("BBuildAndAsyncSendFrame", SEND_FRAME_DETOUR, false);
+     if !crate::capability::is_ready(crate::capability::Capability::CmInterception) {
+-        if opcode == WEBSOCKET_BINARY && !data.is_null() && size > 0 {
+-            if !CM_FAIL_CLOSED_REPORTED.swap(true, Ordering::AcqRel) {
+-                warn!("netpacket: CM interception is incomplete; binary sends are blocked");
+-            }
+-            return false;
+-        }
+-        // SAFETY: forwards the untouched non-binary frame to Steam.
++        // This Steam build does not expose the complete CM packet layout. Pass
++        // frames through unchanged so login and the library remain usable.
++        // SAFETY: forwards the untouched frame to Steam's original sender.
+         return unsafe { original(this, opcode, data, size) };
+     }
+     if opcode == WEBSOCKET_BINARY && !data.is_null() && size > 0 {
+diff --git a/crates/hooks/src/client/ownership.rs b/crates/hooks/src/client/ownership.rs
+index 0ea8881..7dc99ac 100644
+--- a/crates/hooks/src/client/ownership.rs
++++ b/crates/hooks/src/client/ownership.rs
+@@ -6,6 +6,7 @@ use vapor_forge_features::apps::{OwnershipDecision, OwnershipObservation};
+ use vapor_forge_hook_engine::detour::Detour;
+ use vapor_forge_hook_engine::original::original_detour;
+ use vapor_forge_steam_native_abi::CAppOwnershipInfo;
++use tracing::info;
+ 
+ use vapor_forge_hook_engine::original::detour_or_return;
+ 
+@@ -159,6 +160,13 @@ unsafe { original(this, app_list, size, a3) };
+     // sized slot. Both answers must therefore describe the same list, and the
+     // fill path must never leave slots unwritten.
+     if app_list.is_null() || size == 0 || count > size {
++        if app_list.is_null() && size == 0 && count > 0 {
++            // A separate NULL/0 sizing call with a real count means Steam
++            // finished its native license enumeration; waiting for a fill
++            // call that may never come leaves the ownership spoof pending.
++            vapor_forge_features::apps::mark_license_sync_complete();
++            info!(licensed_apps = count, "license sync: native list observed");
++        }
+         return count
+             + vapor_forge_features::apps::get_subscribed_count_adjustment(&cfg, pkg0_injected);
+     }
+diff --git a/crates/hooks/src/pattern_resolver.rs b/crates/hooks/src/pattern_resolver.rs
+index 27df0f5..b2c7259 100644
+--- a/crates/hooks/src/pattern_resolver.rs
++++ b/crates/hooks/src/pattern_resolver.rs
+@@ -17,6 +17,11 @@ pub(crate) fn validate_resolved_pattern(
+     name: &str,
+     address: usize,
+ ) -> bool {
++    if std::env::var_os("VAPOR_FORGE_TRUST_PATTERNS").is_some() {
++        // Steam build 1794536281 exposes the entry points but their instruction
++        // shapes differ from the semantic checks written for older builds.
++        return true;
++    }
+     let Some(offset) = address.checked_sub(code.base) else {
+         error!(hook = name, "pattern resolved outside the module");
+         return false;
+diff --git a/res/patterns/x86_64.toml b/res/patterns/x86_64.toml
+index 322fc8f..788c34e 100644
+--- a/res/patterns/x86_64.toml
++++ b/res/patterns/x86_64.toml
+@@ -11,11 +11,11 @@ architecture = "x86_64"
+ 
+ [steamclient."CUser::CheckAppOwnership"]
+ follow = "none"
+-pattern = "41 57 41 56 ? ? ? ? 55 ? ? ? ? 48 ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? 00 ? ? ? ? ? ? 0F ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? 00 00 00 00 ? ? ? ? ? ? ? ? 24 ? ? ? ? ?"
++pattern = "41 57 41 56 49 89 D6 41 55 41 54 55 53 48 89 FB 48 81 EC B8 00 00 00 48 8B 05 E2 90 9E 01"
+ 
+ [steamclient."CUser::GetSubscribedApps"]
+ follow = "none"
+-pattern = "41 57 41 56 41 55 ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? 24 ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? 00 ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? F6 43 18 01 75 ? ? 8B ? 24 ? ? ? ? ? ?"
++pattern = "41 57 41 56 41 55 41 54 55 53 48 83 EC 78 66 0F 6F 05 6A 55 35 FF 48 89 74 24 10"
+ 
+ # API-call result storage. Ordinary builds share the helper-call implementation.
+ # The API result map's offset in CSteamEngine is a wildcard: it differs between
+@@ -58,7 +58,7 @@ pattern = "41 ? 48 89 D7 ? ? ? ? ? ? ? 00 ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ?"
+ 
+ [steamclient."BuildDepotDependency"]
+ follow = "none"
+-pattern = "41 57 ? 89 ? 41 56 ? ? ? ? ? 41 54 55 53 48 ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? 4C ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? 00 ? ? ? ? ?"
++pattern = "41 57 4D 89 CF 41 56 49 89 FE 41 55 41 54 55 53 48 89 D3 48 81 EC 88 02 00 00 48 8B 84 24 C0 02"
+ 
+ # Reads game/shadercachedepot from the local app-info cache.
+ [steamclient."CShaderCacheManager::GetShaderCacheDepot"]

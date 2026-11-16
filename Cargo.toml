@@ -2,6 +2,7 @@
 name = "exxa"
 version = "0.3.0"
 edition = "2021"
+rust-version = "1.89"
 description = "Steam depots and manifests for the Linux client, on Vapor Forge"
 license = "MIT"
 

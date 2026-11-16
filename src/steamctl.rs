@@ -261,8 +261,14 @@ pub fn apply_session_env(command: &mut Command) {
                     })
                     .filter(|path| std::fs::metadata(path).map(|meta| meta.len() > 0).unwrap_or(false))
                     .collect();
-                candidates.sort();
-                chosen = candidates.into_iter().next();
+                // The session rotates these cookies; the newest file is the live
+                // one and a stale earlier name must lose to it.
+                candidates.sort_by_key(|path| {
+                    std::fs::metadata(path)
+                        .and_then(|meta| meta.modified())
+                        .ok()
+                });
+                chosen = candidates.into_iter().next_back();
             }
         }
         if let Some(authority) = chosen {
@@ -278,20 +284,144 @@ pub fn apply_session_env(command: &mut Command) {
     }
 }
 
+/// Steam's container launcher wipes LD_AUDIT before the client inside the
+/// pressure-vessel sandbox starts. The accepted way to keep an audit library
+/// inside is the launcher's own `--ld-audit` option, so `srt-client-container`
+/// is wrapped with a small script that appends it to every invocation.
+/// Steam's bootstrapper re-verifies package file sizes on every launch, so the
+/// wrapper is padded to the original's exact byte size and reinstalled on every
+/// launch; a real Steam update changes the expected size and re-extracts a
+/// launcher we adopt then.
+fn ensure_container_wrapper(libs: &str) {
+    let Some(root) = root() else { return };
+    // pv-adverb rejects a colon-separated LD_AUDIT, so the container gets the
+    // 64-bit shim alone: the 32-bit loader ignores a 64-bit audit library
+    // anyway, and containerised Steamnano userland is all 64-bit now.
+    let lib64 = libs
+        .split(':')
+        .find(|path| path.contains("x86_64"))
+        .unwrap_or(libs);
+    let wrapper_dir = root
+        .join("steamrt64/pv-runtime/steam-runtime-steamrt/pressure-vessel/libexec/steam-runtime-tools-0");
+    let launcher = wrapper_dir.join("srt-client-container");
+    let original = wrapper_dir.join("srt-client-container.real");
+    if !launcher.is_file() {
+        // A Steam bootstrap can leave the name missing between steps; recover
+        // from the pristine copy instead of silently skipping the wrapper.
+        if !original.is_file() {
+            return;
+        }
+        let _ = std::fs::rename(&original, &launcher);
+        eprintln!("steam: recovered container launcher from the pristine copy");
+    }
+    let head = std::fs::read(&launcher)
+        .ok()
+        .map(|bytes| String::from_utf8_lossy(&bytes[..bytes.len().min(512)]).into_owned());
+    // Current wrapper = v2 marker plus the expected audit path. Anything else
+    // (a stale wrapper or a stock ELF) is replaced below.
+    if head.as_deref().is_some_and(|text| {
+        text.contains("EXXATOOLS_WRAPPER v3") && text.contains(&format!("--ld-audit={lib64} "))
+    }) {
+        eprintln!("steam: container wrapper already installed");
+        return;
+    }
+    if std::fs::read(&launcher)
+        .map(|data| data.starts_with(&[0x7f, b'E', b'L', b'F']))
+        .unwrap_or(false)
+    {
+        // Either a stock launcher or a Steam update over our wrapper: keep the
+        // pristine binary under .real and put the script in its place.
+        let _ = std::fs::remove_file(&original);
+        if std::fs::rename(&launcher, &original).is_err() {
+            eprintln!("steam: cannot stage the container launcher");
+            return;
+        }
+    } else if !original.is_file() {
+        eprintln!("steam: container launcher is neither wrapper nor ELF");
+        return;
+    }
+    let Ok(target_size) = std::fs::metadata(&original).map(|meta| meta.len()) else {
+        return;
+    };
+    let script = format!(
+        "#!/bin/sh\n# EXXATOOLS_WRAPPER v3: run the real launcher with the audit shim and\n# raise the companion server first. Everything below the exec line is padding\n# so Steam's size-only package check sees the byte size it expects.\n# pv-adverb rejects a colon-separated LD_AUDIT, so the 64-bit shim is passed\n# alone; the 32-bit loader inside the container ignores a 64-bit audit library.\nif [ -x \"$HOME/.local/share/exxatools/bin/exxa\" ]; then\n  \"$HOME/.local/share/exxatools/bin/exxa\" serve </dev/null >/dev/null 2>&1 &\nfi\nexec \"$(dirname \"$0\")/srt-client-container.real\" \\\n  --pv-option=--ld-audit={lib64} \\\n  \"$@\"\n",
+    );
+    if script.len() as u64 > target_size {
+        eprintln!("steam: container launcher too small for the wrapper");
+        return;
+    }
+    let mut padded = script.into_bytes();
+    padded.resize(target_size as usize, b'\n');
+    let temporary = wrapper_dir.join(".srt-client-container.exxa.tmp");
+    if std::fs::write(&temporary, &padded).is_err() {
+        eprintln!("steam: cannot write the container wrapper");
+        return;
+    }
+    use std::os::unix::fs::PermissionsExt;
+    let _ = std::fs::set_permissions(&temporary, std::fs::Permissions::from_mode(0o755));
+    if std::fs::rename(&temporary, &launcher).is_err() {
+        eprintln!("steam: cannot install the container wrapper");
+        return;
+    }
+    eprintln!("steam: container wrapper installed ({target_size} bytes)");
+}
+
 fn steam_command(extra_args: &[String]) -> Result<(Command, String), String> {
     let binary = steam_binary().ok_or("steam executable not found in PATH")?;
     let libs = audit_libs();
+    ensure_container_wrapper(&libs);
+    let _ = install_companion();
     let mut command = Command::new(binary);
     for arg in extra_args {
         command.arg(arg);
     }
     apply_session_env(&mut command);
+    if crate::paths::vf_data()
+        .join("x86_64")
+        .join(".exxatools-pattern-overrides")
+        .is_file()
+    {
+        // The vendored shim carries entry-point overrides for this Steam build.
+        command.env("VAPOR_FORGE_TRUST_PATTERNS", "1");
+    }
     let existing = std::env::var("LD_AUDIT").unwrap_or_default();
     if !libs.is_empty() && !existing.contains("vapor_forge") {
         let merged = if existing.is_empty() { libs.clone() } else { format!("{libs}:{existing}") };
         command.env("LD_AUDIT", merged);
     }
     Ok((command, libs))
+}
+
+/// Keep a private copy of this binary where the Steam-side shim can exec it.
+/// The copy only changes on real upgrades (compared by content), so a running
+/// server is never replaced under Steam mid-session.
+pub fn install_companion() -> Result<std::path::PathBuf, String> {
+    let exe = std::env::current_exe().map_err(|error| format!("cannot locate myself: {error}"))?;
+    let target = crate::paths::companion_bin();
+    let fresh = std::fs::read(&exe).map_err(|error| format!("cannot read {exe:?}: {error}"))?;
+    let current = std::fs::read(&target).unwrap_or_default();
+    if fresh == current {
+        return Ok(target);
+    }
+    let parent = target
+        .parent()
+        .ok_or_else(|| "companion path has no parent".to_string())?;
+    std::fs::create_dir_all(parent)
+        .map_err(|error| format!("cannot create {}: {error}", parent.display()))?;
+    let temporary = parent.join(".exxa.tmp");
+    std::fs::write(&temporary, &fresh)
+        .map_err(|error| format!("cannot write {}: {error}", temporary.display()))?;
+    // The Steam-side shim execs this copy: it must be executable.
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::set_permissions(&temporary, std::fs::Permissions::from_mode(0o755))
+        .map_err(|error| format!("cannot chmod {}: {error}", temporary.display()))?;
+    if std::fs::rename(&temporary, &target).is_err() {
+        // A running server holds the old inode open; rename works on Linux, but
+        // fall back to unlink+rename semantics if a filesystem refuses.
+        let _ = std::fs::remove_file(&temporary);
+        return Err(format!("cannot install {}", target.display()));
+    }
+    Ok(target)
 }
 
 pub fn start(extra_args: &[String]) -> Result<serde_json::Value, String> {

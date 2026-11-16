@@ -3,7 +3,7 @@
 
 use std::collections::BTreeMap;
 
-use serde_json::Value;
+use serde_json::{json, Value};
 
 use crate::providers;
 
@@ -169,6 +169,33 @@ pub fn render_record(record: &Value, keys: &BTreeMap<String, String>) -> String 
     let generated = record.get("updated").and_then(Value::as_str).unwrap_or("");
     let source = record.get("source").and_then(Value::as_str).unwrap_or("auto");
     render_plan(appid, name, branch, &depots, keys, &dlc, generated, source)
+}
+
+/// Render the provider chain from `order` and write it where Vapor Forge
+/// reads it. One place so the worker and the API stay in sync.
+pub fn republish_provider(order: &[Value]) -> Result<std::path::PathBuf, String> {
+    let text = render_provider(order)?;
+    let check = crate::engine::check_script(&text, PROVIDER_FILE);
+    if !check.get("ok").and_then(Value::as_bool).unwrap_or(false) {
+        return Err(format!(
+            "provider script failed to parse: {}",
+            check.get("output").and_then(Value::as_str).unwrap_or("")
+        ));
+    }
+    crate::vfsys::write_provider(&text)
+}
+
+/// The ordered provider chain as JSON values, ready for republish. A chain
+/// entry is either a builtin name or a JSON object describing a custom
+/// mirror; objects are parsed and anything unparseable stays a name so a
+/// typo degrades to "unknown builtin" instead of dropping the entry.
+pub fn provider_order(state: &crate::state::State) -> Vec<Value> {
+    state
+        .settings
+        .manifest_providers
+        .iter()
+        .map(|entry| serde_json::from_str::<Value>(entry).unwrap_or_else(|_| json!(entry)))
+        .collect()
 }
 
 pub fn render_provider(order: &[Value]) -> Result<String, String> {

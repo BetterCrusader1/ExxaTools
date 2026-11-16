@@ -38,3 +38,6 @@ env/
 .DS_Store
 Thumbs.db
 desktop.ini
+
+# OMH plan files are session-local
+.omh/

@@ -122,6 +122,139 @@ fn body_u64(body: &Value, key: &str) -> Result<u64, (u16, String)> {
         .ok_or((400, format!("{key} must be an integer")))
 }
 
+/// Public settings are an allowlist, never a serialization of stored settings.
+/// Provider objects may contain URLs, headers and arbitrarily nested secrets.
+fn public_source(spec: &Value) -> Value {
+    let mut out = Map::new();
+    if let Some(label) = spec.get("label").and_then(Value::as_str) {
+        out.insert("label".into(), json!(label));
+    }
+    if let Some(enabled) = spec.get("enabled").and_then(Value::as_bool) {
+        out.insert("enabled".into(), json!(enabled));
+    }
+    if let Some(providers) = spec.get("providers").and_then(Value::as_array) {
+        let names: Vec<&str> = providers.iter().filter_map(|entry| {
+            entry.as_str().or_else(|| entry.get("name").and_then(Value::as_str))
+        }).filter(|name| public_provider_name(name)).collect();
+        out.insert("providers".into(), json!(names));
+    }
+    Value::Object(out)
+}
+
+fn public_provider_name(name: &str) -> bool {
+    !name.is_empty() && name.chars().all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '_' | '-' | '.'))
+}
+
+fn public_settings(settings: &state::Settings) -> Value {
+    let sources: Map<String, Value> = settings.sources.iter()
+        .map(|(name, spec)| (name.clone(), public_source(spec))).collect();
+    let plan_sources: Map<String, Value> = settings.plan_sources.iter()
+        .map(|(name, spec)| (name.clone(), public_source(spec))).collect();
+    let providers: Vec<&str> = settings.manifest_providers.iter().map(String::as_str)
+        .filter(|name| public_provider_name(name)).collect();
+    json!({
+        "country": settings.country,
+        "default_source": settings.default_source,
+        "default_os": settings.default_os,
+        "theme": settings.theme,
+        "manifest_providers": providers,
+        "sources": sources,
+        "plan_sources": plan_sources,
+        "has_hubcap_key": !settings.hubcap_key.trim().is_empty(),
+        "has_ryuu_key": !settings.ryuu_key.trim().is_empty(),
+    })
+}
+
+/// Source maps are patches: omitted IDs/fields retain their private values.
+/// An explicitly empty map still clears the map; null/non-map values retain
+/// the existing settings deserialization semantics.
+fn merge_source_map(current: &mut Value, posted: &Value) {
+    let Some(patch) = posted.as_object() else {
+        *current = posted.clone();
+        return;
+    };
+    if patch.is_empty() {
+        *current = posted.clone();
+        return;
+    }
+    if !current.is_object() {
+        *current = json!({});
+    }
+    let sources = current.as_object_mut().expect("source map");
+    for (id, value) in patch {
+        let source = sources.entry(id.clone()).or_insert_with(|| json!({}));
+        let Some(fields) = value.as_object() else {
+            *source = value.clone();
+            continue;
+        };
+        for (field, value) in fields {
+            if field.starts_with("has_") {
+                continue;
+            }
+            // The public provider list is lossy: objects become names and
+            // private URL entries disappear. Posting that view is a no-op.
+            if field == "providers" && public_source(source).get(field) == Some(value) {
+                continue;
+            }
+            let value = if field == "providers" {
+                merge_source_providers(source.get(field), value)
+            } else {
+                value.clone()
+            };
+            if !source.is_object() {
+                *source = json!({});
+            }
+            source[field] = value;
+        }
+    }
+}
+
+/// A deliberately changed provider list replaces membership/order, but a
+/// retained provider name must not replace its private object with a string.
+fn merge_source_providers(current: Option<&Value>, posted: &Value) -> Value {
+    let (Some(existing), Some(providers)) = (current.and_then(Value::as_array), posted.as_array()) else {
+        return posted.clone();
+    };
+    Value::Array(providers.iter().map(|provider| {
+        let name = provider.as_str().or_else(|| provider.get("name").and_then(Value::as_str));
+        let previous = name.and_then(|name| existing.iter().find(|entry| {
+            entry.get("name").and_then(Value::as_str) == Some(name)
+        }));
+        match (previous, provider.as_object()) {
+            (Some(previous), Some(fields)) => {
+                let mut merged = previous.clone();
+                for (field, value) in fields {
+                    if !field.starts_with("has_") {
+                        merged[field] = value.clone();
+                    }
+                }
+                merged
+            }
+            (Some(previous), None) => previous.clone(),
+            _ => provider.clone(),
+        }
+    }).collect())
+}
+
+fn public_source_catalog(settings: &state::Settings) -> Vec<Value> {
+    crate::sources::catalog(settings).iter().map(|source| {
+        let mut view = public_source(source);
+        if let Some(name) = source.get("name").and_then(Value::as_str) {
+            view["name"] = json!(name);
+        }
+        view
+    }).collect()
+}
+
+/// Keep HTTP validation errors distinct from transaction/persistence failures.
+fn update_route<T>(change: impl FnOnce(&mut state::State) -> Result<T, (u16, String)>) -> Result<T, (u16, String)> {
+    let mut route_error = None;
+    state::update(|st| change(st).map_err(|error| {
+        route_error = Some(error);
+        "request rejected".to_string()
+    })).map_err(|error| route_error.unwrap_or((500, error)))
+}
+
 fn render_record(record: &Value, st: &state::State) -> String {
     lua::render_record(record, &st.depot_keys)
 }
@@ -172,7 +305,7 @@ fn app_view(appid: u64, branch: &str) -> Result<Value, (u16, String)> {
         "plan": st.apps.get(&appid.to_string()).cloned(),
         "installed": vfsys::script_path(appid).exists(),
         "source": st.settings.default_source,
-        "sources": crate::sources::catalog(&st.settings),
+        "sources": public_source_catalog(&st.settings),
         "launch_options": steamctl::read_launch_options(appid),
         "catalog": catalog,
     }))
@@ -244,7 +377,7 @@ fn get_route(path: &str, query: &[(String, String)]) -> Result<Value, (u16, Stri
                 }
                 view
             }).collect::<Vec<_>>(),
-            "settings": st.settings,
+            "settings": public_settings(&st.settings),
             "state_path": state::state_path().display().to_string(),
             "keys": st.depot_keys.len(),
         })),
@@ -291,18 +424,9 @@ fn get_route(path: &str, query: &[(String, String)]) -> Result<Value, (u16, Stri
                 "installed": vfsys::script_path(appid).exists(),
             }))
         }
-        "/api/settings" => Ok(json!({
-            "country": st.settings.country,
-            "default_source": st.settings.default_source,
-            "default_os": st.settings.default_os,
-            "manifest_providers": st.settings.manifest_providers,
-            "sources": st.settings.sources,
-            "plan_sources": st.settings.plan_sources,
-            "has_hubcap_key": !st.settings.hubcap_key.trim().is_empty(),
-            "has_ryuu_key": !st.settings.ryuu_key.trim().is_empty(),
-        })),
+        "/api/settings" => Ok(public_settings(&st.settings)),
         "/api/sources" => Ok(json!({
-            "sources": crate::sources::catalog(&st.settings),
+            "sources": public_source_catalog(&st.settings),
             "default": st.settings.default_source,
         })),
         "/api/dlc" => {
@@ -356,7 +480,7 @@ fn get_route(path: &str, query: &[(String, String)]) -> Result<Value, (u16, Stri
                 "keys": st.depot_keys.len(),
                 "steam": { "running": steamctl::is_running(), "root": steamctl::root().map(|value| value.display().to_string()) },
                 "engine": engine::detect(),
-                "settings": st.settings,
+                "settings": public_settings(&st.settings),
             }))
         }
         "/api/cloud" => {
@@ -370,11 +494,27 @@ fn get_route(path: &str, query: &[(String, String)]) -> Result<Value, (u16, Stri
         "/api/pins" => {
             let appid = need_u64(query, "appid")?;
             let branch = get(query, "branch").unwrap_or("public").to_string();
-            let mut st = state::load().map_err(|error| (500, error))?;
-            let result = crate::pins::compare(&mut st, appid, &branch).map_err(|error| (502, error))?;
-            if result.get("changed").and_then(Value::as_bool).unwrap_or(false) {
-                state::save(&st).map_err(|error| (500, error))?;
-            }
+            // compare performs network IO. Collect only this request's observed
+            // gids outside the lock, then merge them into the latest history.
+            let mut observed = st.clone();
+            observed.build_history.clear();
+            let mut result = crate::pins::compare(&mut observed, appid, &branch).map_err(|error| (502, error))?;
+            let (changed, history) = state::update(|fresh| {
+                let mut changed = false;
+                if let Some(depots) = observed.build_history.get(&appid.to_string()) {
+                    for (depot, entries) in depots {
+                        let Ok(depot_id) = depot.parse::<u64>() else { continue };
+                        for entry in entries.iter().rev() {
+                            let Some(gid) = entry.get("gid").and_then(Value::as_str) else { continue };
+                            changed |= state::record_gid(fresh, appid, depot_id, gid,
+                                entry.get("size").and_then(Value::as_u64), &branch);
+                        }
+                    }
+                }
+                Ok((changed, fresh.build_history.get(&appid.to_string()).cloned().unwrap_or_default()))
+            }).map_err(|error| (500, error))?;
+            result["changed"] = json!(changed);
+            result["history"] = json!(history);
             Ok(result)
         }
         "/api/watch" => Ok(crate::watch::sweep(false)),
@@ -404,7 +544,7 @@ fn get_route(path: &str, query: &[(String, String)]) -> Result<Value, (u16, Stri
             let key = st.settings.hubcap_key.clone();
             let mut info = json!({
                 "configured": !key.is_empty(),
-                "hint": if key.len() > 8 { format!("{}...", &key[..8]) } else { String::new() },
+                "hint": "",
                 "providers": st.settings.manifest_providers,
             });
             if !key.is_empty() {
@@ -443,25 +583,26 @@ fn post_route(path: &str, body: &Value, query: &[(String, String)]) -> Result<Va
         "/api/depot" => {
             let appid = body_u64(body, "appid")?;
             let depot_id = body_u64(body, "depot_id")?;
-            let mut st = state::load().map_err(|error| (500, error))?;
-            let record = st.apps.get_mut(&appid.to_string()).ok_or((404, "no saved plan".to_string()))?;
-            let list = record.get_mut("depots").and_then(Value::as_array_mut).ok_or((409, "plan has no depots".to_string()))?;
-            let mut found = false;
-            for depot in list.iter_mut() {
-                if depot.get("depot_id").and_then(Value::as_u64) != Some(depot_id) { continue }
-                if let Some(enabled) = body.get("enabled").and_then(Value::as_bool) {
-                    depot["enabled"] = json!(enabled);
+            update_route(|st| {
+                let record = st.apps.get_mut(&appid.to_string()).ok_or((404, "no saved plan".to_string()))?;
+                let list = record.get_mut("depots").and_then(Value::as_array_mut).ok_or((409, "plan has no depots".to_string()))?;
+                let mut found = false;
+                for depot in list.iter_mut() {
+                    if depot.get("depot_id").and_then(Value::as_u64) != Some(depot_id) { continue }
+                    if let Some(enabled) = body.get("enabled").and_then(Value::as_bool) {
+                        depot["enabled"] = json!(enabled);
+                    }
+                    if let Some(gid) = body.get("gid").and_then(Value::as_str) {
+                        depot["gid"] = json!(gid.trim());
+                    }
+                    found = true;
                 }
-                if let Some(gid) = body.get("gid").and_then(Value::as_str) {
-                    depot["gid"] = json!(gid.trim());
+                if !found {
+                    return Err((404, format!("depot {depot_id} is not in this plan")));
                 }
-                found = true;
-            }
-            if !found {
-                return Err((404, format!("depot {depot_id} is not in this plan")));
-            }
-            record["updated"] = json!(crate::vfsys::stamp());
-            state::save(&st).map_err(|error| (500, error))?;
+                record["updated"] = json!(crate::vfsys::stamp());
+                Ok(())
+            })?;
             let installed = crate::plans::write_script(appid).unwrap_or(false);
             Ok(json!({ "appid": appid, "depot_id": depot_id, "installed": installed }))
         }
@@ -639,9 +780,10 @@ fn post_route(path: &str, body: &Value, query: &[(String, String)]) -> Result<Va
                 "remove" => {
                     if appid == 0 { return Err((400, "appid is required".into())); }
                     vfsys::remove_script(appid);
-                    let mut fresh = state::load().map_err(|error| (500, error))?;
-                    fresh.apps.remove(&appid.to_string());
-                    state::save(&fresh).map_err(|error| (500, error))?;
+                    state::update(|fresh| {
+                        fresh.apps.remove(&appid.to_string());
+                        Ok(())
+                    }).map_err(|error| (500, error))?;
                     Ok(json!({ "ok": true, "message": "removed from the library" }))
                 }
                 other => Err((400, format!("unknown fix {other}"))),
@@ -703,10 +845,7 @@ fn post_route(path: &str, body: &Value, query: &[(String, String)]) -> Result<Va
             let appid = body_u64(body, "appid")?;
             let depot_id = body_u64(body, "depot_id")?;
             let gid = body.get("gid").and_then(Value::as_str).filter(|value| !value.is_empty());
-            let mut st = state::load().map_err(|error| (500, error))?;
-            let result = crate::pins::set_pin(&mut st, appid, depot_id, gid).map_err(|error| (400, error))?;
-            state::save(&st).map_err(|error| (500, error))?;
-            Ok(result)
+            update_route(|st| crate::pins::set_pin(st, appid, depot_id, gid).map_err(|error| (400, error)))
         }
         "/api/watch" => {
             let apply = body.get("apply").and_then(Value::as_bool).unwrap_or(false);
@@ -719,20 +858,24 @@ fn post_route(path: &str, body: &Value, query: &[(String, String)]) -> Result<Va
         }
         "/api/hubcap" => {
             let action = body.get("action").and_then(Value::as_str).unwrap_or("save");
-            let mut st = state::load().map_err(|error| (500, error))?;
+            let st = state::load().map_err(|error| (500, error))?;
             match action {
                 "save" => {
                     let raw = body.get("key").and_then(Value::as_str).unwrap_or("").trim().to_string();
                     if raw.is_empty() {
-                        st.settings.hubcap_key.clear();
-                        state::save(&st).map_err(|error| (500, error))?;
+                        state::update(|fresh| {
+                            fresh.settings.hubcap_key.clear();
+                            Ok(())
+                        }).map_err(|error| (500, error))?;
                         return Ok(json!({ "configured": false }));
                     }
                     let valid = hubcap::valid_key(&raw)
                         .ok_or((400, "a Hubcap key starts with smm and has no spaces".to_string()))?;
                     let stats = hubcap::validate(&valid).map_err(|error| (400, error.to_string()))?;
-                    st.settings.hubcap_key = valid;
-                    state::save(&st).map_err(|error| (500, error))?;
+                    state::update(|fresh| {
+                        fresh.settings.hubcap_key = valid;
+                        Ok(())
+                    }).map_err(|error| (500, error))?;
                     Ok(json!({ "configured": true, "stats": stats }))
                 }
                 "search" => {
@@ -754,42 +897,37 @@ fn post_route(path: &str, body: &Value, query: &[(String, String)]) -> Result<Va
                     let fetched = hubcap::fetch(&st.settings.hubcap_key, appid).map_err(|error| (502, error.to_string()))?;
                     let parsed = hubcap::parse_lua(&fetched.lua, Some(appid));
                     let stamp = vfsys::stamp();
-                    let summary = hubcap::apply_to_state(
-                        &mut st,
+                    let summary = state::update(|fresh| Ok(hubcap::apply_to_state(
+                        fresh,
                         &parsed,
                         &stamp,
                         body.get("name").and_then(Value::as_str),
                         body.get("pin").and_then(Value::as_bool).unwrap_or(false),
                         body.get("create").and_then(Value::as_bool).unwrap_or(false),
-                    );
-                    state::save(&st).map_err(|error| (500, error))?;
+                    ))).map_err(|error| (500, error))?;
                     Ok(json!({ "summary": summary, "manifests": fetched.manifests, "source": fetched.source }))
                 }
                 other => Err((400, format!("action must be save, search, or fetch, not {other}"))),
             }
         }
-        "/api/settings" => {
-            let mut st = state::load().map_err(|error| (500, error))?;
+        "/api/settings" => update_route(|st| {
             if let Some(object) = body.as_object() {
-                let current = serde_json::to_value(&st.settings).unwrap_or_else(|_| json!({}));
+                let current = serde_json::to_value(&st.settings).map_err(|error| (500, error.to_string()))?;
                 let mut merged: Map<String, Value> = current.as_object().cloned().unwrap_or_default();
                 for (key, value) in object {
-                    merged.insert(key.clone(), value.clone());
+                    if key.starts_with("has_") {
+                        continue;
+                    }
+                    if key == "sources" || key == "plan_sources" {
+                        merge_source_map(merged.entry(key.clone()).or_insert_with(|| json!({})), value);
+                    } else {
+                        merged.insert(key.clone(), value.clone());
+                    }
                 }
-                st.settings = serde_json::from_value(Value::Object(merged)).map_err(|error| (400, error.to_string()))?;
+                st.settings = serde_json::from_value(Value::Object(merged)).map_err(|_| (400, "invalid settings".to_string()))?;
             }
-            state::save(&st).map_err(|error| (500, error))?;
-            Ok(json!({
-                "country": st.settings.country,
-                "default_source": st.settings.default_source,
-                "default_os": st.settings.default_os,
-                "manifest_providers": st.settings.manifest_providers,
-                "sources": st.settings.sources,
-                "plan_sources": st.settings.plan_sources,
-                "has_hubcap_key": !st.settings.hubcap_key.trim().is_empty(),
-                "has_ryuu_key": !st.settings.ryuu_key.trim().is_empty(),
-            }))
-        }
+            Ok(public_settings(&st.settings))
+        }),
         "/api/open" => {
             let target = body.get("target").and_then(Value::as_str).unwrap_or("");
             if target.is_empty() {
@@ -806,21 +944,19 @@ fn post_route(path: &str, body: &Value, query: &[(String, String)]) -> Result<Va
             if text.trim().is_empty() {
                 return Err((400, "text is required".into()));
             }
-            let mut st = state::load().map_err(|error| (500, error))?;
             let parsed = hubcap::parse_lua(text, body.get("appid").and_then(Value::as_u64));
             if parsed.appid.is_none() {
                 return Err((400, "that lua has no app id".into()));
             }
             let stamp = vfsys::stamp();
-            let summary = hubcap::apply_to_state(
-                &mut st,
+            let summary = state::update(|st| Ok(hubcap::apply_to_state(
+                st,
                 &parsed,
                 &stamp,
                 body.get("name").and_then(Value::as_str),
                 body.get("pin").and_then(Value::as_bool).unwrap_or(false),
                 body.get("create").and_then(Value::as_bool).unwrap_or(false),
-            );
-            state::save(&st).map_err(|error| (500, error))?;
+            ))).map_err(|error| (500, error))?;
             Ok(json!({ "summary": summary }))
         }
         "/api/code" => {
@@ -837,9 +973,10 @@ fn post_route(path: &str, body: &Value, query: &[(String, String)]) -> Result<Va
             let order: Vec<Value> = st.settings.manifest_providers.iter().map(|name| json!(name)).collect();
             let result = crate::providers::fetch_code(appid, depot_id, &gid, &order).map_err(|error| (502, error))?;
             if let Some(code) = result.get("code").and_then(Value::as_u64) {
-                let mut st = state::load().map_err(|error| (500, error))?;
-                st.codes.insert(gid, code);
-                let _ = state::save(&st);
+                state::update(|st| {
+                    st.codes.entry(gid).or_insert(code);
+                    Ok(())
+                }).map_err(|error| (500, error))?;
             }
             Ok(result)
         }

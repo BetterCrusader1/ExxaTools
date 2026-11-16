@@ -222,9 +222,10 @@ fn main() {
             let Some(key) = state::valid_key(raw) else {
                 fail("that is not a depot key: 64 hex characters expected")
             };
-            let mut st = state::load().unwrap_or_else(|error| fail(error));
-            state::set_key(&mut st, depot, Some(&key));
-            state::save(&st).unwrap_or_else(|error| fail(error));
+            state::update(|st| {
+                state::set_key(st, depot, Some(&key));
+                Ok(())
+            }).unwrap_or_else(|error| fail(error));
             print_json(&json!({ "depot": depot, "key": format!("{}...", &key[..8]) }));
         }
         "code" => {
@@ -272,6 +273,10 @@ fn main() {
         }
         "serve" => {
             let port = arg_value(rest, "--port").and_then(|value| value.parse().ok()).unwrap_or(8765);
+            // A serve started by the Steam-side shim has no controlling
+            // terminal and a different cwd; keep the private companion copy
+            // fresh so the next Steam launch execs this same build.
+            let _ = steamctl::install_companion();
             if has_flag(rest, "--window") {
                 let url = format!("http://127.0.0.1:{port}/");
                 std::thread::spawn(move || {
@@ -379,9 +384,30 @@ fn main() {
             };
             let mut st = state::load().unwrap_or_else(|error| fail(error));
             let branch = arg_value(rest, "--branch").unwrap_or_else(|| "public".into());
-            let result = pins::compare(&mut st, appid, &branch).unwrap_or_else(|error| fail(error));
+            let before = st.build_history.get(&appid.to_string()).cloned().unwrap_or_default();
+            // compare fetches the catalog: keep that network work outside the
+            // transaction, then replay only newly observed gids into fresh state.
+            let mut result = pins::compare(&mut st, appid, &branch).unwrap_or_else(|error| fail(error));
             if result.get("changed").and_then(Value::as_bool).unwrap_or(false) {
-                state::save(&st).unwrap_or_else(|error| fail(error));
+                let (changed, history) = state::update(|fresh| {
+                    let mut changed = false;
+                    if let Some(depots) = st.build_history.get(&appid.to_string()) {
+                        for (depot, entries) in depots {
+                            let Some(entry) = entries.first() else { continue };
+                            if before.get(depot).and_then(|entries| entries.first()) == Some(entry) {
+                                continue;
+                            }
+                            let depot_id = depot.parse::<u64>().map_err(|error| error.to_string())?;
+                            let gid = entry.get("gid").and_then(Value::as_str).unwrap_or("");
+                            let size = entry.get("size").and_then(Value::as_u64);
+                            changed |= state::record_gid(fresh, appid, depot_id, gid, size, &branch);
+                        }
+                    }
+                    let history = fresh.build_history.get(&appid.to_string()).cloned().unwrap_or_default();
+                    Ok((changed, history))
+                }).unwrap_or_else(|error| fail(error));
+                result["changed"] = json!(changed);
+                result["history"] = json!(history);
             }
             print_json(&result);
         }
@@ -393,9 +419,8 @@ fn main() {
                 fail("pin needs a depot id");
             };
             let gid = rest.get(2).cloned().filter(|value| value != "clear");
-            let mut st = state::load().unwrap_or_else(|error| fail(error));
-            let result = pins::set_pin(&mut st, appid, depot, gid.as_deref()).unwrap_or_else(|error| fail(error));
-            state::save(&st).unwrap_or_else(|error| fail(error));
+            let result = state::update(|st| pins::set_pin(st, appid, depot, gid.as_deref()))
+                .unwrap_or_else(|error| fail(error));
             print_json(&result);
         }
         "export" => {
@@ -414,9 +439,10 @@ fn main() {
             if record.get("depots").and_then(Value::as_array).is_none() {
                 fail("plan has no depots");
             }
-            let mut st = state::load().unwrap_or_else(|error| fail(error));
-            st.apps.insert(appid.to_string(), record);
-            state::save(&st).unwrap_or_else(|error| fail(error));
+            state::update(|st| {
+                st.apps.insert(appid.to_string(), record);
+                Ok(())
+            }).unwrap_or_else(|error| fail(error));
             print_json(&json!({ "imported": appid }));
         }
         "autostart" => {

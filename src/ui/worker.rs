@@ -12,6 +12,7 @@ pub struct SettingsDraft {
     pub hubcap_key: String,
     pub ryuu_key: String,
     pub default_source: String,
+    pub manifest_providers: Vec<String>,
 }
 
 #[derive(Clone, Debug)]
@@ -163,8 +164,28 @@ fn run(command: Command, events: Sender<Event>) {
                 state.settings.hubcap_key = draft.hubcap_key.trim().to_string();
                 state.settings.ryuu_key = draft.ryuu_key.trim().to_string();
                 state.settings.default_source = draft.default_source.trim().to_string();
+                let providers: Vec<String> = draft
+                    .manifest_providers
+                    .iter()
+                    .map(|entry| entry.trim().to_string())
+                    .filter(|entry| !entry.is_empty())
+                    .collect();
+                if !providers.is_empty() {
+                    // A chain entry is either a builtin name or a JSON object
+                    // describing a custom mirror; the settings file keeps the
+                    // raw strings and resolve() interprets them on read.
+                    state.settings.manifest_providers = providers;
+                }
                 Ok(())
             });
+            // Ordering may have changed: republish the provider script so
+            // Vapor Forge's hot-reload picks the new chain up at once.
+            if let Ok(state) = crate::state::load() {
+                let order = crate::lua::provider_order(&state);
+                if !order.is_empty() {
+                    let _ = crate::lua::republish_provider(&order);
+                }
+            }
             match result {
                 Ok(()) => toast(&events, "Settings saved".into(), false),
                 Err(error) => toast(&events, error, true),

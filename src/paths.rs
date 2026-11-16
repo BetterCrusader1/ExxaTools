@@ -22,6 +22,12 @@ pub fn data_home() -> PathBuf {
     xdg("XDG_DATA_HOME", ".local/share")
 }
 
+/// Where the companion copy of this binary lives for the Steam-side shim to
+/// exec. Kept under our own data dir, never in PATH, never in Steam's files.
+pub fn companion_bin() -> PathBuf {
+    data_home().join("exxatools/bin/exxa")
+}
+
 pub fn cache_home() -> PathBuf {
     xdg("XDG_CACHE_HOME", ".cache")
 }

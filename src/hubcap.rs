@@ -112,13 +112,18 @@ pub fn search(key: &str, term: &str, limit: usize) -> Result<Vec<Value>, HubcapE
 pub struct Fetched {
     pub lua: String,
     pub manifests: Vec<String>,
+    pub manifest_data: Vec<(String, Vec<u8>)>,
     pub source: String,
 }
 
 pub fn fetch(key: &str, appid: u64) -> Result<Fetched, HubcapError> {
     let raw = request(&format!("/manifest/{appid}"), key, &[])?;
     if raw.starts_with(b"PK") {
-        return from_zip(&raw, appid);
+        let fetched = from_zip(&raw, appid)?;
+        // The archive also carries the real depot manifest blobs. Keep them in
+        // Steam's depotcache so the updater can mount a pinned build.
+        let _ = fetched.cache_manifests();
+        return Ok(fetched);
     }
     let text = String::from_utf8_lossy(&raw).into_owned();
     let stripped = text.trim_start();
@@ -128,13 +133,19 @@ pub fn fetch(key: &str, appid: u64) -> Result<Fetched, HubcapError> {
     if stripped.starts_with('{') {
         return Err(HubcapError(format!("Hubcap answered with JSON for {appid}")));
     }
-    Ok(Fetched { lua: text, manifests: Vec::new(), source: "lua".into() })
+    Ok(Fetched {
+        lua: text,
+        manifests: Vec::new(),
+        manifest_data: Vec::new(),
+        source: "lua".into(),
+    })
 }
 
 fn from_zip(raw: &[u8], appid: u64) -> Result<Fetched, HubcapError> {
     let mut archive = zip::ZipArchive::new(Cursor::new(raw)).map_err(|_| HubcapError("Hubcap archive is not a valid zip".into()))?;
     let mut lua: Option<String> = None;
     let mut manifests = Vec::new();
+    let mut manifest_data = Vec::new();
     for index in 0..archive.len() {
         let mut entry = archive.by_index(index).map_err(|error| HubcapError(error.to_string()))?;
         let name = entry.name().to_string();
@@ -144,11 +155,45 @@ fn from_zip(raw: &[u8], appid: u64) -> Result<Fetched, HubcapError> {
         if lower.ends_with(".lua") && lua.is_none() {
             lua = Some(String::from_utf8_lossy(&buffer).into_owned());
         } else if lower.ends_with(".manifest") {
-            manifests.push(name.rsplit('/').next().unwrap_or(&name).to_string());
+            let base = name.rsplit('/').next().unwrap_or(&name).to_string();
+            manifests.push(base.clone());
+            manifest_data.push((base, buffer));
         }
     }
     let lua = lua.ok_or_else(|| HubcapError(format!("Hubcap archive for {appid} has no .lua inside")))?;
-    Ok(Fetched { lua, manifests, source: "zip".into() })
+    Ok(Fetched { lua, manifests, manifest_data, source: "zip".into() })
+}
+
+impl Fetched {
+    /// Persist archive manifests into Steam's `depotcache` directory. Existing
+    /// files are kept: a newer snapshot must not overwrite a pinned install.
+    pub fn cache_manifests(&self) -> Result<usize, String> {
+        let Some(root) = crate::steamctl::root() else { return Ok(0) };
+        let dir = root.join("depotcache");
+        std::fs::create_dir_all(&dir)
+            .map_err(|error| format!("cannot create {}: {error}", dir.display()))?;
+        let mut written = 0;
+        for (name, data) in &self.manifest_data {
+            let base = name.rsplit('/').next().unwrap_or(name);
+            if !base.ends_with(".manifest")
+                || !base.chars().next().is_some_and(|ch| ch.is_ascii_digit())
+                || !data.starts_with(&[0xd0, 0x17, 0xf6, 0x71])
+            {
+                continue;
+            }
+            let destination = dir.join(base);
+            if destination.is_file() {
+                continue;
+            }
+            let temporary = dir.join(format!(".{base}.tmp"));
+            std::fs::write(&temporary, data)
+                .map_err(|error| format!("cannot write {}: {error}", temporary.display()))?;
+            std::fs::rename(&temporary, &destination)
+                .map_err(|error| format!("cannot install {}: {error}", destination.display()))?;
+            written += 1;
+        }
+        Ok(written)
+    }
 }
 
 pub struct Parsed {

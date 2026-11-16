@@ -29,6 +29,13 @@ fn refresh_falls_back_to_the_saved_catalog() {
             }
         }),
     );
+    state.settings.theme = "light".into();
+    state.codes.insert("unrelated".into(), 17);
+    state.plugins.insert("fixture-plugin".into(), false);
+    state.apps.insert("650".into(), serde_json::json!({
+        "appid": 650, "name": "No saved catalog", "depots": [], "updated": "unchanged"
+    }));
+    let untouched = state.apps["650"].clone();
     exxa::state::save(&state).expect("state save");
     std::fs::write(
         exxa::paths::vf_scripts().join("exxatools-620.lua"),
@@ -36,12 +43,17 @@ fn refresh_falls_back_to_the_saved_catalog() {
     )
     .expect("stale script");
 
-    let report = exxa::plans::refresh_manifests().expect("refresh");
+    let report = exxa::plans::refresh_plan(620).expect("refresh");
+    assert_eq!(report["updated"], 1);
     assert_eq!(report["failures"].as_array().map(Vec::len), Some(0), "refresh failed: {report}");
     assert_eq!(report["snapshots"], 1, "snapshot not used: {report}");
     assert_eq!(report["scripts"], 1, "script not rewritten: {report}");
 
     let saved = exxa::state::load().expect("state");
+    assert_eq!(saved.settings.theme, "light");
+    assert_eq!(saved.codes["unrelated"], 17);
+    assert_eq!(saved.plugins["fixture-plugin"], false);
+    assert_eq!(saved.apps["650"], untouched, "filtered refresh touched another app");
     let depots = saved.apps["620"]["depots"].as_array().expect("depots");
     assert_eq!(depots[0]["gid"], "999", "depot not refreshed from snapshot");
     assert_eq!(depots[1]["enabled"], false, "disabled flag lost");
@@ -50,4 +62,17 @@ fn refresh_falls_back_to_the_saved_catalog() {
     let script = std::fs::read_to_string(exxa::paths::vf_scripts().join("exxatools-620.lua")).expect("script");
     assert!(script.contains("setmanifestid(621, \"999\""), "script not rewritten: {script}");
     assert!(!script.contains("setmanifestid(622"), "disabled depot leaked into the script");
+
+    let report = exxa::plans::refresh_manifests().expect("refresh all");
+    assert_eq!(report["updated"], 1);
+    assert_eq!(report["snapshots"], 1);
+    assert_eq!(report["scripts"], 1);
+    let failures = report["failures"].as_array().expect("failures");
+    assert_eq!(failures.len(), 1);
+    assert_eq!(failures[0]["appid"], 650);
+    assert_eq!(exxa::state::load().expect("after failure").apps["650"], untouched);
+    let missing = exxa::plans::refresh_plan(999).expect("missing plan");
+    assert_eq!(missing, serde_json::json!({
+        "updated": 0, "scripts": 0, "snapshots": 0, "failures": []
+    }));
 }

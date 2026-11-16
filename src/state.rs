@@ -91,32 +91,46 @@ pub fn state_path() -> PathBuf {
 pub fn load() -> Result<State, String> {
     let path = state_path();
     if !path.is_file() {
-        migrate_legacy(&path);
+        // Migration writes too. Recheck under both writer locks so a first
+        // read cannot replace state another thread or process just created.
+        return with_write_lock(&path, || load_locked(&path));
     }
+    read_state(&path)
+}
+
+fn load_locked(path: &Path) -> Result<State, String> {
+    if !path.is_file() {
+        migrate_legacy(path)?;
+    }
+    read_state(path)
+}
+
+fn read_state(path: &Path) -> Result<State, String> {
     if !path.is_file() {
         return Ok(State::default());
     }
-    let text = std::fs::read_to_string(&path)
+    let text = std::fs::read_to_string(path)
         .map_err(|error| format!("cannot read {}: {error}", path.display()))?;
     // A file written before permissions were enforced is repaired on the next read.
     if let Some(parent) = path.parent() {
         let _ = lock_down(parent, 0o700);
     }
-    let _ = lock_down(&path, 0o600);
+    let _ = lock_down(path, 0o600);
     serde_json::from_str(&text).map_err(|error| format!("cannot parse {}: {error}", path.display()))
 }
 
-fn migrate_legacy(path: &Path) {
-    let Some(parent) = path.parent() else { return };
-    let Some(root) = parent.parent() else { return };
+// Called only with both writer locks held. Publish migration by rename too:
+// lock-free readers must never see a partially copied legacy state.
+fn migrate_legacy(path: &Path) -> Result<(), String> {
+    let Some(parent) = path.parent() else { return Ok(()) };
+    let Some(root) = parent.parent() else { return Ok(()) };
     let legacy = root.join("vapordepot/state.json");
     if !legacy.is_file() {
-        return;
+        return Ok(());
     }
-    if let Ok(text) = std::fs::read_to_string(&legacy) {
-        let _ = std::fs::create_dir_all(parent);
-        let _ = std::fs::write(path, text);
-    }
+    let text = std::fs::read_to_string(&legacy)
+        .map_err(|error| format!("cannot read {}: {error}", legacy.display()))?;
+    write_state_locked(path, &text)
 }
 
 /// Keeps the last few versions of the state next to it, so a bad import or a
@@ -160,39 +174,70 @@ pub fn backup_dir() -> PathBuf {
         .unwrap_or_else(|| PathBuf::from("backups"))
 }
 
-/// Serialises writers so two requests cannot interleave read-modify-write.
+/// Always acquire the process mutex before the persistent sidecar file lock.
+/// The state file itself is replaced by rename, so it cannot be the lock inode.
 static WRITE_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 static TEMP_SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
+fn with_write_lock<T>(path: &Path, f: impl FnOnce() -> Result<T, String>) -> Result<T, String> {
+    let _guard = WRITE_LOCK
+        .lock()
+        .map_err(|_| "state lock is poisoned".to_string())?;
+    let parent = path.parent().ok_or_else(|| "state path has no parent".to_string())?;
+    std::fs::create_dir_all(parent)
+        .map_err(|error| format!("cannot create {}: {error}", parent.display()))?;
+    lock_down(parent, 0o700)?;
+    let lock_path = path.with_extension("lock");
+    let mut options = std::fs::OpenOptions::new();
+    options.read(true).write(true).create(true).truncate(false);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    let lock_file = options.open(&lock_path)
+        .map_err(|error| format!("cannot open {}: {error}", lock_path.display()))?;
+    lock_down(&lock_path, 0o600)?;
+    lock_file.lock()
+        .map_err(|error| format!("cannot lock {}: {error}", lock_path.display()))?;
+    // Never rename or delete this sidecar. Closing releases the OS lock before
+    // the process mutex is dropped, including error returns and unwinding.
+    f()
+}
+
+/// Replaces the whole state. A stale snapshot passed here can still overwrite
+/// newer changes; use `update` for every read-modify-write operation.
 pub fn save(state: &State) -> Result<(), String> {
-    let _guard = WRITE_LOCK
-        .lock()
-        .map_err(|_| "state lock is poisoned".to_string())?;
-    save_locked(state)
-}
-
-/// One transaction: the write lock covers the read, the change and the write, so
-/// two requests cannot interleave read-modify-write.
-pub fn update<T>(f: impl FnOnce(&mut State) -> Result<T, String>) -> Result<T, String> {
-    let _guard = WRITE_LOCK
-        .lock()
-        .map_err(|_| "state lock is poisoned".to_string())?;
-    let mut state = load()?;
-    let out = f(&mut state)?;
-    save_locked(&state)?;
-    Ok(out)
-}
-
-fn save_locked(state: &State) -> Result<(), String> {
     let path = state_path();
-    let _ = snapshot(&path);
+    with_write_lock(&path, || save_locked(state, &path))
+}
+
+/// One cross-process transaction: both locks cover the read, change and write.
+/// The closure must not call load/save/update/ensure_token or do network I/O;
+/// it edits only the supplied fresh state, and an error discards its changes.
+pub fn update<T>(f: impl FnOnce(&mut State) -> Result<T, String>) -> Result<T, String> {
+    let path = state_path();
+    with_write_lock(&path, || {
+        let mut state = load_locked(&path)?;
+        let out = f(&mut state)?;
+        save_locked(&state, &path)?;
+        Ok(out)
+    })
+}
+
+fn save_locked(state: &State, path: &Path) -> Result<(), String> {
+    let text = serde_json::to_string_pretty(state).map_err(|error| error.to_string())?;
+    write_state_locked(path, &format!("{text}\n"))
+}
+
+fn write_state_locked(path: &Path, text: &str) -> Result<(), String> {
+    let _ = snapshot(path);
     let parent = path
         .parent()
         .ok_or_else(|| "state path has no parent".to_string())?;
     std::fs::create_dir_all(parent)
         .map_err(|error| format!("cannot create {}: {error}", parent.display()))?;
     lock_down(parent, 0o700)?;
-    let text = serde_json::to_string_pretty(state).map_err(|error| error.to_string())?;
     // A unique temporary name: a shared `state.tmp` raced between writers.
     let nanos = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -200,14 +245,14 @@ fn save_locked(state: &State) -> Result<(), String> {
         .unwrap_or(0);
     let seq = TEMP_SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     let temp = parent.join(format!(".state-{}-{nanos}-{seq}.tmp", std::process::id()));
-    std::fs::write(&temp, format!("{text}\n"))
+    std::fs::write(&temp, text)
         .map_err(|error| format!("cannot write {}: {error}", temp.display()))?;
     lock_down(&temp, 0o600)?;
-    if let Err(error) = std::fs::rename(&temp, &path) {
+    if let Err(error) = std::fs::rename(&temp, path) {
         let _ = std::fs::remove_file(&temp);
         return Err(format!("cannot replace {}: {error}", path.display()));
     }
-    lock_down(&path, 0o600)
+    lock_down(path, 0o600)
 }
 
 #[cfg(unix)]
@@ -271,7 +316,7 @@ pub fn app_summary(state: &State, record: &serde_json::Value) -> serde_json::Val
 /// The server keeps one token in state so a restarted UI keeps working, and a
 /// fresh one appears only when the file has none.
 pub fn ensure_token() -> Result<String, String> {
-    let mut state = load()?;
+    let state = load()?;
     if state.token.len() == 64 {
         return Ok(state.token);
     }
@@ -288,9 +333,13 @@ pub fn ensure_token() -> Result<String, String> {
         seed.push('x');
     }
     token.truncate(64);
-    state.token = token.clone();
-    save(&state)?;
-    Ok(token)
+    update(|fresh| {
+        // Another initializer may have won while this token was generated.
+        if fresh.token.len() != 64 {
+            fresh.token = token;
+        }
+        Ok(fresh.token.clone())
+    })
 }
 
 /// A depot key is 64 hex characters; anything else is not a key.

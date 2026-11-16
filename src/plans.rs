@@ -97,9 +97,9 @@ pub fn fetch_plan(appid: u64, name_hint: Option<&str>) -> Result<Value, String> 
                         .ok()
                         .and_then(|catalog| catalog.get("name").and_then(Value::as_str).map(str::to_string))
                 });
-                let mut fresh = state::load()?;
-                let summary = crate::hubcap::apply_to_state(&mut fresh, &parsed, &crate::vfsys::stamp(), resolved.as_deref(), false, true);
-                state::save(&fresh)?;
+                let summary = state::update(|fresh| {
+                    Ok(crate::hubcap::apply_to_state(fresh, &parsed, &crate::vfsys::stamp(), resolved.as_deref(), false, true))
+                })?;
                 let installed = write_script(appid).unwrap_or(false);
                 return Ok(json!({
                     "provider": source.name,
@@ -130,7 +130,7 @@ pub fn refresh_plan(appid: u64) -> Result<Value, String> {
 }
 
 fn refresh_filtered(only: Option<u64>) -> Result<Value, String> {
-    let mut st = state::load()?;
+    let st = state::load()?;
     let appids: Vec<u64> = st
         .apps
         .values()
@@ -140,15 +140,40 @@ fn refresh_filtered(only: Option<u64>) -> Result<Value, String> {
     if appids.is_empty() {
         return Ok(json!({ "updated": 0, "scripts": 0, "snapshots": 0, "failures": [] }));
     }
-    let mut updated = 0;
+    // Fetch without a writer lock. The old state is used only to select app ids,
+    // never as the state to save after these potentially slow requests.
+    drop(st);
+    let catalogs: Vec<_> = appids.into_iter()
+        .map(|appid| (appid, crate::steam::catalog(appid)))
+        .collect();
+    let (refreshed, snapshots, failures) = state::update(|fresh| {
+        Ok(merge_refresh(fresh, catalogs))
+    })?;
+    // Commit before rewriting: write_script reloads state, so it must see the
+    // merged plans. Script I/O and its load must stay outside the transaction.
     let mut rewritten = 0;
+    for &appid in &refreshed {
+        if crate::vfsys::script_path(appid).exists() && write_script(appid).unwrap_or(false) {
+            rewritten += 1;
+        }
+    }
+    Ok(json!({ "updated": refreshed.len(), "scripts": rewritten, "snapshots": snapshots, "failures": failures }))
+}
+
+/// Merge only refresh-owned fields into the latest records. In particular a
+/// deleted app stays deleted, and branch, enabled flags, fallback sizes and the
+/// offline catalog all come from the state read inside the transaction.
+fn merge_refresh(
+    st: &mut state::State,
+    catalogs: Vec<(u64, Result<Value, String>)>,
+) -> (Vec<u64>, usize, Vec<Value>) {
     let mut snapshots = 0;
     let mut failures: Vec<Value> = Vec::new();
     let mut refreshed: Vec<u64> = Vec::new();
-    for appid in appids {
-        let Some(record) = st.apps.get(&appid.to_string()).cloned() else { continue };
+    for (appid, result) in catalogs {
+        let Some(record) = st.apps.get_mut(&appid.to_string()) else { continue };
         let branch = record.get("branch").and_then(Value::as_str).unwrap_or("public").to_string();
-        let catalog = match crate::steam::catalog(appid) {
+        let catalog = match result {
             Ok(catalog) => catalog,
             Err(error) => match record.get("catalog").filter(|value| value.is_object()) {
                 Some(snapshot) => {
@@ -195,22 +220,11 @@ fn refresh_filtered(only: Option<u64>) -> Result<Value, String> {
             failures.push(json!({ "appid": appid, "error": "the catalog lists no downloadable depots" }));
             continue;
         }
-        if let Some(fresh) = st.apps.get_mut(&appid.to_string()) {
-            fresh["depots"] = Value::Array(planned);
-            fresh["updated"] = json!(crate::vfsys::stamp());
-            updated += 1;
-        }
+        record["depots"] = Value::Array(planned);
+        record["updated"] = json!(crate::vfsys::stamp());
         refreshed.push(appid);
     }
-    // Save before rewriting: write_script reloads the state from disk, and a plan
-    // rewritten from the previous file would pin the manifest this pass replaced.
-    state::save(&st)?;
-    for appid in refreshed {
-        if crate::vfsys::script_path(appid).exists() && write_script(appid).unwrap_or(false) {
-            rewritten += 1;
-        }
-    }
-    Ok(json!({ "updated": updated, "scripts": rewritten, "snapshots": snapshots, "failures": failures }))
+    (refreshed, snapshots, failures)
 }
 
 /// Rewrites the installed script from the saved plan, so keys that arrived after
@@ -233,6 +247,78 @@ mod tests {
         settings.hubcap_key = hubcap.into();
         settings.ryuu_key = ryuu.into();
         settings
+    }
+
+    #[test]
+    fn refresh_merges_latest_record_and_skips_deleted_apps() {
+        let mut fresh = state::State::default();
+        fresh.apps.insert("620".into(), json!({
+            "appid": 620, "name": "old name", "branch": "public",
+            "depots": [{"depot_id": 621, "gid": "1", "size": 10, "enabled": true}],
+            "dlc": [], "fixes": {"ticket": "forge"},
+        }));
+        fresh.apps.insert("650".into(), json!({"appid": 650, "depots": []}));
+        let stale = fresh.clone();
+        // A network result selected using the old app list arrives after edits.
+        let catalog = json!({"depots": [{"depot_id": 621, "manifests": {
+            "public": {"gid": "100", "size": 1000},
+            "beta": {"gid": "200"}
+        }}]});
+        let fetched: Vec<_> = stale.apps.values().map(|record| {
+            (record["appid"].as_u64().unwrap(), Ok(catalog.clone()))
+        }).collect();
+        let record = fresh.apps.get_mut("620").unwrap();
+        record["name"] = json!("renamed while fetching");
+        record["branch"] = json!("beta");
+        record["depots"][0]["enabled"] = json!(false);
+        record["depots"][0]["size"] = json!(777);
+        record["dlc"] = json!([99]);
+        record["fixes"]["ticket"] = json!("manual");
+        fresh.apps.remove("650");
+        fresh.apps.insert("700".into(), json!({"appid": 700, "name": "new plan"}));
+        fresh.codes.insert("later".into(), 7);
+        fresh.depot_keys.insert("621".into(), "a".repeat(64));
+        fresh.settings.theme = "light".into();
+        fresh.plugins.insert("example".into(), false);
+        fresh.plugin_config.insert("example".into(), Default::default());
+        state::record_gid(&mut fresh, 620, 621, "50", Some(77), "beta");
+        let before = serde_json::to_value(&fresh).unwrap();
+
+        let (refreshed, snapshots, failures) = merge_refresh(&mut fresh, fetched);
+        assert_eq!(refreshed, vec![620]);
+        assert_eq!(snapshots, 0);
+        assert!(failures.is_empty());
+        let depots = &fresh.apps["620"]["depots"];
+        assert_eq!(depots[0]["gid"], "200");
+        assert_eq!(depots[0]["enabled"], false);
+        assert_eq!(depots[0]["size"], 777);
+        // Exactly depots and updated may change, not a stale whole record/state.
+        let mut after = serde_json::to_value(&fresh).unwrap();
+        after["apps"]["620"]["depots"] = before["apps"]["620"]["depots"].clone();
+        after["apps"]["620"].as_object_mut().unwrap().remove("updated");
+        assert_eq!(after, before);
+    }
+
+    #[test]
+    fn refresh_uses_latest_offline_catalog_and_leaves_failures_untouched() {
+        let mut fresh = state::State::default();
+        fresh.apps.insert("620".into(), json!({
+            "appid": 620, "branch": "public", "updated": "old",
+            "depots": [{"depot_id": 621, "gid": "old", "size": 5}],
+            "catalog": {"depots": [{"depot_id": 621,
+                "manifests": {"public": {"gid": "new", "size": 42}}
+            }]}
+        }));
+        let untouched = json!({"appid": 650, "depots": [], "updated": "old"});
+        fresh.apps.insert("650".into(), untouched.clone());
+        let (refreshed, snapshots, failures) = merge_refresh(&mut fresh, vec![
+            (620, Err("offline".into())), (650, Err("offline".into()))
+        ]);
+        assert_eq!(refreshed, vec![620]);
+        assert_eq!(snapshots, 1);
+        assert_eq!(failures, vec![json!({"appid": 650, "error": "offline"})]);
+        assert_eq!(fresh.apps["620"]["depots"][0]["gid"], "new");
+        assert_eq!(fresh.apps["650"], untouched);
     }
 
     #[test]
