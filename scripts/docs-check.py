@@ -9,7 +9,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 BINARY = ROOT / "target/release/exxa"
-DOCS = ["README.md", "ROADMAP.md"]
+DOCS = ["README.md", "docs/ROADMAP.md"]
 
 
 def usage() -> set[str]:
