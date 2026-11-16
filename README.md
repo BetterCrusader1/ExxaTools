@@ -8,11 +8,10 @@ choose its depots, pin manifests, store depot keys, and write a Lua plan into
 Vapor Forge's script directory. Vapor Forge does the hooking, Steam does the
 downloading.
 
-![ExxaTools](docs/game.png)
+![ExxaTools](assets/game.png)
 
 Rust, one binary. The native GTK4 window needs `gtk4` and `libadwaita` at
-runtime. `./exxa` builds it on first use and execs it; the old Python
-implementation is kept under `legacy/` as a reference.
+runtime. `./exxa` builds it on first use and execs it.
 
 ## Starts with Steam
 
@@ -129,8 +128,6 @@ raises the window that already exists. Deep links open a view directly:
 
 The window has two **Nacre** themes: pure-black dark violet and light lilac
 pearl, switched live from the title bar and persisted with the settings.
-`DESIGN.md` holds the full design contract.
-
 Opening a game's store page adds a small ExxaTools card there. It reports
 whether the game is already in the library, offers **Add to library**, **Sync
 manifests** and **Dashboard**, and talks to Rust over the same injection
@@ -273,14 +270,6 @@ dashboard banner and the row inside the Steam panel:
 A line that matches no rule produces nothing. A banner can be dismissed, and
 it returns only when the same line shows up again.
 
-## Plugins
-
-The panel is a host: plugins are folders with an `exxa-plugin.json` manifest
-and a JavaScript entry, listed in Settings and injected into their own
-isolated world inside the Steam window. See
-[docs/PLUGINS.md](docs/PLUGINS.md) and `examples/plugins/hello`; management is
-`exxa plugins list|enable|disable|remove`.
-
 ## Install as a package
 
 ```sh
@@ -328,15 +317,7 @@ tests/           integration tests against a temporary Steam tree
 assets/          injected panel script
 web/             dashboard assets
 packaging/       PKGBUILD and desktop entry
-docs/            design notes, plugin guide, research, roadmap
-legacy/          the Python prototype, reference only
 ```
-
-## Landscape research
-
-`docs/RESEARCH-COMPETITORS.md` maps the Steam depot/manifest ecosystem:
-Windows clients, Linux client mods, manifest providers, and where this
-project stands against each of them.
 
 ## License
 

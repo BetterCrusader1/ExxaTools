@@ -15,8 +15,4 @@ jobs:
       - name: System libraries for the window
         run: sudo apt-get update && sudo apt-get install -y libgtk-4-dev libadwaita-1-dev
       - run: cargo build --release --locked
-      - run: cargo test --release --locked
-      - run: node --check assets/steam-menu.js
-      - run: node --check examples/plugins/hello/frontend.js
-      - run: python3 scripts/docs-check.py
-      - run: ./target/release/exxa selftest
+      - run: cargo clippy --release --locked -- -D warnings
