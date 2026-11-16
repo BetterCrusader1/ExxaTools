@@ -258,7 +258,7 @@ fn host_for(cx: i64, cy: i64) -> Option<Frame> {
 /// Body height for layout decisions: header, an alert row, up to four plan rows,
 /// never taller than the space under the menu icon.
 pub fn panel_height(plans: i64, alert: bool, screen_height: i64) -> i64 {
-    let mut height = 300 + plans.clamp(0, 4) * 30 + if alert { 46 } else { 0 };
+    let mut height = 348 + plans.clamp(0, 4) * 76 + if alert { 46 } else { 0 };
     let room = if screen_height > 0 { screen_height - 80 } else { 900 };
     height = height.min(room.max(240));
     height.max(240)
@@ -313,6 +313,15 @@ fn status_snapshot() -> Value {
     })
 }
 
+fn open_dashboard_page(page: &str) -> Result<(), String> {
+    let url = if page.is_empty() {
+        format!("http://127.0.0.1:{}/", crate::server::port())
+    } else {
+        format!("http://127.0.0.1:{}/?page={page}", crate::server::port())
+    };
+    crate::desktop::open_window(&url)
+}
+
 fn run_action(action: &str) -> String {
     if let Some(rest) = action.strip_prefix("install:") {
         let Ok(appid) = rest.parse::<u64>() else { return "bad app id".into() };
@@ -329,6 +338,33 @@ fn run_action(action: &str) -> String {
                 "plan {appid} rebuilt ({} depot set(s))",
                 report.get("updated").and_then(Value::as_u64).unwrap_or(0)
             ),
+            Err(error) => error,
+        };
+    }
+    if let Some(rest) = action.strip_prefix("sync:") {
+        let Ok(appid) = rest.parse::<u64>() else { return "bad app id".into() };
+        return match crate::plans::refresh_plan(appid) {
+            Ok(report) => format!(
+                "plan {appid} synced ({} manifest update(s))",
+                report.get("updated").and_then(Value::as_u64).unwrap_or(0)
+            ),
+            Err(error) => error,
+        };
+    }
+    if let Some(rest) = action.strip_prefix("play:") {
+        let Ok(appid) = rest.parse::<u64>() else { return "bad app id".into() };
+        return match std::process::Command::new("steam")
+            .arg(format!("steam://rungameid/{appid}"))
+            .spawn()
+        {
+            Ok(_) => format!("launching {appid}"),
+            Err(error) => format!("Steam did not open: {error}"),
+        };
+    }
+    if let Some(rest) = action.strip_prefix("fix:") {
+        let Ok(appid) = rest.parse::<u64>() else { return "bad app id".into() };
+        return match crate::appmanifest::patch_with_restart(appid, &crate::appmanifest::Mode::Fix) {
+            Ok(_) => format!("update flags repaired for {appid}; Steam restarted"),
             Err(error) => error,
         };
     }
@@ -374,8 +410,27 @@ fn run_action(action: &str) -> String {
                 count => format!("refreshed {count} scripts"),
             }
         }
-        "open" => match crate::desktop::open_window("") {
+        "open" | "dashboard" => match open_dashboard_page("") {
             Ok(()) => "dashboard opened".into(),
+            Err(error) => error,
+        },
+        "discover" => match open_dashboard_page("discover") {
+            Ok(()) => "Discover opened".into(),
+            Err(error) => error,
+        },
+        "system" => match open_dashboard_page("system") {
+            Ok(()) => "system checks opened".into(),
+            Err(error) => error,
+        },
+        "settings" => match open_dashboard_page("settings") {
+            Ok(()) => "settings opened".into(),
+            Err(error) => error,
+        },
+        "sync_all" => match crate::plans::refresh_manifests() {
+            Ok(report) => format!(
+                "{} manifest(s) synced",
+                report.get("updated").and_then(Value::as_u64).unwrap_or(0)
+            ),
             Err(error) => error,
         },
         "restart" => match crate::steamctl::restart(&[]) {
@@ -393,14 +448,6 @@ fn run_action(action: &str) -> String {
                 Err(error) => error,
             }
         }
-        "dashboard" => match crate::desktop::open_window("") {
-            Ok(()) => "dashboard opened".into(),
-            Err(error) => error,
-        },
-        "settings" => match crate::desktop::open_window("") {
-            Ok(()) => "settings opened".into(),
-            Err(error) => error,
-        },
         "close" => {
             hide_panel();
             String::new()
@@ -436,19 +483,33 @@ fn handle_page_request(ws: &str, request: &Value) {
         .unwrap_or(false);
     let (status, can_add, can_sync, can_setup) = match want {
         "dashboard" => {
-            let message = match crate::desktop::open_window("") {
+            let message = match open_dashboard_page("") {
                 Ok(()) => "Dashboard opened".to_string(),
                 Err(error) => error,
             };
             (message, false, planned, false)
         }
         "settings" => {
-            let message = match crate::desktop::open_window("") {
+            let message = match open_dashboard_page("settings") {
                 Ok(()) => "Settings opened".to_string(),
                 Err(error) => error,
             };
             (message, false, planned, false)
         }
+        "launch" => {
+            let message = match std::process::Command::new("steam")
+                .arg(format!("steam://rungameid/{appid}"))
+                .spawn()
+            {
+                Ok(_) => format!("Launching {name}"),
+                Err(error) => format!("Steam did not open: {error}"),
+            };
+            (message, false, planned, false)
+        }
+        "fix" => match crate::appmanifest::patch_with_restart(appid, &crate::appmanifest::Mode::Fix) {
+            Ok(_) => (format!("{name} update flags repaired; Steam restarted"), false, true, false),
+            Err(error) => (error, false, true, false),
+        },
         "add" => match crate::plans::fetch_plan(appid, Some(&name)) {
             Ok(_) => (
                 format!("{name} added — restart Steam to install it"),
@@ -483,6 +544,8 @@ fn handle_page_request(ws: &str, request: &Value) {
         "can_add": can_add,
         "can_sync": can_sync,
         "can_setup": can_setup,
+        "can_launch": planned,
+        "can_fix": planned && crate::appmanifest::manifest_path(appid).is_some(),
     });
     let expression = format!("window.__vdPageState = {payload};");
     let _ = cdp::evaluate(ws, &expression, std::time::Duration::from_secs(2));
@@ -539,7 +602,7 @@ fn pump() {
             if !act.is_empty() {
                 let _ = cdp::evaluate(page_ws, "window.__vdAction = null", std::time::Duration::from_millis(600));
                 let message = run_action(&act);
-                if act == "dashboard" || act == "settings" {
+                if matches!(act.as_str(), "dashboard" | "discover" | "system" | "settings") {
                     hide_panel();
                 }
                 let say = format!("window.__vdSay && window.__vdSay({message:?})");
@@ -565,9 +628,9 @@ fn pump() {
         if !action.is_empty() {
             let _ = cdp::evaluate(&panel_ws, "window.__vdAction = ''", std::time::Duration::from_secs(2));
             let message = run_action(&action);
-        if action == "dashboard" || action == "settings" {
-            hide_panel();
-        }
+            if matches!(action.as_str(), "dashboard" | "discover" | "system" | "settings") {
+                hide_panel();
+            }
             let state = status_snapshot();
             let payload = json!({ "engine": state["engine"], "apps": state["apps"], "msg": message });
             let expression = format!("window.__vdUpdate({payload})");
@@ -604,7 +667,7 @@ pub fn panel(open: bool, toggle: bool, x: i64, y: i64, screen_x: i64, screen_y: 
         return Err("Steam is not running".into());
     }
 
-    let width = 300i64;
+    let width = 344i64;
     let plans = crate::state::load().map(|state| state.apps.len()).unwrap_or(0) as i64;
     let alerts = crate::diagnose::from_files()
         .get("incidents")
@@ -1178,18 +1241,18 @@ mod height_tests {
 
     #[test]
     fn height_grows_with_plans() {
-        assert_eq!(panel_height(0, false, 0), 300);
-        assert_eq!(panel_height(2, false, 0), 360);
+        assert_eq!(panel_height(0, false, 0), 348);
+        assert_eq!(panel_height(2, false, 0), 500);
     }
 
     #[test]
     fn alert_adds_a_row() {
-        assert_eq!(panel_height(0, true, 0), 346);
+        assert_eq!(panel_height(0, true, 0), 394);
     }
 
     #[test]
     fn plans_are_capped_at_four() {
-        assert_eq!(panel_height(9, false, 0), 420);
+        assert_eq!(panel_height(9, false, 0), 652);
     }
 
     #[test]

@@ -84,10 +84,15 @@ pub fn build(ctx: &Ctx) -> SettingsPage {
     add_custom.set_valign(gtk::Align::Center);
     let add_row = adw::ActionRow::builder().title("Append to the chain").build();
     add_row.add_suffix(&add_custom);
-    providers.add(&custom_name);
-    providers.add(&custom_url);
-    providers.add(&custom_field);
-    providers.add(&add_row);
+    let custom = adw::ExpanderRow::builder()
+        .title("Add a custom mirror")
+        .subtitle("A name and a URL containing {gid}")
+        .build();
+    custom.add_row(&custom_name);
+    custom.add_row(&custom_url);
+    custom.add_row(&custom_field);
+    custom.add_row(&add_row);
+    providers.add(&custom);
     page.add(&providers);
 
     let save = gtk::Button::with_label("Save changes");

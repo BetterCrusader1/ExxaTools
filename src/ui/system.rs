@@ -36,6 +36,13 @@ pub fn build(ctx: &Ctx) -> SystemPage {
     let commands = ctx.commands.clone();
     copy.connect_clicked(move |_| commands.send(Command::CopyDiagnostics));
 
+    let restart = gtk::Button::with_label("Restart Steam");
+    restart.add_css_class("flat");
+    restart.set_valign(gtk::Align::Center);
+    restart.set_tooltip_text(Some("Close Steam and start it with ExxaTools wired"));
+    let commands = ctx.commands.clone();
+    restart.connect_clicked(move |_| commands.send(Command::RestartSteam));
+
     let refresh = gtk::Button::from_icon_name("view-refresh-symbolic");
     refresh.add_css_class("flat");
     refresh.set_tooltip_text(Some("Run the checks again"));
@@ -50,6 +57,7 @@ pub fn build(ctx: &Ctx) -> SystemPage {
     header.set_margin_end(24);
     header.append(&headings);
     header.append(&copy);
+    header.append(&restart);
     header.append(&refresh);
 
     let summary_icon = gtk::Image::from_icon_name("emblem-ok-symbolic");

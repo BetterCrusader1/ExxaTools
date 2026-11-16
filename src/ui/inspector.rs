@@ -50,7 +50,7 @@ impl Inspector {
             .build();
         if let Some(ctx) = ctx {
             let discover = gtk::Button::with_label("Browse Discover");
-            discover.add_css_class("pill");
+            discover.add_css_class("suggested-action");
             discover.set_halign(gtk::Align::Center);
             let ctx = ctx.clone();
             discover.connect_clicked(move |_| ctx.navigate(crate::ui::shell::Page::Discover));
@@ -79,6 +79,15 @@ impl Inspector {
             let appid = game.appid;
             sync.connect_clicked(move |_| commands.send(Command::Sync(appid)));
             actions.append(&sync);
+
+            let fix = gtk::Button::with_label("Fix update loop");
+            fix.add_css_class("flat");
+            fix.set_cursor_from_name(Some("pointer"));
+            fix.set_tooltip_text(Some("Repair appmanifest flags and restart Steam"));
+            let commands = ctx.commands.clone();
+            let appid = game.appid;
+            fix.connect_clicked(move |_| commands.send(Command::Fix(appid)));
+            actions.append(&fix);
         }
 
         let more = gtk::MenuButton::new();

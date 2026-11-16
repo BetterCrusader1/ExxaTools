@@ -24,7 +24,9 @@ steam          # the server comes up by itself
 ```
 
 Inside Steam: an ExxaTools panel next to **Help**, a card on every store page,
-and the dashboard as a native window (not a browser tab).
+and the dashboard as a native window (not a browser tab). The panel has quick
+actions for Discover, manifest sync, plan repair, the provider and Steam
+restart; each library game has Install, Sync, Launch and Fix update buttons.
 
 ## The dashboard
 
@@ -33,7 +35,7 @@ and the dashboard as a native window (not a browser tab).
 - **System** — the Doctor's checks, each with its fix
 - **Settings** — sources, keys, request-code mirrors
 
-Two pearl themes — pure-black violet and light lilac — switched live from the
+Two Nacre themes — graphite violet and light pearl — switched live from the
 title bar.
 
 ## Daily commands

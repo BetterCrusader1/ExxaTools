@@ -8,6 +8,9 @@ window.__vdPanel = (opts) => {
   const API = "__API__";
   const PANEL = "__PANEL__";
   const glyph = (name) => (window.__vdGlyphs || {})[name] || "";
+  const escapeHtml = (value) => String(value == null ? "" : value)
+    .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
 
   const openDashboard = (route) => {
     let shell = document.getElementById(PANEL + "-dash");
@@ -40,7 +43,7 @@ window.__vdPanel = (opts) => {
     try { localStorage.setItem(POS_KEY, JSON.stringify({ x: Math.round(x), y: Math.round(y) })); } catch (error) { }
   };
   const clampPos = (x, y) => {
-    const width = 320, height = 120;
+    const width = 344, height = 120;
     return {
       x: Math.max(8, Math.min(x, window.innerWidth - width - 8)),
       y: Math.max(8, Math.min(y, window.innerHeight - height)),
@@ -53,103 +56,108 @@ window.__vdPanel = (opts) => {
     style.id = PANEL + "-style";
     style.textContent = `
       #${PANEL} {
-        position: fixed; z-index: 2147483647; width: 320px;
-        background: #0A0B0D; border: 1px solid #2E333B; border-radius: 14px;
-        box-shadow: 0 20px 48px rgba(0,0,0,.55);
-        font-family: Montserrat, "Motiva Sans", Arial, sans-serif;
-        color: #F4F5F7; display: none;
+        position: fixed; z-index: 2147483647; width: 344px;
+        background: rgba(23,26,33,.985); border: 1px solid #3b4a5a; border-radius: 12px;
+        box-shadow: 0 18px 44px rgba(0,0,0,.48);
+        font-family: "Motiva Sans", "Segoe UI", Arial, sans-serif;
+        color: #dfe6ed; display: none;
         max-height: calc(100vh - 16px);
         overflow-y: auto;
         overscroll-behavior: contain;
       }
       #${PANEL}.open { display: block; }
-      #${PANEL} .vd-state[hidden] { display: none; }
-      #${PANEL} .vd-head { cursor: grab; user-select: none; }
+      #${PANEL} .vd-state[hidden], #${PANEL} [hidden] { display: none !important; }
+      #${PANEL} .vd-head { cursor: grab; user-select: none; padding: 13px 13px 11px;
+        border-bottom: 1px solid #2a313b; }
       #${PANEL}.dragging, #${PANEL}.dragging .vd-head { cursor: grabbing; }
-      #${PANEL} .vd-head { padding: 14px 14px 11px; border-bottom: 1px solid #1A1D21; }
       #${PANEL} .vd-brand { display: flex; align-items: center; gap: 8px; }
-      #${PANEL} .vd-name { flex: 1; font-size: 13.5px; font-weight: 650; letter-spacing: .005em; }
+      #${PANEL} .vd-name { flex: 1; font-size: 14px; font-weight: 600; letter-spacing: .01em; }
       #${PANEL} .vd-x {
         width: 28px; height: 28px; flex: none; display: grid; place-items: center;
-        border: 0; border-radius: 7px; background: transparent;
-        color: #C9CDD3; font: 500 16px/1 Montserrat, Arial, sans-serif; cursor: pointer;
+        border: 0; border-radius: 6px; background: transparent;
+        color: #aab7c4; font: 500 17px/1 Arial, sans-serif; cursor: pointer;
       }
-      #${PANEL} .vd-x:hover { background: #1A1D21; color: #F4F5F7; }
+      #${PANEL} .vd-x:hover { background: #2a475e; color: #ffffff; }
       #${PANEL} .vd-state { display: flex; align-items: center; gap: 7px; margin-top: 8px;
-        font-size: 11.5px; color: #C9CDD3; }
-      #${PANEL} .vd-ver { margin-left: auto; font-size: 10.5px; color: #A9AFB7;
+        font-size: 11.5px; color: #b8c4cf; }
+      #${PANEL} .vd-ver { margin-left: auto; font-size: 10.5px; color: #8294a5;
         font-variant-numeric: tabular-nums; }
-      #${PANEL} .vd-dot { width: 7px; height: 7px; border-radius: 50%; background: #6B7686; flex: none; }
-      #${PANEL} .vd-state.ok .vd-dot { background: #8FBFA6; box-shadow: 0 0 0 3px rgba(88,183,126,.14); }
-      #${PANEL} .vd-state.warn .vd-dot { background: #D8B27A; box-shadow: 0 0 0 3px rgba(217,161,90,.14); }
-      #${PANEL} .vd-state.bad .vd-dot { background: #D96A60; box-shadow: 0 0 0 3px rgba(217,101,92,.14); }
-      #${PANEL} .vd-body { padding: 4px 8px 8px; }
-      #${PANEL} .vd-label { margin: 20px 6px 8px; padding: 0;
-        font-size: 10.5px; font-weight: 700; letter-spacing: .07em;
-        text-transform: uppercase; color: #B7BCC4; }
-      #${PANEL} .vd-body > .vd-label:first-of-type { margin-top: 10px; }
-      #${PANEL} .vd-alert[hidden] { display: none; }
-      #${PANEL} .vd-alert { display: flex; align-items: center; gap: 8px; margin: 6px 6px 2px;
-        padding: 8px 10px; border: 1px solid rgba(237,180,95,.28); border-radius: 8px;
-        background: rgba(237,180,95,.06); font-size: 11.5px; color: #E9C48A; }
+      #${PANEL} .vd-dot { width: 7px; height: 7px; border-radius: 50%; background: #8294a5; flex: none; }
+      #${PANEL} .vd-state.ok .vd-dot { background: #8fc7a5; }
+      #${PANEL} .vd-state.warn .vd-dot { background: #d8b27a; }
+      #${PANEL} .vd-state.bad .vd-dot { background: #d96a60; }
+      #${PANEL} .vd-body { padding: 6px 10px 10px; }
+      #${PANEL} .vd-label { margin: 13px 3px 7px; padding: 0;
+        font-size: 11px; font-weight: 600; color: #8fa4b5; }
+      #${PANEL} .vd-alert { display: flex; align-items: center; gap: 7px; margin: 5px 2px 2px;
+        padding: 8px 9px; border: 1px solid rgba(216,178,122,.32); border-radius: 8px;
+        background: rgba(216,178,122,.08); font-size: 11.5px; color: #e9c48a; }
       #${PANEL} .vd-alert-text { flex: 1; line-height: 1.35; }
-      #${PANEL} .vd-mini { height: 26px; padding: 0 11px; border: 1px solid #2B3037;
-        border-radius: 7px; background: #222D3A; color: #E9ECEF;
-        font: 600 11px Montserrat, Arial, sans-serif; cursor: pointer; }
-      #${PANEL} .vd-mini:hover { background: #1F242B; border-color: #3A424C; color: #FFFFFF; }
-      #${PANEL} .vd-mini.strong { background: #F2F3F5; border-color: #F2F3F5; color: #0A0B0D; }
-      #${PANEL} .vd-mini.strong:hover { background: #FFFFFF; color: #0A0B0D; }
-      #${PANEL} .vd-primary { height: 28px; margin-top: 4px; padding: 0 11px;
-        border: 0; border-radius: 7px; background: #F2F3F5; color: #0A0B0D;
-        font: 600 11.5px Montserrat, Arial, sans-serif; cursor: pointer; }
-      #${PANEL} .vd-primary:hover { filter: brightness(1.06); }
-      #${PANEL} .vd-primary:active { filter: brightness(.94); }
-      #${PANEL} .vd-link { align-self: flex-start; padding: 0; border: 0; background: none;
-        color: #F2F3F5; font: 500 11.5px Montserrat, Arial, sans-serif; cursor: pointer; }
-      #${PANEL} .vd-link:hover { text-decoration: underline; }
-      #${PANEL} .vd-actions { display: flex; flex-direction: column; gap: 1px; }
-      #${PANEL} .vd-item { display: flex; align-items: center; width: 100%; min-height: 36px;
-        padding: 7px 8px; gap: 10px; background: transparent; border: 0;
-        border-radius: 8px; color: #C9CDD3;
-        font: 500 12.5px Montserrat, "Motiva Sans", Arial, sans-serif;
+      #${PANEL} .vd-mini { min-height: 26px; padding: 3px 9px; border: 1px solid #46647a;
+        border-radius: 6px; background: #2a475e; color: #e6eef4;
+        font: 600 11px "Motiva Sans", Arial, sans-serif; cursor: pointer; }
+      #${PANEL} .vd-mini:hover { background: #355c79; border-color: #66c0f4; color: #ffffff; }
+      #${PANEL} .vd-quick { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+      #${PANEL} .vd-action { min-height: 34px; padding: 7px 9px; border: 1px solid #3b4a5a;
+        border-radius: 7px; background: #202a35; color: #d7e0e8;
+        font: 500 11.5px "Motiva Sans", Arial, sans-serif; text-align: left; cursor: pointer; }
+      #${PANEL} .vd-action:hover { background: #2a475e; border-color: #57809e; color: #ffffff; }
+      #${PANEL} .vd-action.primary { background: #66c0f4; border-color: #66c0f4; color: #102331; font-weight: 700; }
+      #${PANEL} .vd-action.primary:hover { background: #8bd0f7; border-color: #8bd0f7; }
+      #${PANEL} .vd-item { display: flex; align-items: center; width: 100%; min-height: 32px;
+        padding: 6px 8px; gap: 8px; border: 0; border-radius: 7px; background: transparent;
+        color: #cdd9e3; font: 500 11.5px "Motiva Sans", Arial, sans-serif;
         text-align: left; cursor: pointer; }
-      #${PANEL} .vd-item:hover { background: #14171B; color: #EEF3F8; }
-      #${PANEL} .vd-item:focus-visible, #${PANEL} .vd-mini:focus-visible,
-      #${PANEL} .vd-primary:focus-visible, #${PANEL} .vd-x:focus-visible {
-        outline: 2px solid #F2F3F5; outline-offset: 2px; }
-      #${PANEL} .vd-item svg { width: 16px; height: 16px; flex: none; opacity: .7; }
-      #${PANEL} .vd-item:hover svg { opacity: .9; }
-      #${PANEL} .vd-foot { height: 1px; margin: 14px 6px 4px; background: #1A1D21; }
-      #${PANEL} .vd-about { margin-top: 2px; color: #A3A7AE; }
-      #${PANEL} .vd-msg { padding: 8px 8px 0; font-size: 11.5px; color: #A3A7AE; }
+      #${PANEL} .vd-item:hover { background: #2a475e; color: #ffffff; }
+      #${PANEL} .vd-item svg { width: 16px; height: 16px; flex: none; opacity: .8; }
+      #${PANEL} .vd-games { display: flex; flex-direction: column; gap: 5px; }
+      #${PANEL} .vd-games:empty { display: none; }
+      #${PANEL} .vd-game { padding: 8px 9px; border: 1px solid #2f3b47; border-radius: 8px;
+        background: #1b232d; }
+      #${PANEL} .vd-game-top { display: flex; align-items: center; gap: 7px; min-width: 0; }
+      #${PANEL} .vd-game-dot { width: 6px; height: 6px; border-radius: 50%; background: #d8b27a; flex: none; }
+      #${PANEL} .vd-game.ready .vd-game-dot { background: #8fc7a5; }
+      #${PANEL} .vd-game.keys_missing .vd-game-dot { background: #d96a60; }
+      #${PANEL} .vd-game-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis;
+        white-space: nowrap; font-size: 12px; font-weight: 600; color: #e3eaf0; }
+      #${PANEL} .vd-game-state { font-size: 10.5px; color: #8fa4b5; }
+      #${PANEL} .vd-game-actions { display: flex; gap: 5px; margin-top: 7px; }
+      #${PANEL} .vd-game-actions button { flex: 1; min-height: 26px; padding: 3px 6px;
+        border: 1px solid #3b4a5a; border-radius: 6px; background: #24313e; color: #cdd9e3;
+        font: 500 10.5px "Motiva Sans", Arial, sans-serif; cursor: pointer; }
+      #${PANEL} .vd-game-actions button:hover { background: #2a475e; border-color: #57809e; color: #ffffff; }
+      #${PANEL} .vd-link { padding: 5px 4px; border: 0; border-radius: 5px; background: none;
+        color: #9eb3c3; font: 500 11px "Motiva Sans", Arial, sans-serif; cursor: pointer; }
+      #${PANEL} .vd-link:hover { background: #2a313b; color: #ffffff; }
+      #${PANEL} .vd-msg { padding: 8px 3px 0; font-size: 11px; line-height: 1.35; color: #9eb3c3; }
       #${PANEL} .vd-msg:empty { display: none; }
-      #${PANEL} .vd-plugins { display: flex; flex-direction: column; gap: 8px; }
-      #${PANEL} .vd-plugins section { padding: 12px 12px 12px; border: 1px solid #1F2328;
-        border-radius: 10px; background: #101215; }
-      #${PANEL} .vd-plugins section .vd-label { margin: 0 0 6px; padding: 0;
-        font-size: 11.5px; font-weight: 650; letter-spacing: 0; text-transform: none;
-        color: #C9CDD3; }
+      #${PANEL} .vd-plugins { display: flex; flex-direction: column; gap: 7px; }
+      #${PANEL} .vd-plugins section { padding: 10px; border: 1px solid #2f3b47;
+        border-radius: 8px; background: #1b232d; }
+      #${PANEL} .vd-plugins section .vd-label { margin: 0 0 6px; color: #b8c4cf; }
       #${PANEL} .vd-plugins:empty { display: none; }
-      #${PANEL} .vd-plugins .vd-label { margin: 0 0 4px; padding: 0; font-weight: 600; }
+      #${PANEL} .vd-foot { height: 1px; margin: 12px 2px 5px; background: #2a313b; }
+      #${PANEL} .vd-foot-row { display: flex; align-items: center; gap: 2px; }
+      #${PANEL} button:focus-visible { outline: 2px solid #66c0f4; outline-offset: 2px; }
       #${PANEL}-dash {
         position: fixed; inset: 0; z-index: 2147483647;
-        display: none; flex-direction: column; background: #0c0f13;
-        font-family: Montserrat, "Motiva Sans", Arial, sans-serif;
+        display: none; flex-direction: column; background: #171a21;
+        font-family: "Motiva Sans", "Segoe UI", Arial, sans-serif;
       }
       #${PANEL}-dash.open { display: flex; }
       #${PANEL}-dash .vd-dash-bar {
-        display: flex; align-items: center; gap: 10px; height: 38px; flex: none;
-        padding: 0 10px 0 14px; background: #0A0B0D; border-bottom: 1px solid #23262B;
-        color: #F4F5F7; font-size: 12.5px; font-weight: 600;
+        display: flex; align-items: center; gap: 10px; height: 40px; flex: none;
+        padding: 0 10px 0 14px; background: #171a21; border-bottom: 1px solid #2a313b;
+        color: #dfe6ed; font-size: 12.5px; font-weight: 600;
       }
-      #${PANEL}-dash .vd-dash-bar span { flex: 1; color: #8E939B; font-weight: 400; }
+      #${PANEL}-dash .vd-dash-bar span { flex: 1; color: #8fa4b5; font-weight: 400; }
       #${PANEL}-dash .vd-dash-x {
-        width: 26px; height: 26px; display: grid; place-items: center;
-        border: 1px solid #2B3037; border-radius: 7px; background: transparent;
-        color: #8E939B; font: 500 14px/1 Montserrat, Arial, sans-serif; cursor: pointer;
+        width: 27px; height: 27px; display: grid; place-items: center;
+        border: 1px solid #3b4a5a; border-radius: 6px; background: transparent;
+        color: #aab7c4; font: 500 15px/1 Arial, sans-serif; cursor: pointer;
       }
-      #${PANEL}-dash .vd-dash-x:hover { background: #1A1D21; color: #EFF3F8; }
-      #${PANEL}-dash iframe { flex: 1; width: 100%; border: 0; background: #0c0f13; }
+      #${PANEL}-dash .vd-dash-x:hover { background: #2a475e; color: #ffffff; }
+      #${PANEL}-dash iframe { flex: 1; width: 100%; border: 0; background: #171a21; }
     `;
     // Refresh the stylesheet instead of skipping it: a panel injected by an
     // older build leaves a style node behind, and new rules would never apply.
@@ -170,18 +178,24 @@ window.__vdPanel = (opts) => {
           <button class="vd-mini" data-act="keys">Fix</button>
           <button class="vd-mini" data-act="dismiss" title="Hide until it happens again">×</button>
         </div>
-        <div class="vd-label">Actions</div>
-        <div class="vd-actions">
-          <button class="vd-item" data-act="open">ICON_GLYPH_APP Open dashboard</button>
-          <button class="vd-item" data-act="restart">ICON_GLYPH_RESTART Restart Steam</button>
-          <button class="vd-item" data-act="provider">ICON_GLYPH_PROVIDER Install provider</button>
+        <div class="vd-label">Quick actions</div>
+        <div class="vd-quick">
+          <button class="vd-action primary" data-act="dashboard">Open dashboard</button>
+          <button class="vd-action" data-act="discover">Browse games</button>
+          <button class="vd-action" data-act="sync_all">Sync all manifests</button>
+          <button class="vd-action" data-act="keys">Repair saved plans</button>
+          <button class="vd-action" data-act="provider">Update provider</button>
+          <button class="vd-action" data-act="restart">Restart Steam</button>
         </div>
+        <div class="vd-label vd-library-label" id="vd-library-label" hidden>Library</div>
+        <div class="vd-games" id="vd-games"></div>
         <div class="vd-label vd-label-plugins" hidden>Plugins</div>
         <div class="vd-plugins" id="vd-plugins-host"></div>
         <div class="vd-msg" id="vd-msg"></div>
         <div class="vd-foot"></div>
         <div class="vd-foot-row">
-          <button class="vd-item vd-about" data-act="about">ICON_GLYPH_ABOUT About</button>
+          <button class="vd-link" data-act="system">System check</button>
+          <button class="vd-link" data-act="settings">Settings</button>
           <span class="vd-ver" id="vd-ver"></span>
         </div>
       </div>
@@ -253,6 +267,39 @@ window.__vdPanel = (opts) => {
         stateNode.hidden = true;
       }
       window.__vdLastState = state;
+      const games = (Array.isArray(state.apps) ? state.apps : [])
+        .filter((game) => Number(game && game.appid) > 0);
+      const gamesHost = panel.querySelector("#vd-games");
+      const gamesLabel = panel.querySelector("#vd-library-label");
+      if (gamesLabel) {
+        gamesLabel.hidden = games.length === 0;
+        gamesLabel.textContent = games.length ? `Library · ${games.length}` : "Library";
+      }
+      if (gamesHost) {
+        const signature = JSON.stringify(games.map((game) => [
+          game.appid, game.name, game.state, game.installed,
+        ]));
+        if (gamesHost.dataset.signature !== signature) {
+          gamesHost.dataset.signature = signature;
+          gamesHost.innerHTML = games.slice(0, 6).map((game) => {
+            const appid = Number(game.appid);
+            const name = escapeHtml(game.name || `App ${appid}`);
+            const planState = escapeHtml(game.state || "planned");
+            const install = game.installed ? "" :
+              `<button data-act="install:${appid}">Install plan</button>`;
+            const launch = game.installed ?
+              `<button data-act="play:${appid}">Launch</button>` : "";
+            return `<div class="vd-game ${planState}">`
+              + `<div class="vd-game-top"><span class="vd-game-dot"></span>`
+              + `<span class="vd-game-name" title="${name}">${name}</span>`
+              + `<span class="vd-game-state">${planState.replace("_", " ")}</span></div>`
+              + `<div class="vd-game-actions">${install}`
+              + `<button data-act="sync:${appid}">Sync</button>${launch}`
+              + `<button data-act="fix:${appid}" title="Repair update flags and restart Steam">Fix update</button>`
+              + `</div></div>`;
+          }).join("");
+        }
+      }
       window.__vdHidden = window.__vdHidden || new Set();
       const key = (incident) => `${incident.id}:${(incident.line || "").slice(0, 60)}`;
       const alerts = (state.diagnose || [])
@@ -483,27 +530,29 @@ window.__vdAppPage = () => {
     style.id = "vd-app-style";
     style.textContent = `
       #vd-app-card { position: fixed; right: 18px; bottom: 64px; z-index: 2147483000;
-        width: 268px; padding: 12px; border-radius: 12px; background: #0A0B0D;
-        border: 1px solid #2E333B; box-shadow: 0 16px 40px rgba(0,0,0,.55);
-        font-family: Montserrat, "Motiva Sans", Arial, sans-serif; color: #F4F5F7; }
-      #vd-app-card .t { display: flex; align-items: center; gap: 8px; font-size: 11.5px;
-        font-weight: 700; letter-spacing: .02em; color: #C9CFD6; }
+        width: 292px; padding: 13px; border-radius: 12px; background: rgba(23,26,33,.985);
+        border: 1px solid #3b4a5a; box-shadow: 0 16px 40px rgba(0,0,0,.48);
+        font-family: "Motiva Sans", "Segoe UI", Arial, sans-serif; color: #dfe6ed; }
+      #vd-app-card .t { display: flex; align-items: center; gap: 8px; font-size: 11px;
+        font-weight: 600; color: #8fa4b5; }
       #vd-app-card .t span { flex: 1; }
-      #vd-app-card .n { margin-top: 6px; font-size: 13.5px; font-weight: 600; }
-      #vd-app-card .s { margin-top: 3px; font-size: 11.5px; color: #A9AFB7; line-height: 1.35; }
-      #vd-app-card .a { display: flex; gap: 6px; margin-top: 10px; flex-wrap: wrap; }
-      #vd-app-card button { box-sizing: border-box; height: 28px; padding: 0 10px;
-        border-radius: 7px; white-space: nowrap; line-height: 1;
-        border: 1px solid #2B3037; background: #16191E; color: #E2E7EC;
-        font: 600 11.5px Montserrat, Arial, sans-serif; cursor: pointer;
+      #vd-app-card .n { margin-top: 6px; font-size: 14px; font-weight: 600; color: #eef3f7; }
+      #vd-app-card .s { margin-top: 4px; font-size: 11.5px; color: #a9b8c5; line-height: 1.4; }
+      #vd-app-card .a { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: 11px; }
+      #vd-app-card button { box-sizing: border-box; min-height: 30px; padding: 6px 9px;
+        border-radius: 7px; white-space: nowrap; line-height: 1.15;
+        border: 1px solid #3b4a5a; background: #202a35; color: #d7e0e8;
+        font: 600 11px "Motiva Sans", Arial, sans-serif; cursor: pointer;
         transition: background-color 120ms ease, border-color 120ms ease, color 120ms ease; }
-      #vd-app-card button.primary { background: #F2F3F5; border-color: #F2F3F5; color: #0A0B0D; }
-      #vd-app-card button:hover { border-color: #3A424C; background: #1D2229; }
-      #vd-app-card button.primary:hover { background: #FFFFFF; border-color: #FFFFFF; }
-      #vd-app-card button[data-want="close"] { width: 26px; padding: 0; margin-left: auto;
-        color: #A9AFB7; font-size: 14px; }
-      #vd-app-card button[data-want="close"]:hover { color: #F4F5F7; }
+      #vd-app-card button.primary { background: #66c0f4; border-color: #66c0f4; color: #102331; }
+      #vd-app-card button:hover { border-color: #57809e; background: #2a475e; color: #ffffff; }
+      #vd-app-card button.primary:hover { background: #8bd0f7; border-color: #8bd0f7; color: #102331; }
+      #vd-app-card button[data-want="close"] { position: absolute; right: 8px; top: 8px;
+        width: 25px; min-height: 25px; padding: 0; border: 0; background: transparent;
+        color: #8fa4b5; font-size: 15px; }
+      #vd-app-card button[data-want="close"]:hover { color: #ffffff; background: #2a475e; }
       #vd-app-card button[disabled] { opacity: .55; cursor: default; }
+      #vd-app-card [hidden] { display: none !important; }
     `;
     document.head.appendChild(style);
   }
@@ -521,7 +570,9 @@ window.__vdAppPage = () => {
       + '<div class="n" data-name>App ' + appid + '</div>'
       + '<div class="s" data-status>Looking up this game…</div>'
       + '<div class="a"><button class="primary" data-want="add" hidden>Add to library</button>'
+      + '<button data-want="launch" hidden>Launch</button>'
       + '<button data-want="sync" hidden>Sync manifests</button>'
+      + '<button data-want="fix" hidden title="Repair update flags and restart Steam">Fix update</button>'
       + '<button data-want="settings" hidden>Setup source</button>'
       + '<button data-want="dashboard">Dashboard</button>'
       + '<button data-want="close" title="Hide">×</button></div>';
@@ -554,6 +605,10 @@ window.__vdAppPage = () => {
     sync.hidden = !state.can_sync;
     const setup = card.querySelector('[data-want="settings"]');
     if (setup) setup.hidden = !state.can_setup;
+    const launch = card.querySelector('[data-want="launch"]');
+    if (launch) launch.hidden = !state.can_launch;
+    const fix = card.querySelector('[data-want="fix"]');
+    if (fix) fix.hidden = !state.can_fix;
     card.querySelectorAll("button").forEach((node) => { node.disabled = false; });
   };
 

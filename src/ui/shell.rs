@@ -92,8 +92,8 @@ struct NavRail {
 }
 
 pub fn run(url: &str) -> Result<(), String> {
-    let initial = page_from_url(url);
     let app = adw::Application::builder().application_id(APP_ID).build();
+    app.set_flags(gtk::gio::ApplicationFlags::HANDLES_COMMAND_LINE);
     app.connect_startup(|_| {
         if let Some(display) = gtk::gdk::Display::default() {
             let provider = gtk::CssProvider::new();
@@ -105,18 +105,32 @@ pub fn run(url: &str) -> Result<(), String> {
             );
         }
     });
-    app.connect_activate(move |app| {
-        if let Some(window) = app.active_window() {
-            window.present();
-            return;
+    // command_line runs in the primary process for later invocations too. That
+    // means `exxa window --url …?page=discover` really changes the open window
+    // instead of merely raising it on whatever page it had before.
+    let current: Rc<RefCell<Option<Ctx>>> = Rc::new(RefCell::new(None));
+    app.connect_command_line(move |app, command_line| {
+        let page = command_line
+            .arguments()
+            .get(1)
+            .and_then(|value| value.to_str())
+            .map(page_from_url)
+            .unwrap_or(Page::Library);
+        let existing = current.borrow().as_ref().cloned();
+        if let Some(ctx) = existing {
+            ctx.navigate(page);
+            ctx.window.present();
+        } else {
+            let ctx = build(app, page);
+            *current.borrow_mut() = Some(ctx);
         }
-        build(app, initial);
+        0.into()
     });
-    app.run_with_args(&["exxa"]);
+    app.run_with_args(&["exxa", url]);
     Ok(())
 }
 
-fn build(app: &adw::Application, initial: Page) {
+fn build(app: &adw::Application, initial: Page) -> Ctx {
     let window = adw::ApplicationWindow::builder()
         .application(app)
         .title("ExxaTools")
@@ -464,6 +478,7 @@ fn build(app: &adw::Application, initial: Page) {
     nav.list
         .select_row(nav.list.row_at_index(initial.index()).as_ref());
     worker.send(Command::LoadLibrary);
+    ctx
 }
 
 fn apply_theme(slot: &Rc<RefCell<Option<gtk::CssProvider>>>, selected: Theme) {
@@ -576,7 +591,7 @@ fn build_nav() -> NavRail {
 
     let root = GtkBox::new(Orientation::Vertical, 0);
     root.add_css_class("nav-rail");
-    root.set_width_request(210);
+    root.set_width_request(196);
     root.append(&brand_row);
     root.append(&list);
     root.append(&spacer);

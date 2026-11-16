@@ -25,6 +25,8 @@ pub enum Command {
     Sync(u64),
     Remove(u64),
     Launch(u64),
+    Fix(u64),
+    RestartSteam,
     SaveSettings(SettingsDraft),
     CopyDiagnostics,
     SyncAll,
@@ -158,6 +160,20 @@ fn run(command: Command, events: Sender<Event>) {
                 toast(&events, format!("Steam did not open: {error}"), true);
             }
         }
+        Command::Fix(appid) => {
+            match crate::appmanifest::patch_with_restart(appid, &crate::appmanifest::Mode::Fix) {
+                Ok(_) => toast(
+                    &events,
+                    "Update flags repaired; Steam is back with the fixed manifest".into(),
+                    false,
+                ),
+                Err(error) => toast(&events, error, true),
+            }
+        }
+        Command::RestartSteam => match crate::steamctl::restart(&[]) {
+            Ok(_) => toast(&events, "Steam is restarting".into(), false),
+            Err(error) => toast(&events, error, true),
+        },
         Command::SaveSettings(draft) => {
             let result = crate::state::update(|state| {
                 state.settings.country = draft.country.trim().to_lowercase();

@@ -351,6 +351,40 @@ fn set_key(text: &str, key: &str, value: &str) -> (String, bool) {
     (out, false)
 }
 
+pub fn patch_with_restart(appid: u64, mode: &Mode) -> Result<Value, String> {
+    if manifest_path(appid).is_none() {
+        return Err("no appmanifest for that app yet".into());
+    }
+    if steamctl::is_running() {
+        let busy = running_apps();
+        if !busy.is_empty() {
+            let names: Vec<String> = busy
+                .iter()
+                .map(|app| app.get("name").and_then(Value::as_str).unwrap_or("?").to_string())
+                .collect();
+            return Err(format!(
+                "a game is running ({}): close it before restarting Steam",
+                names.join(", ")
+            ));
+        }
+        steamctl::shutdown(std::time::Duration::from_secs(45))?;
+        match patch(appid, mode, false) {
+            Ok(mut result) => {
+                steamctl::start(&[])?;
+                result["restarted"] = json!(true);
+                Ok(result)
+            }
+            Err(error) => {
+                // A failed patch must not leave the person with no client.
+                let _ = steamctl::start(&[]);
+                Err(error)
+            }
+        }
+    } else {
+        patch(appid, mode, false)
+    }
+}
+
 pub fn patch(appid: u64, mode: &Mode, steam_check: bool) -> Result<Value, String> {
     let Some(path) = manifest_path(appid) else {
         return Err("no appmanifest for that app yet".into());

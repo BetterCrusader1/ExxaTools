@@ -163,12 +163,19 @@ fn card(ctx: &Ctx, game: &Game) -> gtk::FlowBoxChild {
     title.set_max_width_chars(28);
     title.set_margin_top(8);
     title.set_margin_start(2);
-    title.set_margin_bottom(8);
+    title.set_margin_bottom(2);
+
+    let action = gtk::Label::new(Some("Add to library"));
+    action.add_css_class("discover-action");
+    action.set_halign(gtk::Align::Start);
+    action.set_margin_start(2);
+    action.set_margin_bottom(10);
 
     let content = GtkBox::new(Orientation::Vertical, 0);
     content.set_hexpand(true);
     content.append(&cover);
     content.append(&title);
+    content.append(&action);
     button.set_child(Some(&content));
 
     let ctx = ctx.clone();
