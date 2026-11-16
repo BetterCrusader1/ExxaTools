@@ -53,6 +53,22 @@ hand-styled list.
   in the active content window and stays fully visible. Closing from the panel
   also clears the host state, so the next click reopens instead of toggling a
   ghost.
+- ExxaTools now starts with Steam itself: the container launcher wrapper raises
+  the companion server (`~/.local/share/exxatools/bin/exxa serve`) before Steam
+  enters its sandbox, so a bare `steam` start brings the tool up with no
+  scripts, no autostart entry and no supervision loop. The wrapper recovers
+  when Steam's bootstrap replaces or removes the launcher, passes only the
+  64-bit shim to pv-adverb (it rejects colon-separated audit lists), and pads
+  itself to the byte size Steam verifies.
+- The session Xauthority cookie is picked by newest mtime instead of by name,
+  because the login session rotates those files.
+- Settings gains a manifest-provider chain editor: the order is one editable
+  list, custom mirrors join it as JSON entries (name, URL with `{gid}`, optional
+  JSON field), and saving republishes the Lua provider script through one
+  shared code path so Vapor Forge's hot-reload picks it up at once.
+- Hubcap's per-app archive also carries depot manifest blobs; ExxaTools stores
+  them in Steam's `depotcache` so the updater can mount a pinned build without
+  a CM manifest request code.
 
 ## 0.3.0
 
