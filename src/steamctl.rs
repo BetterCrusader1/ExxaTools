@@ -396,7 +396,7 @@ fn steam_command(extra_args: &[String]) -> Result<(Command, String), String> {
 /// The copy only changes on real upgrades (compared by content), so a running
 /// server is never replaced under Steam mid-session.
 pub fn install_companion() -> Result<std::path::PathBuf, String> {
-    let exe = std::env::current_exe().map_err(|error| format!("cannot locate myself: {error}"))?;
+    let exe = crate::paths::executable().map_err(|error| format!("cannot locate myself: {error}"))?;
     let target = crate::paths::companion_bin();
     let fresh = std::fs::read(&exe).map_err(|error| format!("cannot read {exe:?}: {error}"))?;
     let current = std::fs::read(&target).unwrap_or_default();
@@ -448,7 +448,7 @@ pub fn ensure_server(port: u16) -> Result<bool, String> {
     if std::net::TcpStream::connect(("127.0.0.1", port)).is_ok() {
         return Ok(false);
     }
-    let exe = std::env::current_exe().map_err(|error| error.to_string())?;
+    let exe = crate::paths::executable().map_err(|error| error.to_string())?;
     Command::new(exe)
         .args(["serve", "--port", &port.to_string()])
         .stdout(Stdio::null())

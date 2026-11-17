@@ -28,6 +28,22 @@ pub fn companion_bin() -> PathBuf {
     data_home().join("exxatools/bin/exxa")
 }
 
+fn select_executable(current: PathBuf, companion: PathBuf) -> PathBuf {
+    if current.is_file() || !companion.is_file() {
+        current
+    } else {
+        companion
+    }
+}
+
+/// `/proc/self/exe` gains a ` (deleted)` suffix when an update replaces the
+/// running binary. Prefer that binary while it exists, otherwise use the
+/// installed companion instead of spawning a path that cannot exist.
+pub fn executable() -> Result<PathBuf, String> {
+    let current = env::current_exe().map_err(|error| error.to_string())?;
+    Ok(select_executable(current, companion_bin()))
+}
+
 pub fn cache_home() -> PathBuf {
     xdg("XDG_CACHE_HOME", ".cache")
 }
@@ -67,7 +83,6 @@ pub fn web_dir() -> PathBuf {
     }
     installed_share().join("web")
 }
-
 
 pub fn state_dir() -> PathBuf {
     match env::var("EXXATOOLS_HOME") {
@@ -119,4 +134,29 @@ pub fn systemd_dropins() -> Vec<PathBuf> {
         "app-steam.service.d/vapor-forge.conf",
     ];
     names.iter().map(|name| base.join(name)).collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::select_executable;
+    use std::path::PathBuf;
+
+    #[test]
+    fn an_existing_current_binary_wins() {
+        let current = PathBuf::from("Cargo.toml");
+        assert_eq!(select_executable(current.clone(), PathBuf::new()), current);
+    }
+
+    #[test]
+    fn a_deleted_current_binary_falls_back_to_the_companion() {
+        let current = PathBuf::from("/missing/exxa (deleted)");
+        let companion = PathBuf::from("Cargo.toml");
+        assert_eq!(select_executable(current, companion.clone()), companion);
+    }
+
+    #[test]
+    fn a_missing_binary_keeps_the_current_path_for_the_spawn_error() {
+        let current = PathBuf::from("/missing/exxa (deleted)");
+        assert_eq!(select_executable(current.clone(), PathBuf::new()), current);
+    }
 }

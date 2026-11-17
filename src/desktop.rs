@@ -2,28 +2,11 @@
 //! `window.rs`, and the launcher entry points at this binary so the same window
 //! starts from the menu.
 
-use std::path::PathBuf;
 use std::process::{Command, Stdio};
 
 use serde_json::{json, Value};
 
 use crate::paths;
-
-fn select_executable(current: PathBuf, companion: PathBuf) -> PathBuf {
-    if current.is_file() || !companion.is_file() {
-        current
-    } else {
-        companion
-    }
-}
-
-/// `/proc/self/exe` gains a ` (deleted)` suffix when an update replaces the
-/// running binary. Prefer that binary while it exists, otherwise use the
-/// installed companion instead of spawning a path that cannot exist.
-fn executable() -> Result<PathBuf, String> {
-    let current = std::env::current_exe().map_err(|error| error.to_string())?;
-    Ok(select_executable(current, paths::companion_bin()))
-}
 
 fn port_answers(port: u16) -> bool {
     std::net::TcpStream::connect(("127.0.0.1", port)).is_ok()
@@ -37,7 +20,7 @@ pub fn launch_app() -> Value {
         let _ = open_window(&url);
         return json!({ "started": false, "opened": url, "running": true });
     }
-    let exe = executable().unwrap_or_default();
+    let exe = paths::executable().unwrap_or_default();
     let spawned = Command::new(&exe)
         .args(["serve", "--port", &port.to_string()])
         .stdout(Stdio::null())
@@ -65,7 +48,7 @@ pub fn install_desktop_entry() -> Result<Value, String> {
     let exe = if launcher.is_file() {
         launcher
     } else {
-        executable()?
+        paths::executable()?
     };
     let icon = paths::web_dir().join("logo.png");
     let content = format!(
@@ -97,7 +80,7 @@ pub fn install_autostart() -> Result<Value, String> {
     let exe = if launcher.is_file() {
         launcher
     } else {
-        executable()?
+        paths::executable()?
     };
     let content = format!(
         "[Desktop Entry]\nType=Application\nName=ExxaTools\nComment=Steam depots and manifests on Vapor Forge\nExec={} serve --port 8765\nIcon={}\nTerminal=false\nX-GNOME-Autostart-enabled=true\n",
@@ -118,7 +101,7 @@ pub fn remove_autostart() -> Value {
 /// Opens the dashboard as a real window. The server keeps running on its own, so
 /// closing the window leaves the Steam integration alive.
 pub fn open_window(url: &str) -> Result<(), String> {
-    let exe = executable()?;
+    let exe = paths::executable()?;
     let mut command = Command::new(exe);
     crate::steamctl::apply_session_env(&mut command);
     command
@@ -128,29 +111,4 @@ pub fn open_window(url: &str) -> Result<(), String> {
         .spawn()
         .map(|_| ())
         .map_err(|error| format!("cannot open a window: {error}"))
-}
-
-#[cfg(test)]
-mod tests {
-    use super::select_executable;
-    use std::path::PathBuf;
-
-    #[test]
-    fn an_existing_current_binary_wins() {
-        let current = PathBuf::from("Cargo.toml");
-        assert_eq!(select_executable(current.clone(), PathBuf::new()), current);
-    }
-
-    #[test]
-    fn a_deleted_current_binary_falls_back_to_the_companion() {
-        let current = PathBuf::from("/missing/exxa (deleted)");
-        let companion = PathBuf::from("Cargo.toml");
-        assert_eq!(select_executable(current, companion.clone()), companion);
-    }
-
-    #[test]
-    fn a_missing_binary_keeps_the_current_path_for_the_spawn_error() {
-        let current = PathBuf::from("/missing/exxa (deleted)");
-        assert_eq!(select_executable(current.clone(), PathBuf::new()), current);
-    }
 }

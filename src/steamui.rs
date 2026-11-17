@@ -1173,7 +1173,7 @@ fn wrapper_exe() -> std::path::PathBuf {
     if launcher.is_file() {
         launcher
     } else {
-        std::env::current_exe().unwrap_or_else(|_| std::path::PathBuf::from("exxa"))
+        paths::executable().unwrap_or_else(|_| std::path::PathBuf::from("exxa"))
     }
 }
 

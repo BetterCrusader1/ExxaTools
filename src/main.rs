@@ -293,7 +293,7 @@ fn main() {
             let port = arg_value(rest, "--port").unwrap_or_else(|| "8765".into());
             let url = arg_value(rest, "--url").unwrap_or_else(|| format!("http://127.0.0.1:{port}/"));
             if std::net::TcpStream::connect(("127.0.0.1", port.parse().unwrap_or(8765))).is_err() {
-                let exe = std::env::current_exe().unwrap_or_default();
+                let exe = paths::executable().unwrap_or_default();
                 let _ = std::process::Command::new(exe)
                     .args(["serve", "--port", &port])
                     .stdout(std::process::Stdio::null())
