@@ -29,7 +29,11 @@ pub fn port() -> u16 {
 }
 
 fn mime_for(path: &Path) -> &'static str {
-    match path.extension().and_then(|value| value.to_str()).unwrap_or("") {
+    match path
+        .extension()
+        .and_then(|value| value.to_str())
+        .unwrap_or("")
+    {
         "html" => "text/html; charset=utf-8",
         "css" => "text/css; charset=utf-8",
         "js" => "text/javascript; charset=utf-8",
@@ -79,15 +83,27 @@ fn decode(value: &str) -> String {
     let mut index = 0;
     while index < bytes.len() {
         match bytes[index] {
-            b'+' => { out.push(b' '); index += 1; }
+            b'+' => {
+                out.push(b' ');
+                index += 1;
+            }
             b'%' if index + 2 < bytes.len() => {
                 let hex = std::str::from_utf8(&bytes[index + 1..index + 3]).ok();
                 match hex.and_then(|text| u8::from_str_radix(text, 16).ok()) {
-                    Some(byte) => { out.push(byte); index += 3; }
-                    None => { out.push(bytes[index]); index += 1; }
+                    Some(byte) => {
+                        out.push(byte);
+                        index += 3;
+                    }
+                    None => {
+                        out.push(bytes[index]);
+                        index += 1;
+                    }
                 }
             }
-            byte => { out.push(byte); index += 1; }
+            byte => {
+                out.push(byte);
+                index += 1;
+            }
         }
     }
     String::from_utf8_lossy(&out).into_owned()
@@ -107,7 +123,10 @@ fn query_pairs(query: &str) -> Vec<(String, String)> {
 }
 
 fn get<'a>(query: &'a [(String, String)], key: &str) -> Option<&'a str> {
-    query.iter().find(|(name, _)| name == key).map(|(_, value)| value.as_str())
+    query
+        .iter()
+        .find(|(name, _)| name == key)
+        .map(|(_, value)| value.as_str())
 }
 
 fn need_u64(query: &[(String, String)], key: &str) -> Result<u64, (u16, String)> {
@@ -118,7 +137,11 @@ fn need_u64(query: &[(String, String)], key: &str) -> Result<u64, (u16, String)>
 
 fn body_u64(body: &Value, key: &str) -> Result<u64, (u16, String)> {
     body.get(key)
-        .and_then(|value| value.as_u64().or_else(|| value.as_str().and_then(|text| text.parse().ok())))
+        .and_then(|value| {
+            value
+                .as_u64()
+                .or_else(|| value.as_str().and_then(|text| text.parse().ok()))
+        })
         .ok_or((400, format!("{key} must be an integer")))
 }
 
@@ -133,30 +156,50 @@ fn public_source(spec: &Value) -> Value {
         out.insert("enabled".into(), json!(enabled));
     }
     if let Some(providers) = spec.get("providers").and_then(Value::as_array) {
-        let names: Vec<&str> = providers.iter().filter_map(|entry| {
-            entry.as_str().or_else(|| entry.get("name").and_then(Value::as_str))
-        }).filter(|name| public_provider_name(name)).collect();
+        let names: Vec<&str> = providers
+            .iter()
+            .filter_map(|entry| {
+                entry
+                    .as_str()
+                    .or_else(|| entry.get("name").and_then(Value::as_str))
+            })
+            .filter(|name| public_provider_name(name))
+            .collect();
         out.insert("providers".into(), json!(names));
     }
     Value::Object(out)
 }
 
 fn public_provider_name(name: &str) -> bool {
-    !name.is_empty() && name.chars().all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '_' | '-' | '.'))
+    !name.is_empty()
+        && name
+            .chars()
+            .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '_' | '-' | '.'))
 }
 
 fn public_settings(settings: &state::Settings) -> Value {
-    let sources: Map<String, Value> = settings.sources.iter()
-        .map(|(name, spec)| (name.clone(), public_source(spec))).collect();
-    let plan_sources: Map<String, Value> = settings.plan_sources.iter()
-        .map(|(name, spec)| (name.clone(), public_source(spec))).collect();
-    let providers: Vec<&str> = settings.manifest_providers.iter().map(String::as_str)
-        .filter(|name| public_provider_name(name)).collect();
+    let sources: Map<String, Value> = settings
+        .sources
+        .iter()
+        .map(|(name, spec)| (name.clone(), public_source(spec)))
+        .collect();
+    let plan_sources: Map<String, Value> = settings
+        .plan_sources
+        .iter()
+        .map(|(name, spec)| (name.clone(), public_source(spec)))
+        .collect();
+    let providers: Vec<&str> = settings
+        .manifest_providers
+        .iter()
+        .map(String::as_str)
+        .filter(|name| public_provider_name(name))
+        .collect();
     json!({
         "country": settings.country,
         "default_source": settings.default_source,
         "default_os": settings.default_os,
         "theme": settings.theme,
+        "auto_update_plans": settings.auto_update_plans,
         "manifest_providers": providers,
         "sources": sources,
         "plan_sources": plan_sources,
@@ -212,47 +255,65 @@ fn merge_source_map(current: &mut Value, posted: &Value) {
 /// A deliberately changed provider list replaces membership/order, but a
 /// retained provider name must not replace its private object with a string.
 fn merge_source_providers(current: Option<&Value>, posted: &Value) -> Value {
-    let (Some(existing), Some(providers)) = (current.and_then(Value::as_array), posted.as_array()) else {
+    let (Some(existing), Some(providers)) = (current.and_then(Value::as_array), posted.as_array())
+    else {
         return posted.clone();
     };
-    Value::Array(providers.iter().map(|provider| {
-        let name = provider.as_str().or_else(|| provider.get("name").and_then(Value::as_str));
-        let previous = name.and_then(|name| existing.iter().find(|entry| {
-            entry.get("name").and_then(Value::as_str) == Some(name)
-        }));
-        match (previous, provider.as_object()) {
-            (Some(previous), Some(fields)) => {
-                let mut merged = previous.clone();
-                for (field, value) in fields {
-                    if !field.starts_with("has_") {
-                        merged[field] = value.clone();
+    Value::Array(
+        providers
+            .iter()
+            .map(|provider| {
+                let name = provider
+                    .as_str()
+                    .or_else(|| provider.get("name").and_then(Value::as_str));
+                let previous = name.and_then(|name| {
+                    existing
+                        .iter()
+                        .find(|entry| entry.get("name").and_then(Value::as_str) == Some(name))
+                });
+                match (previous, provider.as_object()) {
+                    (Some(previous), Some(fields)) => {
+                        let mut merged = previous.clone();
+                        for (field, value) in fields {
+                            if !field.starts_with("has_") {
+                                merged[field] = value.clone();
+                            }
+                        }
+                        merged
                     }
+                    (Some(previous), None) => previous.clone(),
+                    _ => provider.clone(),
                 }
-                merged
-            }
-            (Some(previous), None) => previous.clone(),
-            _ => provider.clone(),
-        }
-    }).collect())
+            })
+            .collect(),
+    )
 }
 
 fn public_source_catalog(settings: &state::Settings) -> Vec<Value> {
-    crate::sources::catalog(settings).iter().map(|source| {
-        let mut view = public_source(source);
-        if let Some(name) = source.get("name").and_then(Value::as_str) {
-            view["name"] = json!(name);
-        }
-        view
-    }).collect()
+    crate::sources::catalog(settings)
+        .iter()
+        .map(|source| {
+            let mut view = public_source(source);
+            if let Some(name) = source.get("name").and_then(Value::as_str) {
+                view["name"] = json!(name);
+            }
+            view
+        })
+        .collect()
 }
 
 /// Keep HTTP validation errors distinct from transaction/persistence failures.
-fn update_route<T>(change: impl FnOnce(&mut state::State) -> Result<T, (u16, String)>) -> Result<T, (u16, String)> {
+fn update_route<T>(
+    change: impl FnOnce(&mut state::State) -> Result<T, (u16, String)>,
+) -> Result<T, (u16, String)> {
     let mut route_error = None;
-    state::update(|st| change(st).map_err(|error| {
-        route_error = Some(error);
-        "request rejected".to_string()
-    })).map_err(|error| route_error.unwrap_or((500, error)))
+    state::update(|st| {
+        change(st).map_err(|error| {
+            route_error = Some(error);
+            "request rejected".to_string()
+        })
+    })
+    .map_err(|error| route_error.unwrap_or((500, error)))
 }
 
 fn render_record(record: &Value, st: &state::State) -> String {
@@ -290,8 +351,16 @@ fn app_view(appid: u64, branch: &str) -> Result<Value, (u16, String)> {
             }));
         }
     }
-    let has_dlc = catalog.get("dlc").and_then(Value::as_array).map(|list| !list.is_empty()).unwrap_or(false);
-    let dlc_names = if has_dlc { steam::dlc_names(appid, &st.settings.country) } else { Vec::new() };
+    let has_dlc = catalog
+        .get("dlc")
+        .and_then(Value::as_array)
+        .map(|list| !list.is_empty())
+        .unwrap_or(false);
+    let dlc_names = if has_dlc {
+        steam::dlc_names(appid, &st.settings.country)
+    } else {
+        Vec::new()
+    };
     Ok(json!({
         "appid": appid,
         "name": catalog.get("name").cloned().unwrap_or(Value::Null),
@@ -313,14 +382,26 @@ fn app_view(appid: u64, branch: &str) -> Result<Value, (u16, String)> {
 
 fn record_from_body(body: &Value) -> Result<Value, (u16, String)> {
     let appid = body_u64(body, "appid")?;
-    let depots_raw = body.get("depots").and_then(Value::as_array).cloned().unwrap_or_default();
+    let depots_raw = body
+        .get("depots")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
     let mut depots = Vec::new();
     for item in depots_raw {
         let depot_id = item
             .get("depot_id")
-            .and_then(|value| value.as_u64().or_else(|| value.as_str().and_then(|text| text.parse().ok())))
+            .and_then(|value| {
+                value
+                    .as_u64()
+                    .or_else(|| value.as_str().and_then(|text| text.parse().ok()))
+            })
             .ok_or((400, "each depot needs a depot_id".to_string()))?;
-        let gid = item.get("gid").and_then(Value::as_str).unwrap_or("").to_string();
+        let gid = item
+            .get("gid")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_string();
         if !gid.is_empty() && !gid.chars().all(|ch| ch.is_ascii_digit()) {
             return Err((400, format!("depot {depot_id}: gid must be decimal")));
         }
@@ -331,7 +412,15 @@ fn record_from_body(body: &Value) -> Result<Value, (u16, String)> {
     let dlc: Vec<u64> = body
         .get("dlc")
         .and_then(Value::as_array)
-        .map(|list| list.iter().filter_map(|value| value.as_u64().or_else(|| value.as_str().and_then(|text| text.parse().ok()))).collect())
+        .map(|list| {
+            list.iter()
+                .filter_map(|value| {
+                    value
+                        .as_u64()
+                        .or_else(|| value.as_str().and_then(|text| text.parse().ok()))
+                })
+                .collect()
+        })
         .unwrap_or_default();
     let fixes = body.get("fixes").cloned().filter(Value::is_object).unwrap_or_else(|| {
         json!({ "ticket": "forge", "steam_id": "", "avatar": 0, "purchase_time": 0, "online_fix": false })
@@ -382,13 +471,19 @@ fn get_route(path: &str, query: &[(String, String)]) -> Result<Value, (u16, Stri
             "keys": st.depot_keys.len(),
         })),
         "/api/engine" => Ok(engine::detect()),
-        "/api/engine/releases" => Ok(json!({ "releases": engine::releases(5).map_err(|error| (502, error))? })),
+        "/api/engine/releases" => {
+            Ok(json!({ "releases": engine::releases(5).map_err(|error| (502, error))? }))
+        }
         "/api/log" => {
-            let lines = get(query, "lines").and_then(|value| value.parse().ok()).unwrap_or(200);
+            let lines = get(query, "lines")
+                .and_then(|value| value.parse().ok())
+                .unwrap_or(200);
             Ok(engine::log(lines))
         }
         "/api/discover" => {
-            let limit = get(query, "limit").and_then(|value| value.parse().ok()).unwrap_or(18);
+            let limit = get(query, "limit")
+                .and_then(|value| value.parse().ok())
+                .unwrap_or(18);
             let cc = get(query, "cc").unwrap_or(&st.settings.country).to_string();
             Ok(json!({ "items": steam::discover(&cc, limit) }))
         }
@@ -409,15 +504,24 @@ fn get_route(path: &str, query: &[(String, String)]) -> Result<Value, (u16, Stri
         }
         "/api/key" => {
             let depot_id = need_u64(query, "depot_id")?;
-            Ok(json!({ "depot_id": depot_id, "has_key": st.depot_keys.contains_key(&depot_id.to_string()) }))
+            Ok(
+                json!({ "depot_id": depot_id, "has_key": st.depot_keys.contains_key(&depot_id.to_string()) }),
+            )
         }
         "/api/plan" => {
             let appid = need_u64(query, "appid")?;
-            st.apps.get(&appid.to_string()).cloned().map(Ok).unwrap_or(Err((404, "no saved plan".into())))
+            st.apps
+                .get(&appid.to_string())
+                .cloned()
+                .map(Ok)
+                .unwrap_or(Err((404, "no saved plan".into())))
         }
         "/api/script" => {
             let appid = need_u64(query, "appid")?;
-            let record = st.apps.get(&appid.to_string()).ok_or((404, "no saved plan".to_string()))?;
+            let record = st
+                .apps
+                .get(&appid.to_string())
+                .ok_or((404, "no saved plan".to_string()))?;
             Ok(json!({
                 "appid": appid,
                 "script": render_record(record, &st),
@@ -436,14 +540,28 @@ fn get_route(path: &str, query: &[(String, String)]) -> Result<Value, (u16, Stri
         "/api/autoselect" => {
             let appid = need_u64(query, "appid")?;
             let branch = get(query, "branch").unwrap_or("public").to_string();
-            let os = get(query, "os").unwrap_or(&st.settings.default_os).to_string();
+            let os = get(query, "os")
+                .unwrap_or(&st.settings.default_os)
+                .to_string();
             let catalog = steam::catalog(appid).map_err(|error| (502, error))?;
             let mut out = Vec::new();
             if let Some(list) = catalog.get("depots").and_then(Value::as_array) {
                 for depot in list {
                     let depot_id = depot.get("depot_id").and_then(Value::as_u64).unwrap_or(0);
-                    let oslist: Vec<String> = depot.get("oslist").and_then(Value::as_array).map(|list| list.iter().filter_map(Value::as_str).map(str::to_string).collect()).unwrap_or_default();
-                    let shared = depot.get("shared_install").and_then(Value::as_bool).unwrap_or(false);
+                    let oslist: Vec<String> = depot
+                        .get("oslist")
+                        .and_then(Value::as_array)
+                        .map(|list| {
+                            list.iter()
+                                .filter_map(Value::as_str)
+                                .map(str::to_string)
+                                .collect()
+                        })
+                        .unwrap_or_default();
+                    let shared = depot
+                        .get("shared_install")
+                        .and_then(Value::as_bool)
+                        .unwrap_or(false);
                     let osarch = depot.get("osarch").and_then(Value::as_str).unwrap_or("");
                     let manifest = steam::pick_manifest(depot, &branch);
                     let (selected, reason) = if manifest.is_none() {
@@ -455,9 +573,20 @@ fn get_route(path: &str, query: &[(String, String)]) -> Result<Value, (u16, Stri
                     } else if shared {
                         (true, "shared depot".to_string())
                     } else {
-                        (true, if oslist.is_empty() { format!("platform-neutral, {branch}") } else if osarch == "64" { format!("{os} 64-bit build, {branch}") } else { format!("{os} build, {branch}") })
+                        (
+                            true,
+                            if oslist.is_empty() {
+                                format!("platform-neutral, {branch}")
+                            } else if osarch == "64" {
+                                format!("{os} 64-bit build, {branch}")
+                            } else {
+                                format!("{os} build, {branch}")
+                            },
+                        )
                     };
-                    out.push(json!({ "depot_id": depot_id, "selected": selected, "reason": reason }));
+                    out.push(
+                        json!({ "depot_id": depot_id, "selected": selected, "reason": reason }),
+                    );
                 }
             }
             Ok(json!({ "items": out, "os": os, "branch": branch }))
@@ -498,21 +627,40 @@ fn get_route(path: &str, query: &[(String, String)]) -> Result<Value, (u16, Stri
             // gids outside the lock, then merge them into the latest history.
             let mut observed = st.clone();
             observed.build_history.clear();
-            let mut result = crate::pins::compare(&mut observed, appid, &branch).map_err(|error| (502, error))?;
+            let mut result = crate::pins::compare(&mut observed, appid, &branch)
+                .map_err(|error| (502, error))?;
             let (changed, history) = state::update(|fresh| {
                 let mut changed = false;
                 if let Some(depots) = observed.build_history.get(&appid.to_string()) {
                     for (depot, entries) in depots {
-                        let Ok(depot_id) = depot.parse::<u64>() else { continue };
+                        let Ok(depot_id) = depot.parse::<u64>() else {
+                            continue;
+                        };
                         for entry in entries.iter().rev() {
-                            let Some(gid) = entry.get("gid").and_then(Value::as_str) else { continue };
-                            changed |= state::record_gid(fresh, appid, depot_id, gid,
-                                entry.get("size").and_then(Value::as_u64), &branch);
+                            let Some(gid) = entry.get("gid").and_then(Value::as_str) else {
+                                continue;
+                            };
+                            changed |= state::record_gid(
+                                fresh,
+                                appid,
+                                depot_id,
+                                gid,
+                                entry.get("size").and_then(Value::as_u64),
+                                &branch,
+                            );
                         }
                     }
                 }
-                Ok((changed, fresh.build_history.get(&appid.to_string()).cloned().unwrap_or_default()))
-            }).map_err(|error| (500, error))?;
+                Ok((
+                    changed,
+                    fresh
+                        .build_history
+                        .get(&appid.to_string())
+                        .cloned()
+                        .unwrap_or_default(),
+                ))
+            })
+            .map_err(|error| (500, error))?;
             result["changed"] = json!(changed);
             result["history"] = json!(history);
             Ok(result)
@@ -531,7 +679,12 @@ fn get_route(path: &str, query: &[(String, String)]) -> Result<Value, (u16, Stri
             }))
         }
         "/api/provider" => {
-            let order: Vec<Value> = st.settings.manifest_providers.iter().map(|name| json!(name)).collect();
+            let order: Vec<Value> = st
+                .settings
+                .manifest_providers
+                .iter()
+                .map(|name| json!(name))
+                .collect();
             let text = lua::render_provider(&order).map_err(|error| (500, error))?;
             Ok(json!({ "text": text, "state": vfsys::provider_state() }))
         }
@@ -559,16 +712,31 @@ fn get_route(path: &str, query: &[(String, String)]) -> Result<Value, (u16, Stri
     }
 }
 
-fn post_route(path: &str, body: &Value, query: &[(String, String)]) -> Result<Value, (u16, String)> {
+fn post_route(
+    path: &str,
+    body: &Value,
+    query: &[(String, String)],
+) -> Result<Value, (u16, String)> {
     let _ = query;
     match path {
         "/api/plugins/toggle" => {
-            let id = body.get("id").and_then(Value::as_str).unwrap_or("").to_string();
-            let enabled = body.get("enabled").and_then(Value::as_bool).unwrap_or(false);
+            let id = body
+                .get("id")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .to_string();
+            let enabled = body
+                .get("enabled")
+                .and_then(Value::as_bool)
+                .unwrap_or(false);
             crate::plugins::set_enabled(&id, enabled).map_err(|error| (400, error))
         }
         "/api/plugins/remove" => {
-            let id = body.get("id").and_then(Value::as_str).unwrap_or("").to_string();
+            let id = body
+                .get("id")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .to_string();
             crate::plugins::remove(&id).map_err(|error| (400, error))
         }
         "/api/plugins/inject" => {
@@ -576,7 +744,10 @@ fn post_route(path: &str, body: &Value, query: &[(String, String)]) -> Result<Va
             Ok(crate::plugins::list_json())
         }
         "/api/engine/install" => {
-            let tag = body.get("tag").and_then(Value::as_str).filter(|value| !value.trim().is_empty());
+            let tag = body
+                .get("tag")
+                .and_then(Value::as_str)
+                .filter(|value| !value.trim().is_empty());
             engine::install(tag).map_err(|error| (500, error))
         }
         "/api/engine/uninstall" => engine::uninstall().map_err(|error| (500, error)),
@@ -584,11 +755,19 @@ fn post_route(path: &str, body: &Value, query: &[(String, String)]) -> Result<Va
             let appid = body_u64(body, "appid")?;
             let depot_id = body_u64(body, "depot_id")?;
             update_route(|st| {
-                let record = st.apps.get_mut(&appid.to_string()).ok_or((404, "no saved plan".to_string()))?;
-                let list = record.get_mut("depots").and_then(Value::as_array_mut).ok_or((409, "plan has no depots".to_string()))?;
+                let record = st
+                    .apps
+                    .get_mut(&appid.to_string())
+                    .ok_or((404, "no saved plan".to_string()))?;
+                let list = record
+                    .get_mut("depots")
+                    .and_then(Value::as_array_mut)
+                    .ok_or((409, "plan has no depots".to_string()))?;
                 let mut found = false;
                 for depot in list.iter_mut() {
-                    if depot.get("depot_id").and_then(Value::as_u64) != Some(depot_id) { continue }
+                    if depot.get("depot_id").and_then(Value::as_u64) != Some(depot_id) {
+                        continue;
+                    }
                     if let Some(enabled) = body.get("enabled").and_then(Value::as_bool) {
                         depot["enabled"] = json!(enabled);
                     }
@@ -625,9 +804,13 @@ fn post_route(path: &str, body: &Value, query: &[(String, String)]) -> Result<Va
             let appid = body_u64(body, "appid")?;
             let enabled = body.get("enabled").and_then(Value::as_bool).unwrap_or(true);
             let st = state::load().map_err(|error| (500, error))?;
-            let record = st.apps.get(&appid.to_string()).ok_or((409, "save a plan first".to_string()))?;
+            let record = st
+                .apps
+                .get(&appid.to_string())
+                .ok_or((409, "save a plan first".to_string()))?;
             let text = render_record(record, &st);
-            let target = vfsys::write_script(appid, &text, enabled).map_err(|error| (500, error))?;
+            let target =
+                vfsys::write_script(appid, &text, enabled).map_err(|error| (500, error))?;
             let missing: Vec<u64> = record
                 .get("depots")
                 .and_then(Value::as_array)
@@ -638,7 +821,9 @@ fn post_route(path: &str, body: &Value, query: &[(String, String)]) -> Result<Va
                         .collect()
                 })
                 .unwrap_or_default();
-            Ok(json!({ "path": target.display().to_string(), "script": text, "missing_keys": missing }))
+            Ok(
+                json!({ "path": target.display().to_string(), "script": text, "missing_keys": missing }),
+            )
         }
         "/api/toggle" => {
             let appid = body_u64(body, "appid")?;
@@ -654,7 +839,8 @@ fn post_route(path: &str, body: &Value, query: &[(String, String)]) -> Result<Va
         "/api/key" => {
             let depot_id = body_u64(body, "depot_id")?;
             let raw = body.get("key").and_then(Value::as_str).unwrap_or("");
-            let key = state::valid_key(raw).ok_or((400, "a depot key is 64 hex characters".to_string()))?;
+            let key = state::valid_key(raw)
+                .ok_or((400, "a depot key is 64 hex characters".to_string()))?;
             state::update(|st| {
                 state::set_key(st, depot_id, Some(&key));
                 Ok(())
@@ -669,8 +855,14 @@ fn post_route(path: &str, body: &Value, query: &[(String, String)]) -> Result<Va
                 _ => {
                     let appid = body_u64(body, "appid")?;
                     let st = state::load().map_err(|error| (500, error))?;
-                    let record = st.apps.get(&appid.to_string()).ok_or((409, "save a plan first".to_string()))?;
-                    Ok(engine::check_script(&render_record(record, &st), &format!("{appid}.lua")))
+                    let record = st
+                        .apps
+                        .get(&appid.to_string())
+                        .ok_or((409, "save a plan first".to_string()))?;
+                    Ok(engine::check_script(
+                        &render_record(record, &st),
+                        &format!("{appid}.lua"),
+                    ))
                 }
             }
         }
@@ -678,12 +870,23 @@ fn post_route(path: &str, body: &Value, query: &[(String, String)]) -> Result<Va
             let st = state::load().map_err(|error| (500, error))?;
             let order: Vec<Value> = match body.get("providers").and_then(Value::as_array) {
                 Some(list) if !list.is_empty() => list.clone(),
-                _ => st.settings.manifest_providers.iter().map(|name| json!(name)).collect(),
+                _ => st
+                    .settings
+                    .manifest_providers
+                    .iter()
+                    .map(|name| json!(name))
+                    .collect(),
             };
             let text = lua::render_provider(&order).map_err(|error| (500, error))?;
             let check = engine::check_script(&text, lua::PROVIDER_FILE);
             if !check.get("ok").and_then(Value::as_bool).unwrap_or(false) {
-                return Err((500, format!("provider script failed to parse: {}", check.get("output").and_then(Value::as_str).unwrap_or(""))));
+                return Err((
+                    500,
+                    format!(
+                        "provider script failed to parse: {}",
+                        check.get("output").and_then(Value::as_str).unwrap_or("")
+                    ),
+                ));
             }
             let target = vfsys::write_provider(&text).map_err(|error| (500, error))?;
             Ok(json!({
@@ -695,24 +898,23 @@ fn post_route(path: &str, body: &Value, query: &[(String, String)]) -> Result<Va
         }
         "/api/appmanifest" => {
             let appid = body_u64(body, "appid")?;
-            let mode = appmanifest::Mode::parse(body.get("mode").and_then(Value::as_str).unwrap_or("fix"))
-                .map_err(|error| (400, error))?;
+            let mode =
+                appmanifest::Mode::parse(body.get("mode").and_then(Value::as_str).unwrap_or("fix"))
+                    .map_err(|error| (400, error))?;
             let force = body.get("force").and_then(Value::as_bool).unwrap_or(false);
-            let restart = body.get("restart").and_then(Value::as_bool).unwrap_or(false);
-            if restart && steamctl::is_running() {
-                let busy = appmanifest::running_apps();
-                if !busy.is_empty() {
-                    let names: Vec<String> = busy
-                        .iter()
-                        .map(|app| app.get("name").and_then(Value::as_str).unwrap_or("?").to_string())
-                        .collect();
-                    return Err((409, format!("a game is running ({}): close it before restarting Steam", names.join(", "))));
-                }
-                steamctl::shutdown(std::time::Duration::from_secs(45)).map_err(|error| (500, error))?;
-                let mut result = appmanifest::patch(appid, &mode, false).map_err(|error| (500, error))?;
-                steamctl::start(&[]).map_err(|error| (500, error))?;
-                result["restarted"] = json!(true);
-                return Ok(result);
+            let restart = body
+                .get("restart")
+                .and_then(Value::as_bool)
+                .unwrap_or(false);
+            if restart {
+                return appmanifest::patch_with_restart(appid, &mode).map_err(|error| {
+                    let status = if error.contains("a game is running") {
+                        409
+                    } else {
+                        500
+                    };
+                    (status, error)
+                });
             }
             appmanifest::patch(appid, &mode, !force).map_err(|error| (500, error))
         }
@@ -722,7 +924,9 @@ fn post_route(path: &str, body: &Value, query: &[(String, String)]) -> Result<Va
             let st = state::load().map_err(|error| (500, error))?;
             match action {
                 "manifest" => {
-                    if appid == 0 { return Err((400, "appid is required".into())); }
+                    if appid == 0 {
+                        return Err((400, "appid is required".into()));
+                    }
                     let result = appmanifest::patch(appid, &appmanifest::Mode::Fix, true)
                         .map_err(|error| (500, error))?;
                     Ok(json!({ "ok": true, "message": "manifest repaired", "result": result }))
@@ -731,31 +935,54 @@ fn post_route(path: &str, body: &Value, query: &[(String, String)]) -> Result<Va
                     let mut written = 0;
                     for record in st.apps.values() {
                         let id = record.get("appid").and_then(Value::as_u64).unwrap_or(0);
-                        if appid != 0 && id != appid { continue; }
+                        if appid != 0 && id != appid {
+                            continue;
+                        }
                         let text = render_record(record, &st);
-                        if vfsys::script_path(id).exists() && vfsys::write_script(id, &text, true).is_ok() {
+                        if vfsys::script_path(id).exists()
+                            && vfsys::write_script(id, &text, true).is_ok()
+                        {
                             written += 1;
                         }
                     }
-                    let order: Vec<Value> = st.settings.manifest_providers.iter().map(|name| json!(name)).collect();
+                    let order: Vec<Value> = st
+                        .settings
+                        .manifest_providers
+                        .iter()
+                        .map(|name| json!(name))
+                        .collect();
                     lua::render_provider(&order)
                         .and_then(|text| vfsys::write_provider(&text).map(|_| ()))
                         .map_err(|error| (500, error))?;
-                    Ok(json!({ "ok": true, "message": format!("{written} script(s) refreshed with the keys on disk") }))
+                    Ok(
+                        json!({ "ok": true, "message": format!("{written} script(s) refreshed with the keys on disk") }),
+                    )
                 }
                 "provider" => {
-                    let order: Vec<Value> = st.settings.manifest_providers.iter().map(|name| json!(name)).collect();
+                    let order: Vec<Value> = st
+                        .settings
+                        .manifest_providers
+                        .iter()
+                        .map(|name| json!(name))
+                        .collect();
                     let text = lua::render_provider(&order).map_err(|error| (500, error))?;
                     vfsys::write_provider(&text).map_err(|error| (500, error))?;
                     Ok(json!({ "ok": true, "message": "provider script written" }))
                 }
                 "cloud" => {
-                    if appid == 0 { return Err((400, "appid is required".into())); }
-                    let result = steamctl::clear_cloud_state(appid).map_err(|error| (409, error))?;
-                    Ok(json!({ "ok": true, "message": "cloud state reset, Steam will sync this game from scratch", "result": result }))
+                    if appid == 0 {
+                        return Err((400, "appid is required".into()));
+                    }
+                    let result =
+                        steamctl::clear_cloud_state(appid).map_err(|error| (409, error))?;
+                    Ok(
+                        json!({ "ok": true, "message": "cloud state reset, Steam will sync this game from scratch", "result": result }),
+                    )
                 }
                 "launch" => {
-                    if appid == 0 { return Err((400, "appid is required".into())); }
+                    if appid == 0 {
+                        return Err((400, "appid is required".into()));
+                    }
                     steamctl::set_launch_options(appid, "").map_err(|error| (409, error))?;
                     Ok(json!({ "ok": true, "message": "launch options cleared" }))
                 }
@@ -778,12 +1005,15 @@ fn post_route(path: &str, body: &Value, query: &[(String, String)]) -> Result<Va
                     Ok(json!({ "ok": true, "message": message, "result": report }))
                 }
                 "remove" => {
-                    if appid == 0 { return Err((400, "appid is required".into())); }
+                    if appid == 0 {
+                        return Err((400, "appid is required".into()));
+                    }
                     vfsys::remove_script(appid);
                     state::update(|fresh| {
                         fresh.apps.remove(&appid.to_string());
                         Ok(())
-                    }).map_err(|error| (500, error))?;
+                    })
+                    .map_err(|error| (500, error))?;
                     Ok(json!({ "ok": true, "message": "removed from the library" }))
                 }
                 other => Err((400, format!("unknown fix {other}"))),
@@ -796,15 +1026,22 @@ fn post_route(path: &str, body: &Value, query: &[(String, String)]) -> Result<Va
             let y = body.get("y").and_then(Value::as_i64).unwrap_or(44);
             let screen_x = body.get("screen_x").and_then(Value::as_i64).unwrap_or(0);
             let screen_y = body.get("screen_y").and_then(Value::as_i64).unwrap_or(0);
-            crate::steamui::panel(open, toggle, x, y, screen_x, screen_y).map_err(|error| (500, error))
+            crate::steamui::panel(open, toggle, x, y, screen_x, screen_y)
+                .map_err(|error| (500, error))
         }
         "/api/steamui" => {
-            let action = body.get("action").and_then(Value::as_str).unwrap_or("status");
+            let action = body
+                .get("action")
+                .and_then(Value::as_str)
+                .unwrap_or("status");
             match action {
                 "inject" => crate::steamui::inject().map_err(|error| (500, error)),
                 "remove" => Ok(crate::steamui::remove()),
                 "enable" => crate::steamui::enable_debug().map_err(|error| (500, error)),
-                other => Err((400, format!("action must be inject, remove, or enable, not {other}"))),
+                other => Err((
+                    400,
+                    format!("action must be inject, remove, or enable, not {other}"),
+                )),
             }
         }
         "/api/app/launch" => Ok(match crate::desktop::open_window("") {
@@ -812,31 +1049,60 @@ fn post_route(path: &str, body: &Value, query: &[(String, String)]) -> Result<Va
             Err(error) => json!({ "opened": false, "error": error }),
         }),
         "/api/desktop" => {
-            let action = body.get("action").and_then(Value::as_str).unwrap_or("install");
+            let action = body
+                .get("action")
+                .and_then(Value::as_str)
+                .unwrap_or("install");
             match action {
                 "install" => crate::desktop::install_desktop_entry().map_err(|error| (500, error)),
                 "uninstall" => Ok(crate::desktop::uninstall_desktop_entry()),
-                other => Err((400, format!("action must be install or uninstall, not {other}"))),
+                other => Err((
+                    400,
+                    format!("action must be install or uninstall, not {other}"),
+                )),
             }
         }
         "/api/launchoptions" => {
             let appid = body_u64(body, "appid")?;
-            let options = body.get("options").and_then(Value::as_str).unwrap_or("").to_string();
+            let options = body
+                .get("options")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .to_string();
             steamctl::set_launch_options(appid, &options).map_err(|error| (400, error))
         }
         "/api/codes" => {
             let appid = body_u64(body, "appid")?;
-            let depots = body.get("depots").and_then(Value::as_array).cloned().unwrap_or_default();
+            let depots = body
+                .get("depots")
+                .and_then(Value::as_array)
+                .cloned()
+                .unwrap_or_default();
             let st = state::load().map_err(|error| (500, error))?;
-            let order: Vec<Value> = st.settings.manifest_providers.iter().map(|name| json!(name)).collect();
+            let order: Vec<Value> = st
+                .settings
+                .manifest_providers
+                .iter()
+                .map(|name| json!(name))
+                .collect();
             let mut out = Vec::new();
             let mut errors = Vec::new();
             for depot in depots {
-                let Some(depot_id) = depot.get("depot_id").and_then(Value::as_u64) else { continue };
-                let Some(gid) = depot.get("gid").and_then(Value::as_str).filter(|value| !value.is_empty()) else { continue };
+                let Some(depot_id) = depot.get("depot_id").and_then(Value::as_u64) else {
+                    continue;
+                };
+                let Some(gid) = depot
+                    .get("gid")
+                    .and_then(Value::as_str)
+                    .filter(|value| !value.is_empty())
+                else {
+                    continue;
+                };
                 match crate::providers::fetch_code(appid, depot_id, gid, &order) {
                     Ok(result) => out.push(result),
-                    Err(error) => errors.push(json!({ "depot_id": depot_id, "gid": gid, "error": error })),
+                    Err(error) => {
+                        errors.push(json!({ "depot_id": depot_id, "gid": gid, "error": error }))
+                    }
                 }
             }
             Ok(json!({ "codes": out, "errors": errors }))
@@ -844,8 +1110,13 @@ fn post_route(path: &str, body: &Value, query: &[(String, String)]) -> Result<Va
         "/api/pin" => {
             let appid = body_u64(body, "appid")?;
             let depot_id = body_u64(body, "depot_id")?;
-            let gid = body.get("gid").and_then(Value::as_str).filter(|value| !value.is_empty());
-            update_route(|st| crate::pins::set_pin(st, appid, depot_id, gid).map_err(|error| (400, error)))
+            let gid = body
+                .get("gid")
+                .and_then(Value::as_str)
+                .filter(|value| !value.is_empty());
+            update_route(|st| {
+                crate::pins::set_pin(st, appid, depot_id, gid).map_err(|error| (400, error))
+            })
         }
         "/api/watch" => {
             let apply = body.get("apply").and_then(Value::as_bool).unwrap_or(false);
@@ -853,7 +1124,8 @@ fn post_route(path: &str, body: &Value, query: &[(String, String)]) -> Result<Va
         }
         "/api/steam/restart" => steamctl::restart(&[]).map_err(|error| (500, error)),
         "/api/steam/shutdown" => {
-            let stopped = steamctl::shutdown(std::time::Duration::from_secs(45)).map_err(|error| (500, error))?;
+            let stopped = steamctl::shutdown(std::time::Duration::from_secs(45))
+                .map_err(|error| (500, error))?;
             Ok(json!({ "stopped": stopped }))
         }
         "/api/hubcap" => {
@@ -861,32 +1133,48 @@ fn post_route(path: &str, body: &Value, query: &[(String, String)]) -> Result<Va
             let st = state::load().map_err(|error| (500, error))?;
             match action {
                 "save" => {
-                    let raw = body.get("key").and_then(Value::as_str).unwrap_or("").trim().to_string();
+                    let raw = body
+                        .get("key")
+                        .and_then(Value::as_str)
+                        .unwrap_or("")
+                        .trim()
+                        .to_string();
                     if raw.is_empty() {
                         state::update(|fresh| {
                             fresh.settings.hubcap_key.clear();
                             Ok(())
-                        }).map_err(|error| (500, error))?;
+                        })
+                        .map_err(|error| (500, error))?;
                         return Ok(json!({ "configured": false }));
                     }
-                    let valid = hubcap::valid_key(&raw)
-                        .ok_or((400, "a Hubcap key starts with smm and has no spaces".to_string()))?;
-                    let stats = hubcap::validate(&valid).map_err(|error| (400, error.to_string()))?;
+                    let valid = hubcap::valid_key(&raw).ok_or((
+                        400,
+                        "a Hubcap key starts with smm and has no spaces".to_string(),
+                    ))?;
+                    let stats =
+                        hubcap::validate(&valid).map_err(|error| (400, error.to_string()))?;
                     state::update(|fresh| {
                         fresh.settings.hubcap_key = valid;
                         Ok(())
-                    }).map_err(|error| (500, error))?;
+                    })
+                    .map_err(|error| (500, error))?;
                     Ok(json!({ "configured": true, "stats": stats }))
                 }
                 "search" => {
                     if st.settings.hubcap_key.is_empty() {
                         return Err((409, "set a Hubcap API key first".into()));
                     }
-                    let term = body.get("query").and_then(Value::as_str).unwrap_or("").trim().to_string();
+                    let term = body
+                        .get("query")
+                        .and_then(Value::as_str)
+                        .unwrap_or("")
+                        .trim()
+                        .to_string();
                     if term.is_empty() {
                         return Err((400, "query is required".into()));
                     }
-                    let items = hubcap::search(&st.settings.hubcap_key, &term, 25).map_err(|error| (502, error.to_string()))?;
+                    let items = hubcap::search(&st.settings.hubcap_key, &term, 25)
+                        .map_err(|error| (502, error.to_string()))?;
                     Ok(json!({ "items": items }))
                 }
                 "fetch" => {
@@ -894,37 +1182,52 @@ fn post_route(path: &str, body: &Value, query: &[(String, String)]) -> Result<Va
                         return Err((409, "set a Hubcap API key first".into()));
                     }
                     let appid = body_u64(body, "appid")?;
-                    let fetched = hubcap::fetch(&st.settings.hubcap_key, appid).map_err(|error| (502, error.to_string()))?;
+                    let fetched = hubcap::fetch(&st.settings.hubcap_key, appid)
+                        .map_err(|error| (502, error.to_string()))?;
                     let parsed = hubcap::parse_lua(&fetched.lua, Some(appid));
                     let stamp = vfsys::stamp();
-                    let summary = state::update(|fresh| Ok(hubcap::apply_to_state(
-                        fresh,
-                        &parsed,
-                        &stamp,
-                        body.get("name").and_then(Value::as_str),
-                        body.get("pin").and_then(Value::as_bool).unwrap_or(false),
-                        body.get("create").and_then(Value::as_bool).unwrap_or(false),
-                    ))).map_err(|error| (500, error))?;
-                    Ok(json!({ "summary": summary, "manifests": fetched.manifests, "source": fetched.source }))
+                    let summary = state::update(|fresh| {
+                        Ok(hubcap::apply_to_state(
+                            fresh,
+                            &parsed,
+                            &stamp,
+                            body.get("name").and_then(Value::as_str),
+                            body.get("pin").and_then(Value::as_bool).unwrap_or(false),
+                            body.get("create").and_then(Value::as_bool).unwrap_or(false),
+                        ))
+                    })
+                    .map_err(|error| (500, error))?;
+                    Ok(
+                        json!({ "summary": summary, "manifests": fetched.manifests, "source": fetched.source }),
+                    )
                 }
-                other => Err((400, format!("action must be save, search, or fetch, not {other}"))),
+                other => Err((
+                    400,
+                    format!("action must be save, search, or fetch, not {other}"),
+                )),
             }
         }
         "/api/settings" => update_route(|st| {
             if let Some(object) = body.as_object() {
-                let current = serde_json::to_value(&st.settings).map_err(|error| (500, error.to_string()))?;
-                let mut merged: Map<String, Value> = current.as_object().cloned().unwrap_or_default();
+                let current =
+                    serde_json::to_value(&st.settings).map_err(|error| (500, error.to_string()))?;
+                let mut merged: Map<String, Value> =
+                    current.as_object().cloned().unwrap_or_default();
                 for (key, value) in object {
                     if key.starts_with("has_") {
                         continue;
                     }
                     if key == "sources" || key == "plan_sources" {
-                        merge_source_map(merged.entry(key.clone()).or_insert_with(|| json!({})), value);
+                        merge_source_map(
+                            merged.entry(key.clone()).or_insert_with(|| json!({})),
+                            value,
+                        );
                     } else {
                         merged.insert(key.clone(), value.clone());
                     }
                 }
-                st.settings = serde_json::from_value(Value::Object(merged)).map_err(|_| (400, "invalid settings".to_string()))?;
+                st.settings = serde_json::from_value(Value::Object(merged))
+                    .map_err(|_| (400, "invalid settings".to_string()))?;
             }
             Ok(public_settings(&st.settings))
         }),
@@ -949,34 +1252,50 @@ fn post_route(path: &str, body: &Value, query: &[(String, String)]) -> Result<Va
                 return Err((400, "that lua has no app id".into()));
             }
             let stamp = vfsys::stamp();
-            let summary = state::update(|st| Ok(hubcap::apply_to_state(
-                st,
-                &parsed,
-                &stamp,
-                body.get("name").and_then(Value::as_str),
-                body.get("pin").and_then(Value::as_bool).unwrap_or(false),
-                body.get("create").and_then(Value::as_bool).unwrap_or(false),
-            ))).map_err(|error| (500, error))?;
+            let summary = state::update(|st| {
+                Ok(hubcap::apply_to_state(
+                    st,
+                    &parsed,
+                    &stamp,
+                    body.get("name").and_then(Value::as_str),
+                    body.get("pin").and_then(Value::as_bool).unwrap_or(false),
+                    body.get("create").and_then(Value::as_bool).unwrap_or(false),
+                ))
+            })
+            .map_err(|error| (500, error))?;
             Ok(json!({ "summary": summary }))
         }
         "/api/code" => {
             let appid = body_u64(body, "appid")?;
             let depot_id = body_u64(body, "depot_id")?;
-            let gid = body.get("gid").and_then(Value::as_str).unwrap_or("").to_string();
+            let gid = body
+                .get("gid")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .to_string();
             if gid.is_empty() || !gid.chars().all(|ch| ch.is_ascii_digit()) {
                 return Err((400, "gid must be decimal".into()));
             }
             let st = state::load().map_err(|error| (500, error))?;
             if let Some(cached) = st.codes.get(&gid) {
-                return Ok(json!({ "gid": gid, "depot_id": depot_id, "code": cached, "provider": "cache" }));
+                return Ok(
+                    json!({ "gid": gid, "depot_id": depot_id, "code": cached, "provider": "cache" }),
+                );
             }
-            let order: Vec<Value> = st.settings.manifest_providers.iter().map(|name| json!(name)).collect();
-            let result = crate::providers::fetch_code(appid, depot_id, &gid, &order).map_err(|error| (502, error))?;
+            let order: Vec<Value> = st
+                .settings
+                .manifest_providers
+                .iter()
+                .map(|name| json!(name))
+                .collect();
+            let result = crate::providers::fetch_code(appid, depot_id, &gid, &order)
+                .map_err(|error| (502, error))?;
             if let Some(code) = result.get("code").and_then(Value::as_u64) {
                 state::update(|st| {
                     st.codes.entry(gid).or_insert(code);
                     Ok(())
-                }).map_err(|error| (500, error))?;
+                })
+                .map_err(|error| (500, error))?;
             }
             Ok(result)
         }
@@ -1009,7 +1328,9 @@ fn delete_route(path: &str, query: &[(String, String)]) -> Result<Value, (u16, S
             let appid = need_u64(query, "appid")?;
             Ok(json!({ "removed": vfsys::remove_script(appid) }))
         }
-        "/api/provider" => Ok(json!({ "removed": vfsys::remove_provider(), "state": vfsys::provider_state() })),
+        "/api/provider" => {
+            Ok(json!({ "removed": vfsys::remove_provider(), "state": vfsys::provider_state() }))
+        }
         _ => Err((404, format!("unknown endpoint DELETE {path}"))),
     }
 }
@@ -1024,12 +1345,21 @@ fn token() -> &'static str {
 
 /// Writes need the token from `/api/session`; a browser that is not this app
 /// cannot present it, and a foreign Origin is refused outright.
-pub fn authorize(method: &str, origin: Option<&str>, supplied: Option<&str>, expected: &str, port: u16) -> Result<(), (u16, String)> {
+pub fn authorize(
+    method: &str,
+    origin: Option<&str>,
+    supplied: Option<&str>,
+    expected: &str,
+    port: u16,
+) -> Result<(), (u16, String)> {
     if method == "GET" || method == "OPTIONS" {
         return Ok(());
     }
     if let Some(origin) = origin {
-        let allowed = [format!("http://127.0.0.1:{port}"), format!("http://localhost:{port}")];
+        let allowed = [
+            format!("http://127.0.0.1:{port}"),
+            format!("http://localhost:{port}"),
+        ];
         if !allowed.iter().any(|value| value == origin) {
             return Err((403, "origin not allowed".into()));
         }
@@ -1050,7 +1380,11 @@ pub fn static_file(relative: &str) -> Option<PathBuf> {
     if cleaned.contains('\0') {
         return None;
     }
-    let candidate = if cleaned.is_empty() { root.join("index.html") } else { root.join(cleaned) };
+    let candidate = if cleaned.is_empty() {
+        root.join("index.html")
+    } else {
+        root.join(cleaned)
+    };
     let resolved = candidate.canonicalize().ok()?;
     if !resolved.starts_with(&root) || !resolved.is_file() {
         return None;
@@ -1059,7 +1393,9 @@ pub fn static_file(relative: &str) -> Option<PathBuf> {
 }
 
 fn handle(mut stream: TcpStream) {
-    let Ok(clone) = stream.try_clone() else { return };
+    let Ok(clone) = stream.try_clone() else {
+        return;
+    };
     let mut reader = BufReader::new(clone);
     let mut request_line = String::new();
     if reader.read_line(&mut request_line).is_err() {
@@ -1098,7 +1434,11 @@ fn handle(mut stream: TcpStream) {
     }
     const MAX_BODY: usize = 1 << 20;
     if length > MAX_BODY {
-        respond_json(&mut stream, 413, &json!({ "error": format!("body is larger than {MAX_BODY} bytes") }));
+        respond_json(
+            &mut stream,
+            413,
+            &json!({ "error": format!("body is larger than {MAX_BODY} bytes") }),
+        );
         return;
     }
     let mut body = vec![0u8; length];
@@ -1111,7 +1451,11 @@ fn handle(mut stream: TcpStream) {
     } else {
         if let Some(kind) = content_type {
             if !kind.starts_with("application/json") {
-                respond_json(&mut stream, 415, &json!({ "error": "body must be application/json" }));
+                respond_json(
+                    &mut stream,
+                    415,
+                    &json!({ "error": "body must be application/json" }),
+                );
                 return;
             }
         }
@@ -1124,7 +1468,13 @@ fn handle(mut stream: TcpStream) {
         }
     };
 
-    if let Err((status, message)) = authorize(&method, origin.as_deref(), supplied.as_deref(), token(), PORT.get().copied().unwrap_or(8765)) {
+    if let Err((status, message)) = authorize(
+        &method,
+        origin.as_deref(),
+        supplied.as_deref(),
+        token(),
+        PORT.get().copied().unwrap_or(8765),
+    ) {
         respond_json(&mut stream, status, &json!({ "error": message }));
         return;
     }
@@ -1169,17 +1519,27 @@ fn handle(mut stream: TcpStream) {
 pub fn serve(config: Config) -> Result<(), String> {
     let _ = PORT.set(config.port);
     let _ = TOKEN.set(crate::state::ensure_token()?);
-    if let Ok(value) = crate::http::get_json(&format!("http://127.0.0.1:{}/api/session", config.port)) {
+    if let Ok(value) =
+        crate::http::get_json(&format!("http://127.0.0.1:{}/api/session", config.port))
+    {
         if value.get("token").and_then(Value::as_str).is_some() {
-            eprintln!("exxa is already serving on http://127.0.0.1:{}/", config.port);
+            eprintln!(
+                "exxa is already serving on http://127.0.0.1:{}/",
+                config.port
+            );
             return Ok(());
         }
     }
     let listener = TcpListener::bind(("127.0.0.1", config.port))
         .map_err(|error| format!("cannot bind 127.0.0.1:{}: {error}", config.port))?;
-    eprintln!("exxa {} on http://127.0.0.1:{}/", env!("CARGO_PKG_VERSION"), config.port);
+    eprintln!(
+        "exxa {} on http://127.0.0.1:{}/",
+        env!("CARGO_PKG_VERSION"),
+        config.port
+    );
     std::thread::spawn(crate::steamui::watch_loop);
     crate::steamui::start_pump();
+    crate::plans::start_auto_update();
     let listener = Arc::new(listener);
     for incoming in listener.incoming() {
         match incoming {

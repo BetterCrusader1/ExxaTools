@@ -13,6 +13,7 @@ pub struct SettingsDraft {
     pub ryuu_key: String,
     pub default_source: String,
     pub manifest_providers: Vec<String>,
+    pub auto_update_plans: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -46,6 +47,7 @@ pub enum Event {
     },
     Clipboard(String),
     RefreshLibrary,
+    SettingsReload,
     Hero {
         appid: u64,
         path: Option<std::path::PathBuf>,
@@ -180,25 +182,24 @@ fn run(command: Command, events: Sender<Event>) {
                 state.settings.hubcap_key = draft.hubcap_key.trim().to_string();
                 state.settings.ryuu_key = draft.ryuu_key.trim().to_string();
                 state.settings.default_source = draft.default_source.trim().to_string();
+                state.settings.auto_update_plans = draft.auto_update_plans;
                 let providers: Vec<String> = draft
                     .manifest_providers
                     .iter()
                     .map(|entry| entry.trim().to_string())
                     .filter(|entry| !entry.is_empty())
                     .collect();
-                if !providers.is_empty() {
-                    // A chain entry is either a builtin name or a JSON object
-                    // describing a custom mirror; the settings file keeps the
-                    // raw strings and resolve() interprets them on read.
-                    state.settings.manifest_providers = providers;
-                }
+                // Empty is a real choice too: every mirror was switched off.
+                state.settings.manifest_providers = providers;
                 Ok(())
             });
             // Ordering may have changed: republish the provider script so
             // Vapor Forge's hot-reload picks the new chain up at once.
             if let Ok(state) = crate::state::load() {
                 let order = crate::lua::provider_order(&state);
-                if !order.is_empty() {
+                if order.is_empty() {
+                    let _ = crate::vfsys::remove_provider();
+                } else {
                     let _ = crate::lua::republish_provider(&order);
                 }
             }
@@ -206,6 +207,9 @@ fn run(command: Command, events: Sender<Event>) {
                 Ok(()) => toast(&events, "Settings saved".into(), false),
                 Err(error) => toast(&events, error, true),
             }
+            // Saving is a tracked UI state, not just a toast. Reload after both
+            // outcomes so success becomes Saved and failure restores the draft.
+            let _ = events.send(Event::SettingsReload);
         }
         Command::SyncAll => match crate::plans::refresh_manifests() {
             Ok(value) => {

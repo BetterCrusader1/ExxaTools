@@ -1,5 +1,9 @@
 //! The right pane: the selected game, its one primary action, then the evidence.
 
+use std::cell::Cell;
+use std::rc::Rc;
+use std::time::Duration;
+
 use adw::prelude::*;
 use gtk::{Box as GtkBox, Orientation};
 
@@ -18,8 +22,11 @@ pub fn build() -> Inspector {
     body.set_margin_bottom(28);
     body.set_margin_start(24);
     body.set_margin_end(24);
+    body.set_hexpand(true);
+    body.set_vexpand(true);
 
     let clamp = adw::Clamp::builder().maximum_size(780).build();
+    clamp.set_vexpand(true);
     clamp.set_child(Some(&body));
 
     let scroll = gtk::ScrolledWindow::new();
@@ -42,10 +49,8 @@ impl Inspector {
         clear(&self.body);
         let page = adw::StatusPage::builder()
             .icon_name("applications-games-symbolic")
-            .title("Pick a game")
-            .description(
-                "Choose a title from the shelf to see its plan, manifests and launch action.",
-            )
+            .title("No game selected")
+            .description("Choose a title from the shelf, or browse Discover to add a game.")
             .vexpand(true)
             .build();
         if let Some(ctx) = ctx {
@@ -66,29 +71,33 @@ impl Inspector {
         };
         clear(&self.body);
 
+        let can_launch =
+            game.origin != Origin::Search && game.installed && game.state != GameState::KeysMissing;
         let actions = GtkBox::new(Orientation::Horizontal, 8);
+        actions.add_css_class("hero-actions");
         actions.set_margin_top(14);
         actions.append(&primary_button(ctx, game));
 
-        let syncing = game.origin != Origin::Search;
-        if syncing {
-            let sync = gtk::Button::with_label("Sync manifests");
-            sync.add_css_class("flat");
-            sync.set_cursor_from_name(Some("pointer"));
-            let commands = ctx.commands.clone();
-            let appid = game.appid;
-            sync.connect_clicked(move |_| commands.send(Command::Sync(appid)));
-            actions.append(&sync);
+        if game.origin != Origin::Search {
+            if can_launch {
+                let sync = action_button("Sync manifests");
+                let commands = ctx.commands.clone();
+                let appid = game.appid;
+                sync.connect_clicked(move |_| commands.send(Command::Sync(appid)));
+                actions.append(&sync);
+            }
 
-            let fix = gtk::Button::with_label("Fix update loop");
-            fix.add_css_class("flat");
-            fix.set_cursor_from_name(Some("pointer"));
+            let fix = action_button("Fix update loop");
             fix.set_tooltip_text(Some("Repair appmanifest flags and restart Steam"));
             let commands = ctx.commands.clone();
             let appid = game.appid;
             fix.connect_clicked(move |_| commands.send(Command::Fix(appid)));
             actions.append(&fix);
         }
+
+        let menu_spacer = GtkBox::new(Orientation::Horizontal, 0);
+        menu_spacer.set_hexpand(true);
+        actions.append(&menu_spacer);
 
         let more = gtk::MenuButton::new();
         more.set_icon_name("view-more-symbolic");
@@ -105,10 +114,12 @@ impl Inspector {
         let copy = menu_button("Copy app id", "edit-copy-symbolic");
         {
             let window = ctx.window.clone();
+            let toast = ctx.toast.clone();
             let appid = game.appid;
             let popover = popover.clone();
             copy.connect_clicked(move |_| {
                 window.clipboard().set_text(&appid.to_string());
+                toast.add_toast(adw::Toast::new("App ID copied"));
                 popover.popdown();
             });
         }
@@ -146,10 +157,6 @@ impl Inspector {
         more.set_popover(Some(&popover));
         actions.append(&more);
 
-        let menu_spacer = GtkBox::new(Orientation::Horizontal, 0);
-        menu_spacer.set_hexpand(true);
-        actions.append(&menu_spacer);
-
         self.body.append(&hero(game, &actions));
 
         if game.origin == Origin::Search {
@@ -158,13 +165,13 @@ impl Inspector {
             ));
             note.add_css_class("dim-label");
             note.set_halign(gtk::Align::Start);
-            note.set_margin_top(4);
+            note.set_margin_top(8);
             note.set_margin_bottom(4);
             self.body.append(&note);
         }
 
         if !game.depots.is_empty() {
-            self.body.append(&depots_section(game));
+            self.body.append(&depots_section(ctx, game));
         }
 
         if game.origin != Origin::Search {
@@ -207,6 +214,13 @@ fn primary_button(ctx: &Ctx, game: &Game) -> gtk::Button {
     sync
 }
 
+fn action_button(label: &str) -> gtk::Button {
+    let button = gtk::Button::with_label(label);
+    button.add_css_class("flat");
+    button.set_cursor_from_name(Some("pointer"));
+    button
+}
+
 fn hero(game: &Game, actions: &GtkBox) -> gtk::Widget {
     let art = game.hero.as_ref().or(game.cover.as_ref());
     let base: gtk::Widget = match art {
@@ -241,10 +255,12 @@ fn hero(game: &Game, actions: &GtkBox) -> gtk::Widget {
     pill.add_css_class("status-pill");
     pill.add_css_class(game.state.pill_class());
     let top = GtkBox::new(Orientation::Horizontal, 8);
+    top.set_margin_bottom(8);
     top.append(&pill);
     if game.dlc > 0 {
         let dlc = gtk::Label::new(Some(&format!("{} DLC", game.dlc)));
-        dlc.add_css_class("hero-meta");
+        dlc.add_css_class("status-pill");
+        dlc.add_css_class("pill-neutral");
         top.append(&dlc);
     }
 
@@ -255,11 +271,13 @@ fn hero(game: &Game, actions: &GtkBox) -> gtk::Widget {
     title.set_wrap(true);
     title.set_wrap_mode(gtk::pango::WrapMode::WordChar);
     title.set_max_width_chars(42);
+    title.set_lines(2);
 
     let meta = gtk::Label::new(Some(&game.meta()));
     meta.add_css_class("hero-meta");
     meta.set_halign(gtk::Align::Start);
     meta.set_xalign(0.0);
+    meta.set_ellipsize(gtk::pango::EllipsizeMode::End);
 
     let content = GtkBox::new(Orientation::Vertical, 0);
     content.add_css_class("hero-panel");
@@ -283,7 +301,7 @@ fn hero(game: &Game, actions: &GtkBox) -> gtk::Widget {
     overlay.upcast()
 }
 
-fn depots_section(game: &Game) -> gtk::Widget {
+fn depots_section(ctx: &Ctx, game: &Game) -> gtk::Widget {
     let loaded = game.depots.iter().filter(|depot| depot.has_key).count();
     let title = gtk::Label::new(Some("Depots"));
     title.add_css_class("section-title");
@@ -291,7 +309,7 @@ fn depots_section(game: &Game) -> gtk::Widget {
     title.set_margin_top(20);
 
     let note = gtk::Label::new(Some(&format!(
-        "{loaded} of {} keys loaded · manifests without an id are supplied at launch",
+        "{loaded} of {} keys loaded. Select an ID to copy; missing manifests are supplied at launch.",
         game.depots.len()
     )));
     note.add_css_class("section-note");
@@ -304,42 +322,60 @@ fn depots_section(game: &Game) -> gtk::Widget {
 
     let show_size = game.depots.iter().any(|depot| depot.size.is_some());
     let show_key = game.depots.iter().any(|depot| !depot.has_key);
-    let table = GtkBox::new(Orientation::Vertical, 0);
+    let columns = 2 + i32::from(show_size) + i32::from(show_key);
+    let table = gtk::Grid::new();
     table.add_css_class("depot-table");
-    let mut header = vec![("Depot", 64, 0.0, false), ("Manifest", 0, 0.0, true)];
+    table.set_column_spacing(12);
+    table.set_row_spacing(4);
+    table.set_margin_top(4);
+    table.set_margin_bottom(4);
+    table.set_margin_start(10);
+    table.set_margin_end(10);
+    table.set_hexpand(true);
+
+    table.attach(&depot_header("Depot ID", gtk::Align::Start), 0, 0, 1, 1);
+    let manifest_header = depot_header("Manifest ID", gtk::Align::Start);
+    manifest_header.set_hexpand(true);
+    table.attach(&manifest_header, 1, 0, 1, 1);
     if show_size {
-        header.push(("Size", 58, 1.0, false));
+        table.attach(&depot_header("Size", gtk::Align::End), 2, 0, 1, 1);
     }
     if show_key {
-        header.push(("Key", 48, 1.0, false));
+        table.attach(&depot_header("Key", gtk::Align::End), columns - 1, 0, 1, 1);
     }
-    table.append(&depot_columns(&header));
-    for depot in &game.depots {
-        table.append(&gtk::Separator::new(Orientation::Horizontal));
-        let manifest = if depot.gid.is_empty() {
-            "at launch"
+
+    for (index, depot) in game.depots.iter().enumerate() {
+        let separator_row = index as i32 * 2 + 1;
+        let content_row = separator_row + 1;
+        let separator = gtk::Separator::new(Orientation::Horizontal);
+        table.attach(&separator, 0, separator_row, columns, 1);
+
+        let depot_id = copy_id_button(ctx, "Depot", &depot.id.to_string(), 100);
+        table.attach(&depot_id, 0, content_row, 1, 1);
+
+        let manifest: gtk::Widget = if depot.gid.is_empty() {
+            let provided = gtk::Label::new(Some("At launch"));
+            provided.add_css_class("caption");
+            provided.add_css_class("dim-label");
+            provided.set_halign(gtk::Align::Start);
+            provided.upcast()
         } else {
-            &depot.gid
+            copy_id_button(ctx, "Manifest", &depot.gid, 176).upcast()
         };
-        let size = depot
-            .size
-            .map(crate::ui::model::human_size)
-            .unwrap_or_default();
-        let key = if depot.has_key { "" } else { "missing" };
-        let id = depot.id.to_string();
-        let mut cells = vec![(id.as_str(), 64, 0.0, false), (manifest, 0, 0.0, true)];
+        table.attach(&manifest, 1, content_row, 1, 1);
+
         if show_size {
-            cells.push((size.as_str(), 58, 1.0, false));
+            let size = depot
+                .size
+                .map(crate::ui::model::human_size)
+                .unwrap_or_else(|| "—".into());
+            let label = depot_value(&size);
+            table.attach(&label, 2, content_row, 1, 1);
         }
         if show_key {
-            cells.push((key, 48, 1.0, false));
+            let key = key_status(depot.has_key);
+            table.attach(&key, columns - 1, content_row, 1, 1);
         }
-        let row = depot_columns(&cells);
-        row.add_css_class("depot-row");
-        if !depot.has_key {
-            row.add_css_class("depot-missing");
-        }
-        table.append(&row);
     }
 
     let section = GtkBox::new(Orientation::Vertical, 0);
@@ -349,44 +385,73 @@ fn depots_section(game: &Game) -> gtk::Widget {
     section.upcast()
 }
 
-fn depot_columns(cells: &[(&str, i32, f32, bool)]) -> gtk::Grid {
-    let grid = gtk::Grid::new();
-    grid.set_column_spacing(12);
-    grid.set_margin_top(3);
-    grid.set_margin_bottom(3);
-    grid.set_margin_start(10);
-    grid.set_margin_end(10);
-    for (index, (text, width, xalign, expand)) in cells.iter().enumerate() {
-        let label = gtk::Label::new(Some(text));
-        label.set_halign(if *xalign > 0.5 {
-            gtk::Align::End
-        } else {
-            gtk::Align::Start
+fn depot_header(text: &str, align: gtk::Align) -> gtk::Label {
+    let label = gtk::Label::new(Some(text));
+    label.add_css_class("caption");
+    label.add_css_class("dim-label");
+    label.set_halign(align);
+    label.set_xalign(if align == gtk::Align::End { 1.0 } else { 0.0 });
+    label
+}
+
+fn depot_value(text: &str) -> gtk::Label {
+    let label = gtk::Label::new(Some(text));
+    label.add_css_class("caption");
+    label.set_halign(gtk::Align::End);
+    label.set_xalign(1.0);
+    label
+}
+
+fn key_status(loaded: bool) -> gtk::Label {
+    let label = gtk::Label::new(Some(if loaded { "Loaded" } else { "Missing" }));
+    label.add_css_class("status-pill");
+    label.add_css_class(if loaded { "pill-ready" } else { "pill-warning" });
+    label.set_halign(gtk::Align::End);
+    label
+}
+
+fn copy_id_button(ctx: &Ctx, kind: &str, value: &str, width: i32) -> gtk::Button {
+    let button = gtk::Button::with_label(value);
+    button.add_css_class("flat");
+    button.add_css_class("mono");
+    button.set_size_request(width, -1);
+    button.set_halign(gtk::Align::Start);
+    button.set_cursor_from_name(Some("pointer"));
+    button.set_tooltip_text(Some(&format!("Copy {kind} ID {value}")));
+
+    let clipboard = ctx.window.clipboard();
+    let copied_value = value.to_string();
+    let original_value = value.to_string();
+    let original_tooltip = format!("Copy {kind} ID {value}");
+    let copied_tooltip = format!("{kind} ID copied");
+    let revision = Rc::new(Cell::new(0_u64));
+    button.connect_clicked(move |button| {
+        clipboard.set_text(&copied_value);
+        button.set_label("Copied");
+        button.set_tooltip_text(Some(&copied_tooltip));
+
+        let next_revision = revision.get() + 1;
+        revision.set(next_revision);
+        let revision = revision.clone();
+        let button = button.downgrade();
+        let original_value = original_value.clone();
+        let original_tooltip = original_tooltip.clone();
+        gtk::glib::timeout_add_local_once(Duration::from_millis(1_400), move || {
+            if revision.get() != next_revision {
+                return;
+            }
+            if let Some(button) = button.upgrade() {
+                button.set_label(&original_value);
+                button.set_tooltip_text(Some(&original_tooltip));
+            }
         });
-        label.set_xalign(*xalign);
-        label.set_ellipsize(gtk::pango::EllipsizeMode::End);
-        label.set_max_width_chars(32);
-        if *expand {
-            label.set_hexpand(true);
-        }
-        if *width > 0 {
-            label.set_size_request(*width, -1);
-        }
-        if index == 0 || index == 1 {
-            label.add_css_class("mono");
-        } else {
-            label.add_css_class("caption");
-        }
-        if index == 3 {
-            label.add_css_class("depot-key");
-        }
-        grid.attach(&label, index as i32, 0, 1, 1);
-    }
-    grid
+    });
+    button
 }
 
 fn plan_group(game: &Game) -> adw::PreferencesGroup {
     let group = adw::PreferencesGroup::builder().title("Plan").build();
+    group.set_margin_top(20);
     let source = if game.source.is_empty() {
         "local".to_string()
     } else {
@@ -397,45 +462,39 @@ fn plan_group(game: &Game) -> adw::PreferencesGroup {
         .subtitle(format!("{} · {}", source, game.branch))
         .build();
     expander.set_cursor_from_name(Some("pointer"));
-    expander.add_row(
-        &adw::ActionRow::builder()
-            .title("Source")
-            .subtitle(source)
-            .build(),
-    );
-    expander.add_row(
-        &adw::ActionRow::builder()
-            .title("Branch")
-            .subtitle(game.branch.clone())
-            .build(),
-    );
+    expander.add_row(&plan_row("Source", &source));
+    expander.add_row(&plan_row("Branch", &game.branch));
     let pinned = game
         .depots
         .iter()
         .filter(|depot| !depot.gid.is_empty())
         .count();
-    expander.add_row(
-        &adw::ActionRow::builder()
-            .title("Manifests")
-            .subtitle(if pinned == 0 {
-                "Supplied by the provider at launch".to_string()
-            } else {
-                format!("{pinned} pinned")
-            })
-            .build(),
-    );
-    expander.add_row(
-        &adw::ActionRow::builder()
-            .title("Last refresh")
-            .subtitle(
-                game.updated
-                    .map(crate::ui::model::relative_time)
-                    .unwrap_or_else(|| "not yet refreshed".into()),
-            )
-            .build(),
-    );
+    expander.add_row(&plan_row(
+        "Manifests",
+        &if pinned == 0 {
+            "Supplied by the provider at launch".to_string()
+        } else {
+            format!("{pinned} pinned")
+        },
+    ));
+    expander.add_row(&plan_row(
+        "Last refresh",
+        &game
+            .updated
+            .map(crate::ui::model::relative_time)
+            .unwrap_or_else(|| "not yet refreshed".into()),
+    ));
     group.add(&expander);
     group
+}
+
+fn plan_row(title: &str, value: &str) -> adw::ActionRow {
+    let row = adw::ActionRow::builder()
+        .title(title)
+        .subtitle(value)
+        .build();
+    row.set_subtitle_selectable(true);
+    row
 }
 
 fn menu_button(label: &str, icon: &str) -> gtk::Button {

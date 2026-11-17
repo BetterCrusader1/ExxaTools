@@ -88,7 +88,6 @@ struct View {
 struct NavRail {
     root: gtk::Widget,
     list: gtk::ListBox,
-    sync_all: gtk::Button,
 }
 
 pub fn run(url: &str) -> Result<(), String> {
@@ -169,7 +168,7 @@ fn build(app: &adw::Application, initial: Page) -> Ctx {
     paned.add_css_class("library-paned");
     paned.set_start_child(Some(&shelf.root));
     paned.set_end_child(Some(&inspector.root));
-    paned.set_position(318);
+    paned.set_position(320);
     paned.set_resize_start_child(false);
     paned.set_shrink_start_child(false);
 
@@ -177,23 +176,19 @@ fn build(app: &adw::Application, initial: Page) -> Ctx {
     stack.set_hexpand(true);
     stack.set_vexpand(true);
     stack.set_transition_type(gtk::StackTransitionType::Crossfade);
-    stack.set_transition_duration(220);
+    stack.set_transition_duration(180);
     stack.add_named(&paned, Some(Page::Library.name()));
     stack.add_named(&discover.root, Some(Page::Discover.name()));
     stack.add_named(&system.root, Some(Page::System.name()));
     stack.add_named(&settings.root, Some(Page::Settings.name()));
 
     let nav = build_nav();
-    {
-        let worker = worker.clone();
-        nav.sync_all
-            .connect_clicked(move |_| worker.send(Command::SyncAll));
-    }
     let body = GtkBox::new(Orientation::Horizontal, 0);
     body.append(&nav.root);
     body.append(&stack);
 
     let search = gtk::SearchEntry::new();
+    search.add_css_class("global-search");
     search.set_placeholder_text(Some("Search Steam by name or app id"));
     search.set_width_chars(38);
     search.set_max_width_chars(46);
@@ -201,11 +196,13 @@ fn build(app: &adw::Application, initial: Page) -> Ctx {
 
     let refresh = gtk::Button::from_icon_name("view-refresh-symbolic");
     refresh.add_css_class("flat");
-    refresh.set_tooltip_text(Some("Refresh the library and system checks"));
+    refresh.add_css_class("global-control");
+    refresh.set_tooltip_text(Some("Refresh the library, manifests, and system checks"));
     refresh.set_cursor_from_name(Some("pointer"));
 
     let theme_button = gtk::Button::from_icon_name(initial_theme.icon());
     theme_button.add_css_class("flat");
+    theme_button.add_css_class("global-control");
     theme_button.set_tooltip_text(Some(initial_theme.tooltip()));
     theme_button.set_cursor_from_name(Some("pointer"));
     {
@@ -217,6 +214,7 @@ fn build(app: &adw::Application, initial: Page) -> Ctx {
     }
 
     let header = adw::HeaderBar::new();
+    header.add_css_class("global-header");
     header.set_title_widget(Some(&search));
     header.pack_end(&theme_button);
     header.pack_end(&refresh);
@@ -354,9 +352,14 @@ fn build(app: &adw::Application, initial: Page) -> Ctx {
     }
     {
         let worker = worker.clone();
+        let discover = discover.clone();
+        let system = system.clone();
         refresh.connect_clicked(move |_| {
-            worker.send(Command::LoadLibrary);
+            discover.show_loading();
+            worker.send(Command::LoadDiscover);
+            system.show_loading();
             worker.send(Command::LoadDoctor);
+            worker.send(Command::SyncAll);
         });
     }
 
@@ -438,6 +441,7 @@ fn build(app: &adw::Application, initial: Page) -> Ctx {
                         ctx.clipboard(&text);
                         ctx.toast_text("Diagnostics copied to the clipboard");
                     }
+                    Event::SettingsReload => settings.reload(),
                     Event::Hero { appid, path } => {
                         if view.borrow().selected == Some(appid) {
                             if let Some(game) = view
@@ -465,8 +469,8 @@ fn build(app: &adw::Application, initial: Page) -> Ctx {
                         theme_button.set_tooltip_text(Some(selected.tooltip()));
                     }
                     Event::RefreshLibrary => {
-                        let worker = ctx.commands.clone();
-                        worker.send(Command::LoadLibrary);
+                        discover.reconcile_library();
+                        ctx.commands.send(Command::LoadLibrary);
                     }
                 }
             }
@@ -564,44 +568,40 @@ fn build_nav() -> NavRail {
         list.append(&row);
     }
 
-    let sync_all = gtk::Button::with_label("Refresh all manifests");
-    sync_all.add_css_class("flat");
-    sync_all.set_cursor_from_name(Some("pointer"));
-    sync_all.add_css_class("nav-action");
-    sync_all.set_halign(gtk::Align::Fill);
-    sync_all.set_margin_start(8);
-    sync_all.set_margin_end(8);
-    sync_all.set_margin_bottom(10);
-    let sync_icon = gtk::Image::from_icon_name("view-refresh-symbolic");
-    let sync_label = gtk::Label::new(Some("Refresh all manifests"));
-    sync_label.set_halign(gtk::Align::Start);
-    let sync_box = GtkBox::new(Orientation::Horizontal, 8);
-    sync_box.append(&sync_icon);
-    sync_box.append(&sync_label);
-    sync_all.set_child(Some(&sync_box));
+    let engine = gtk::Label::new(Some("Vapor Forge engine"));
+    engine.add_css_class("footer-label");
+    engine.add_css_class("footer-engine");
+    engine.set_halign(gtk::Align::Start);
 
-    let version = gtk::Label::new(Some(&format!("v{}", env!("CARGO_PKG_VERSION"))));
+    let version = gtk::Label::new(Some(&format!("ExxaTools v{}", env!("CARGO_PKG_VERSION"))));
     version.add_css_class("footer-label");
+    version.add_css_class("footer-version");
+    version.add_css_class("mono");
     version.set_halign(gtk::Align::Start);
-    version.set_margin_start(16);
-    version.set_margin_bottom(14);
+
+    let footer = GtkBox::new(Orientation::Vertical, 2);
+    footer.add_css_class("engine-footer");
+    footer.set_margin_top(12);
+    footer.set_margin_bottom(16);
+    footer.set_margin_start(16);
+    footer.set_margin_end(16);
+    footer.append(&engine);
+    footer.append(&version);
 
     let spacer = GtkBox::new(Orientation::Vertical, 0);
     spacer.set_vexpand(true);
 
     let root = GtkBox::new(Orientation::Vertical, 0);
     root.add_css_class("nav-rail");
-    root.set_width_request(196);
+    root.set_width_request(200);
     root.append(&brand_row);
     root.append(&list);
     root.append(&spacer);
-    root.append(&sync_all);
-    root.append(&version);
+    root.append(&footer);
 
     NavRail {
         root: root.upcast(),
         list,
-        sync_all,
     }
 }
 
@@ -643,10 +643,6 @@ window {
 .nav-row:selected .nav-icon,
 .nav-row:selected .nav-label {
     color: @accent_color;
-}
-
-.nav-action {
-    font-size: 12px;
 }
 
 .footer-label {

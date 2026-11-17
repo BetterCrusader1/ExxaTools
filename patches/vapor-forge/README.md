@@ -13,7 +13,13 @@ Steam build `1794536281` and Vapor Forge `v0.1.2`.
 - `BuildDepotDependency` now appends script-pinned depots to the dependency
   vector. Steam returns an empty vector for an app it does not own, so the
   previous implementation could only rewrite entries that already existed.
-  Injection is limited to apps named in the active plan.
+  Injection is limited to apps named in the active plan. Every manifest and
+  decryption-key lookup is also scoped to the script that declared the depot,
+  so one app's plan cannot inject depot IDs belonging to another app.
+- A Lua script can declare `-- @appid <app-id>`; ExxaTools writes this
+  automatically. Otherwise Vapor Forge discovers the app from the file's
+  `-- @filename` identity. `setmanifestid` remains available for explicit
+  ownership, and unloading a script removes its file-to-app mapping.
 - WebSocket CM frames pass through unchanged when the packet layout is not
   available. This keeps Steam's login and UI alive on the new build.
 - Depot injection no longer requires `cm-interception`; ownership no longer
@@ -78,6 +84,18 @@ attempt). `exxa steam` and `exxa serve` keep the companion copy current and
 executable (0755); a missing or stale copy makes the shim log
 `exxa companion: ...` and continue without it. The server is single-instance
 on its port, so a Steam restart reuses the running one.
+
+## Patch verification
+
+```sh
+cargo test -p vapor-forge-scripting -p vapor-forge-features
+cargo check -p vapor-forge-audit-loader --target x86_64-unknown-linux-gnu
+git apply --check --reverse patches/vapor-forge/steam-1794536281.patch
+```
+
+The scripting tests cover two plans whose keys and manifests must retain their
+declared app IDs. Feature tests verify that both manifest patches and depot
+keys are refused when a different app requests them.
 
 ## Verified
 

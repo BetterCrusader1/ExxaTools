@@ -19,6 +19,7 @@ pub struct Settings {
     pub ryuu_key: String,
     pub plan_sources: BTreeMap<String, serde_json::Value>,
     pub theme: String,
+    pub auto_update_plans: bool,
 }
 
 impl Default for Settings {
@@ -43,6 +44,7 @@ impl Default for Settings {
             ryuu_key: String::new(),
             plan_sources: BTreeMap::new(),
             theme: "dark".into(),
+            auto_update_plans: true,
         }
     }
 }
@@ -122,8 +124,12 @@ fn read_state(path: &Path) -> Result<State, String> {
 // Called only with both writer locks held. Publish migration by rename too:
 // lock-free readers must never see a partially copied legacy state.
 fn migrate_legacy(path: &Path) -> Result<(), String> {
-    let Some(parent) = path.parent() else { return Ok(()) };
-    let Some(root) = parent.parent() else { return Ok(()) };
+    let Some(parent) = path.parent() else {
+        return Ok(());
+    };
+    let Some(root) = parent.parent() else {
+        return Ok(());
+    };
     let legacy = root.join("vapordepot/state.json");
     if !legacy.is_file() {
         return Ok(());
@@ -183,7 +189,9 @@ fn with_write_lock<T>(path: &Path, f: impl FnOnce() -> Result<T, String>) -> Res
     let _guard = WRITE_LOCK
         .lock()
         .map_err(|_| "state lock is poisoned".to_string())?;
-    let parent = path.parent().ok_or_else(|| "state path has no parent".to_string())?;
+    let parent = path
+        .parent()
+        .ok_or_else(|| "state path has no parent".to_string())?;
     std::fs::create_dir_all(parent)
         .map_err(|error| format!("cannot create {}: {error}", parent.display()))?;
     lock_down(parent, 0o700)?;
@@ -195,10 +203,12 @@ fn with_write_lock<T>(path: &Path, f: impl FnOnce() -> Result<T, String>) -> Res
         use std::os::unix::fs::OpenOptionsExt;
         options.mode(0o600);
     }
-    let lock_file = options.open(&lock_path)
+    let lock_file = options
+        .open(&lock_path)
         .map_err(|error| format!("cannot open {}: {error}", lock_path.display()))?;
     lock_down(&lock_path, 0o600)?;
-    lock_file.lock()
+    lock_file
+        .lock()
         .map_err(|error| format!("cannot lock {}: {error}", lock_path.display()))?;
     // Never rename or delete this sidecar. Closing releases the OS lock before
     // the process mutex is dropped, including error returns and unwinding.

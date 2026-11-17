@@ -1,5 +1,5 @@
 diff --git a/crates/audit-loader/src/lib.rs b/crates/audit-loader/src/lib.rs
-index 4970ff5..e57e1c3 100644
+index 4970ff5..29def3a 100644
 --- a/crates/audit-loader/src/lib.rs
 +++ b/crates/audit-loader/src/lib.rs
 @@ -96,6 +96,7 @@ mod linux_audit {
@@ -10,7 +10,7 @@ index 4970ff5..e57e1c3 100644
          // Do not install hooks here. Even if steamclient is already mapped,
          // relocations may not be complete. la_activity(LA_ACT_CONSISTENT)
          // is the reliable signal that all pending relocations are done.
-@@ -166,6 +167,65 @@ mod linux_audit {
+@@ -166,6 +167,64 @@ mod linux_audit {
          path.rsplit('/').next() == Some("steam")
      }
  
@@ -35,8 +35,7 @@ index 4970ff5..e57e1c3 100644
 +        let Ok(home) = std::env::var("HOME") else {
 +            return;
 +        };
-+        let companion = std::path::Path::new(&home)
-+            .join(".local/share/exxatools/bin/exxa");
++        let companion = std::path::Path::new(&home).join(".local/share/exxatools/bin/exxa");
 +        if !companion.is_file() {
 +            log_early("exxa companion: no binary, skipping");
 +            return;
@@ -76,8 +75,119 @@ index 4970ff5..e57e1c3 100644
      unsafe fn bounded_cstr_to_string(ptr: *const c_char, max_len: usize) -> Option<String> {
          if ptr.is_null() {
              return None;
+diff --git a/crates/features/src/depot_key.rs b/crates/features/src/depot_key.rs
+index da4b014..9c62fc6 100644
+--- a/crates/features/src/depot_key.rs
++++ b/crates/features/src/depot_key.rs
+@@ -33,6 +33,18 @@ pub fn provide_key(
+     Some(out)
+ }
+ 
++pub fn provide_key_for_app(
++    app_id: AppId,
++    depot_id: DepotId,
++    keys: &HashMap<DepotId, Vec<u8>>,
++    owners: &HashMap<DepotId, AppId>,
++) -> Option<[u8; DEPOT_KEY_SIZE]> {
++    if owners.get(&depot_id).is_some_and(|owner| *owner != app_id) {
++        return None;
++    }
++    provide_key(depot_id, keys)
++}
++
+ #[cfg(test)]
+ mod tests {
+     use super::*;
+@@ -69,4 +81,15 @@ mod tests {
+         keys.insert(DepotId(481), vec![0; DEPOT_KEY_SIZE]);
+         assert!(!should_skip_shader_depot(DepotId(481), &config, &keys));
+     }
++
++    #[test]
++    fn annotated_keys_are_not_served_to_another_app() {
++        let depot = DepotId(1234);
++        let owner = AppId(42230);
++        let keys = HashMap::from([(depot, vec![7; DEPOT_KEY_SIZE])]);
++        let owners = HashMap::from([(depot, owner)]);
++        assert!(provide_key_for_app(owner, depot, &keys, &owners).is_some());
++        assert!(provide_key_for_app(AppId(730), depot, &keys, &owners).is_none());
++        assert!(provide_key_for_app(AppId(730), depot, &keys, &HashMap::new()).is_some());
++    }
+ }
+diff --git a/crates/features/src/manifest.rs b/crates/features/src/manifest.rs
+index 61295c4..5e03ac1 100644
+--- a/crates/features/src/manifest.rs
++++ b/crates/features/src/manifest.rs
+@@ -1,5 +1,5 @@
+-use vapor_forge_config::{DepotId, ManifestId};
+-use vapor_forge_core::ScriptState;
++use vapor_forge_config::{AppId, DepotId, ManifestId};
++use vapor_forge_core::{ManifestOverride, ScriptState};
+ 
+ pub struct ManifestPatch {
+     pub depot_id: DepotId,
+@@ -7,14 +7,26 @@ pub struct ManifestPatch {
+     pub new_size: Option<u64>,
+ }
+ 
+-/// For each depot_id, check if there's a Lua manifest override.
+-pub fn find_patches(depot_ids: &[DepotId], script_state: &ScriptState) -> Vec<ManifestPatch> {
++pub fn belongs_to_app(override_value: &ManifestOverride, app_id: AppId) -> bool {
++    override_value
++        .app_id
++        .map(|owner| owner == app_id)
++        .unwrap_or(true)
++}
++
++/// For each depot_id, check if there's a Lua manifest override for this app.
++pub fn find_patches(
++    app_id: AppId,
++    depot_ids: &[DepotId],
++    script_state: &ScriptState,
++) -> Vec<ManifestPatch> {
+     depot_ids
+         .iter()
+         .filter_map(|&depot_id| {
+             script_state
+                 .manifests
+                 .get(&depot_id)
++                .filter(|override_value| belongs_to_app(override_value, app_id))
+                 .map(|ov| ManifestPatch {
+                     depot_id,
+                     new_gid: ov.gid,
+@@ -23,3 +35,30 @@ pub fn find_patches(depot_ids: &[DepotId], script_state: &ScriptState) -> Vec<Ma
+         })
+         .collect()
+ }
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++    use vapor_forge_config::AppId;
++    use vapor_forge_core::ManifestOverride;
++
++    #[test]
++    fn patches_do_not_cross_into_another_plan() {
++        let mut state = ScriptState::default();
++        for (app, depot, gid) in [(108600, 108603, 300), (2605790, 2605791, 400)] {
++            state.manifests.insert(
++                DepotId(depot),
++                ManifestOverride {
++                    app_id: Some(AppId(app)),
++                    depot_id: DepotId(depot),
++                    gid: ManifestId(gid),
++                    size: None,
++                },
++            );
++        }
++        let patches = find_patches(AppId(108600), &[DepotId(108603), DepotId(2605791)], &state);
++        assert_eq!(patches.len(), 1);
++        assert_eq!(patches[0].depot_id, DepotId(108603));
++        assert_eq!(patches[0].new_gid, ManifestId(300));
++    }
++}
 diff --git a/crates/hooks/src/client/depot.rs b/crates/hooks/src/client/depot.rs
-index 2f2494f..c275095 100644
+index 2f2494f..8c85ccb 100644
 --- a/crates/hooks/src/client/depot.rs
 +++ b/crates/hooks/src/client/depot.rs
 @@ -72,6 +72,8 @@ unsafe { original(
@@ -89,7 +199,20 @@ index 2f2494f..c275095 100644
              // SAFETY: vec is valid after BuildDepotDependency returned.
              let size = unsafe { (*vec).len() };
              // SAFETY: vec is the same Steam-owned vector validated above.
-@@ -110,6 +112,92 @@ unsafe { original(
+@@ -82,7 +84,11 @@ unsafe { original(
+                     // SAFETY: i < size.
+                     depot_ids.push(DepotId(unsafe { (*vec).get(i) }.depot_id));
+                 }
+-                let patches = vapor_forge_features::manifest::find_patches(&depot_ids, &ss);
++                let patches = vapor_forge_features::manifest::find_patches(
++                    vapor_forge_config::AppId(app_id),
++                    &depot_ids,
++                    &ss,
++                );
+                 for patch in &patches {
+                     for i in 0..size {
+                         // SAFETY: i < size.
+@@ -110,6 +116,97 @@ unsafe { original(
      result
  }
  
@@ -125,7 +248,12 @@ index 2f2494f..c275095 100644
 +    let missing: Vec<_> = ss
 +        .manifests
 +        .iter()
-+        .filter(|(depot_id, _)| !present.contains(&depot_id.0))
++        .filter(|(depot_id, override_value)| {
++            vapor_forge_features::manifest::belongs_to_app(
++                override_value,
++                vapor_forge_config::AppId(app_id),
++            ) && !present.contains(&depot_id.0)
++        })
 +        .map(|(depot_id, ov)| (*depot_id, ov.clone()))
 +        .collect();
 +    if missing.is_empty() {
@@ -148,12 +276,9 @@ index 2f2494f..c275095 100644
 +            // SAFETY: the old vector's allocation covers size entries.
 +            unsafe { std::ptr::copy_nonoverlapping(old_ptr, ptr, size) };
 +        }
-+        // SAFETY: vec is a live CUtlVector; replace only its storage metadata.
-+        unsafe {
-+            vec.m_memory.m_p_memory = ptr;
-+            vec.m_memory.m_n_allocation_count = capacity as u32;
-+            vec.m_memory.m_n_grow_size = capacity as u32;
-+        }
++        vec.m_memory.m_p_memory = ptr;
++        vec.m_memory.m_n_allocation_count = capacity as u32;
++        vec.m_memory.m_n_grow_size = capacity as u32;
 +        ptr
 +    };
 +
@@ -173,17 +298,35 @@ index 2f2494f..c275095 100644
 +        // SAFETY: index < capacity and new_ptr points to capacity entries.
 +        unsafe { *new_ptr.add(index) = entry };
 +        index += 1;
-+        info!(depot_id = depot_id.0, manifest_gid = ov.gid.0, "manifest: injected");
++        info!(
++            depot_id = depot_id.0,
++            manifest_gid = ov.gid.0,
++            "manifest: injected"
++        );
 +    }
-+    // SAFETY: the vector owns the newly sized storage described above.
-+    unsafe { vec.m_size = new_size as i32 };
++    vec.m_size = new_size as i32;
 +}
 +
  // ---------------------------------------------------------------------------
  // Hook replacement functions: LoadDepotDecryptionKey (depot key injection)
  // ---------------------------------------------------------------------------
+@@ -132,8 +229,12 @@ pub(crate) unsafe extern "C" fn hk_load_depot_decryption_key(
+             unsafe { extract_depot_id_from_raw(key_name) }
+         {
+             let ss = script_state();
+-            let served =
+-                vapor_forge_features::depot_key::provide_key(DepotId(depot_id_raw), &ss.depot_keys);
++            let served = vapor_forge_features::depot_key::provide_key_for_app(
++                vapor_forge_config::AppId(unknown),
++                DepotId(depot_id_raw),
++                &ss.depot_keys,
++                &ss.depot_key_apps,
++            );
+             #[cfg(debug_assertions)]
+             log_depot_key_request(depot_id_raw, served.is_some(), ss.depot_keys.len());
+             if let Some(key) = served {
 diff --git a/crates/hooks/src/client/install/mod.rs b/crates/hooks/src/client/install/mod.rs
-index 5e91581..a1624dd 100644
+index 5e91581..acb3c98 100644
 --- a/crates/hooks/src/client/install/mod.rs
 +++ b/crates/hooks/src/client/install/mod.rs
 @@ -1332,7 +1332,6 @@ fn do_install() {
@@ -194,16 +337,19 @@ index 5e91581..a1624dd 100644
              (hook_results[6].name, hook_results[6].installed),
              (hook_results[7].name, hook_results[7].installed),
          ],
-@@ -1361,9 +1360,7 @@ fn do_install() {
-     crate::capability::set_from_requirements(
-         crate::capability::Capability::DepotInjection,
-         &[
--            ("cm-interception", cm_ready),
-             (hook_results[16].name, hook_results[16].installed),
--            (hook_results[17].name, hook_results[17].installed),
-         ],
+@@ -1360,11 +1359,7 @@ fn do_install() {
      );
      crate::capability::set_from_requirements(
+         crate::capability::Capability::DepotInjection,
+-        &[
+-            ("cm-interception", cm_ready),
+-            (hook_results[16].name, hook_results[16].installed),
+-            (hook_results[17].name, hook_results[17].installed),
+-        ],
++        &[(hook_results[16].name, hook_results[16].installed)],
+     );
+     crate::capability::set_from_requirements(
+         crate::capability::Capability::ShaderCacheControl,
 diff --git a/crates/hooks/src/client/network.rs b/crates/hooks/src/client/network.rs
 index be4ac2c..3d033d9 100644
 --- a/crates/hooks/src/client/network.rs
@@ -234,17 +380,17 @@ index be4ac2c..3d033d9 100644
      }
      if opcode == WEBSOCKET_BINARY && !data.is_null() && size > 0 {
 diff --git a/crates/hooks/src/client/ownership.rs b/crates/hooks/src/client/ownership.rs
-index 0ea8881..7dc99ac 100644
+index 0ea8881..05e13bc 100644
 --- a/crates/hooks/src/client/ownership.rs
 +++ b/crates/hooks/src/client/ownership.rs
-@@ -6,6 +6,7 @@ use vapor_forge_features::apps::{OwnershipDecision, OwnershipObservation};
- use vapor_forge_hook_engine::detour::Detour;
- use vapor_forge_hook_engine::original::original_detour;
- use vapor_forge_steam_native_abi::CAppOwnershipInfo;
+@@ -1,6 +1,7 @@
+ use core::ffi::c_void;
+ use std::sync::atomic::Ordering;
+ 
 +use tracing::info;
- 
- use vapor_forge_hook_engine::original::detour_or_return;
- 
+ use vapor_forge_config::AppId;
+ use vapor_forge_features::apps::{OwnershipDecision, OwnershipObservation};
+ use vapor_forge_hook_engine::detour::Detour;
 @@ -159,6 +160,13 @@ unsafe { original(this, app_list, size, a3) };
      // sized slot. Both answers must therefore describe the same list, and the
      // fill path must never leave slots unwritten.
@@ -275,6 +421,226 @@ index 27df0f5..b2c7259 100644
      let Some(offset) = address.checked_sub(code.base) else {
          error!(hook = name, "pattern resolved outside the module");
          return false;
+diff --git a/crates/runtime-core/src/lib.rs b/crates/runtime-core/src/lib.rs
+index e62192f..7516534 100644
+--- a/crates/runtime-core/src/lib.rs
++++ b/crates/runtime-core/src/lib.rs
+@@ -137,6 +137,9 @@ pub struct ScriptState {
+     /// Set of controlled apps registered via `addappid`.
+     pub apps: HashSet<AppId>,
+     pub depot_keys: HashMap<DepotId, Vec<u8>>,
++    /// Owner declared by the script that supplied each key. Missing entries
++    /// are legacy scripts and retain the old global lookup behaviour.
++    pub depot_key_apps: HashMap<DepotId, AppId>,
+     pub manifests: HashMap<DepotId, ManifestOverride>,
+     pub app_tickets: HashMap<AppId, Vec<u8>>,
+     pub enc_tickets: HashMap<AppId, Vec<u8>>,
+@@ -150,6 +153,9 @@ pub struct ScriptState {
+ 
+ #[derive(Clone, Debug)]
+ pub struct ManifestOverride {
++    /// ExxaTools plans declare their owner with `-- @appid`. Legacy scripts
++    /// without the marker keep the old global behaviour.
++    pub app_id: Option<AppId>,
+     pub depot_id: DepotId,
+     pub gid: ManifestId,
+     pub size: Option<u64>,
+diff --git a/crates/scripting/src/bindings.rs b/crates/scripting/src/bindings.rs
+index 254c5d8..129fd84 100644
+--- a/crates/scripting/src/bindings.rs
++++ b/crates/scripting/src/bindings.rs
+@@ -90,6 +90,7 @@ pub(crate) struct RuntimeState {
+     // Aggregated state exposed via ScriptState.
+     apps: HashSet<AppId>,
+     depot_keys: HashMap<DepotId, Vec<u8>>,
++    depot_key_apps: HashMap<DepotId, AppId>,
+     manifests: HashMap<DepotId, ManifestOverride>,
+     app_tickets: HashMap<AppId, Vec<u8>>,
+     enc_tickets: HashMap<AppId, Vec<u8>>,
+@@ -102,6 +103,7 @@ pub(crate) struct RuntimeState {
+     current_file: Option<PathBuf>,
+     file_depots: HashMap<PathBuf, HashSet<DepotId>>,
+     file_manifest_overrides: HashMap<PathBuf, HashMap<DepotId, ManifestOverride>>,
++    file_apps: HashMap<PathBuf, AppId>,
+     file_parse_sequence: HashMap<PathBuf, u64>,
+     file_mtimes: HashMap<PathBuf, u32>,
+     next_parse_sequence: u64,
+@@ -205,6 +207,7 @@ pub(crate) fn snapshot_state(state: &Shared<RuntimeState>) -> ScriptState {
+     ScriptState {
+         apps: state.apps.clone(),
+         depot_keys: state.depot_keys.clone(),
++        depot_key_apps: state.depot_key_apps.clone(),
+         manifests: state.manifests.clone(),
+         app_tickets: state.app_tickets.clone(),
+         enc_tickets: state.enc_tickets.clone(),
+@@ -219,7 +222,7 @@ pub(crate) fn snapshot_state(state: &Shared<RuntimeState>) -> ScriptState {
+ /// slice for the same path, stamp its mtime and parse sequence, then mark it
+ /// as the active file so `addappid` / `setmanifestid` callbacks attribute
+ /// their writes correctly.
+-pub(crate) fn begin_parse_file(state: &Shared<RuntimeState>, path: &Path) {
++pub(crate) fn begin_parse_file(state: &Shared<RuntimeState>, path: &Path, app_id: Option<AppId>) {
+     unload_file(state, path);
+     let mut state = lock_shared(state);
+     let owned = path.to_path_buf();
+@@ -228,6 +231,9 @@ pub(crate) fn begin_parse_file(state: &Shared<RuntimeState>, path: &Path) {
+     state.file_parse_sequence.insert(owned.clone(), seq);
+     let mtime = file_mtime_unix(path).unwrap_or(0);
+     state.file_mtimes.insert(owned.clone(), mtime);
++    if let Some(app_id) = app_id {
++        state.file_apps.insert(owned.clone(), app_id);
++    }
+     state.current_file = Some(owned);
+ }
+ 
+@@ -252,6 +258,7 @@ pub(crate) fn unload_file(state: &Shared<RuntimeState>, path: &Path) {
+             if hit_zero {
+                 state.depot_refcount.remove(&depot_id);
+                 state.depot_keys.remove(&depot_id);
++                state.depot_key_apps.remove(&depot_id);
+                 let app_id = AppId(depot_id.0);
+                 state.apps.remove(&app_id);
+                 state.app_purchase_times.remove(&app_id);
+@@ -266,6 +273,7 @@ pub(crate) fn unload_file(state: &Shared<RuntimeState>, path: &Path) {
+     }
+     state.file_parse_sequence.remove(path);
+     state.file_mtimes.remove(path);
++    state.file_apps.remove(path);
+ }
+ 
+ pub(crate) fn provider_functions(lua: &Lua) -> (bool, bool) {
+@@ -453,8 +461,19 @@ fn install_addappid(
+                     };
+                     let key_len = key.len();
+                     // Non-empty always wins; empty may only fill a missing slot.
+-                    if !key.is_empty() || !state.depot_keys.contains_key(&depot_id) {
++                    let wrote_key = !key.is_empty() || !state.depot_keys.contains_key(&depot_id);
++                    if wrote_key {
+                         state.depot_keys.insert(depot_id, key);
++                        let owner = state
++                            .current_file
++                            .as_ref()
++                            .and_then(|path| state.file_apps.get(path))
++                            .copied();
++                        if let Some(owner) = owner {
++                            state.depot_key_apps.insert(depot_id, owner);
++                        } else {
++                            state.depot_key_apps.remove(&depot_id);
++                        }
+                     }
+                     detail.push_str(&format!(" depot_key_len={key_len}"));
+                 }
+@@ -481,12 +500,18 @@ fn install_setmanifestid(
+                 mlua::Error::RuntimeError("setmanifestid: gid must be decimal".into())
+             })?;
+             let depot_id = DepotId(depot_id_raw);
++            let mut state = lock_shared(&state);
++            let app_id = state
++                .current_file
++                .as_ref()
++                .and_then(|path| state.file_apps.get(path))
++                .copied();
+             let override_value = ManifestOverride {
++                app_id,
+                 depot_id,
+                 gid: ManifestId(gid_raw),
+                 size,
+             };
+-            let mut state = lock_shared(&state);
+             let current_file = state.current_file.clone();
+             if let Some(path) = current_file {
+                 state
+diff --git a/crates/scripting/src/registry.rs b/crates/scripting/src/registry.rs
+index 97e4464..52f09fd 100644
+--- a/crates/scripting/src/registry.rs
++++ b/crates/scripting/src/registry.rs
+@@ -63,7 +63,13 @@ impl ScriptRegistry {
+     }
+ 
+     pub(crate) fn parse_file(&mut self, path: &Path, source: &str) -> Vec<String> {
+-        begin_parse_file(&self.state, path);
++        let app_id = source.lines().take(32).find_map(|line| {
++            line.trim()
++                .strip_prefix("-- @appid ")
++                .and_then(|value| value.trim().parse::<u32>().ok())
++                .map(vapor_forge_core::AppId)
++        });
++        begin_parse_file(&self.state, path, app_id);
+         let errors = execute_source(&self.lua, path, source, &self.ctx);
+         end_parse_file(&self.state);
+         errors
+diff --git a/crates/scripting/src/tests.rs b/crates/scripting/src/tests.rs
+index 922937d..33204ed 100644
+--- a/crates/scripting/src/tests.rs
++++ b/crates/scripting/src/tests.rs
+@@ -94,6 +94,34 @@ fn executes_setmanifestid_script() {
+     let _ = std::fs::remove_dir_all(&dir);
+ }
+ 
++#[test]
++fn manifest_overrides_keep_the_app_declared_in_each_plan() {
++    let dir = std::env::temp_dir().join(format!("lua-app-manifests-{}", std::process::id()));
++    let _ = std::fs::create_dir_all(&dir);
++    std::fs::write(
++        dir.join("108600.lua"),
++        "-- @appid 108600\naddappid(108600)\nsetmanifestid(108603, \"300\")\n",
++    )
++    .unwrap();
++    std::fs::write(
++        dir.join("2605790.lua"),
++        "-- @appid 2605790\naddappid(2605790)\nsetmanifestid(2605791, \"400\")\n",
++    )
++    .unwrap();
++
++    let state = execute_scripts(&[dir.to_string_lossy().into_owned()]);
++    assert_eq!(
++        state.manifests[&DepotId(108603)].app_id,
++        Some(AppId(108600))
++    );
++    assert_eq!(
++        state.manifests[&DepotId(2605791)].app_id,
++        Some(AppId(2605790))
++    );
++
++    let _ = std::fs::remove_dir_all(&dir);
++}
++
+ #[test]
+ fn executes_setstat_script() {
+     let dir = std::env::temp_dir().join(format!("lua-stat-{}", std::process::id()));
+@@ -531,3 +559,33 @@ fn report_can_restrict_lua_network_hosts() {
+ 
+     let _ = std::fs::remove_dir_all(&dir);
+ }
++
++#[test]
++fn plan_files_bind_keys_and_manifests_to_the_declared_app() {
++    let dir = std::env::temp_dir().join(format!("lua-app-binding-{}", std::process::id()));
++    let _ = std::fs::create_dir_all(&dir);
++    std::fs::write(
++        dir.join("42230.lua"),
++        format!(
++            "-- @appid 42230\naddappid(42230)\naddappid(1234, 1, \"{}\")\nsetmanifestid(1234, \"42\", 5000)\n",
++            "a".repeat(64)
++        ),
++    )
++    .unwrap();
++    std::fs::write(
++        dir.join("730.lua"),
++        format!(
++            "-- @appid 730\naddappid(730)\naddappid(5678, 1, \"{}\")\nsetmanifestid(5678, \"99\", 6000)\n",
++            "b".repeat(64)
++        ),
++    )
++    .unwrap();
++
++    let state = execute_scripts(&[dir.to_string_lossy().into_owned()]);
++    assert_eq!(state.depot_key_apps[&DepotId(1234)], AppId(42230));
++    assert_eq!(state.depot_key_apps[&DepotId(5678)], AppId(730));
++    assert_eq!(state.manifests[&DepotId(1234)].app_id, Some(AppId(42230)));
++    assert_eq!(state.manifests[&DepotId(5678)].app_id, Some(AppId(730)));
++
++    let _ = std::fs::remove_dir_all(&dir);
++}
 diff --git a/res/patterns/x86_64.toml b/res/patterns/x86_64.toml
 index 322fc8f..788c34e 100644
 --- a/res/patterns/x86_64.toml

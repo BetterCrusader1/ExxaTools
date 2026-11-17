@@ -45,7 +45,9 @@ const GLYPHS: &[(&str, &str)] = &[
 
 fn icon_markup() -> String {
     let path: PathBuf = paths::web_dir().join("logo-48.png");
-    let Ok(raw) = std::fs::read(path) else { return String::new() };
+    let Ok(raw) = std::fs::read(path) else {
+        return String::new();
+    };
     format!(
         r#"<img src="data:image/png;base64,{}" style="width:16px;height:16px;border-radius:50%;display:block" alt="">"#,
         base64_encode(&raw)
@@ -186,7 +188,10 @@ fn script() -> String {
         .replace("__ROOT__", ROOT_ID)
         .replace("__PANEL__", PANEL_ID)
         .replace("__ICON__", ICON_ID)
-        .replace("ICON_ICON", &serde_json::to_string(&icon_markup()).unwrap_or_else(|_| "\"\"".into()))
+        .replace(
+            "ICON_ICON",
+            &serde_json::to_string(&icon_markup()).unwrap_or_else(|_| "\"\"".into()),
+        )
 }
 
 fn page_targets() -> Vec<Value> {
@@ -202,8 +207,15 @@ fn page_targets() -> Vec<Value> {
         .collect()
 }
 
-fn evaluate_on(target: &Value, expression: &str, timeout: std::time::Duration) -> Result<Value, String> {
-    let ws = target.get("webSocketDebuggerUrl").and_then(Value::as_str).unwrap_or("");
+fn evaluate_on(
+    target: &Value,
+    expression: &str,
+    timeout: std::time::Duration,
+) -> Result<Value, String> {
+    let ws = target
+        .get("webSocketDebuggerUrl")
+        .and_then(Value::as_str)
+        .unwrap_or("");
     if ws.is_empty() {
         return Err("target has no websocket url".into());
     }
@@ -220,7 +232,10 @@ struct Frame {
 }
 
 fn frame_of(target: &Value) -> Option<Frame> {
-    let ws = target.get("webSocketDebuggerUrl").and_then(Value::as_str)?.to_string();
+    let ws = target
+        .get("webSocketDebuggerUrl")
+        .and_then(Value::as_str)?
+        .to_string();
     let raw = cdp::evaluate(
         &ws,
         "JSON.stringify({x: window.screenX, y: window.screenY, w: window.innerWidth, h: window.innerHeight})",
@@ -239,17 +254,31 @@ fn frame_of(target: &Value) -> Option<Frame> {
 }
 
 fn frames() -> Vec<Frame> {
-    page_targets().iter().filter_map(frame_of).filter(|frame| frame.w > 50 && frame.h > 50).collect()
+    page_targets()
+        .iter()
+        .filter_map(frame_of)
+        .filter(|frame| frame.w > 50 && frame.h > 50)
+        .collect()
 }
 
 /// The window the user is looking at is the smallest one that covers the point
 /// where the panel would appear: Steam layers the store and library above the
 /// shell, and both report the point.
-fn host_for(cx: i64, cy: i64) -> Option<Frame> {
-    frames()
+fn select_host(candidates: Vec<Frame>, cx: i64, cy: i64) -> Option<Frame> {
+    candidates
         .into_iter()
-        .filter(|frame| cx >= frame.x && cx <= frame.x + frame.w && cy >= frame.y && cy <= frame.y + frame.h)
+        // Supernavs and root menus overlap the same point but are tiny popup
+        // surfaces, not usable panel hosts. Prefer the smaller real content
+        // window (store/library) over the larger shell behind it.
+        .filter(|frame| frame.w >= 480 && frame.h >= 360)
+        .filter(|frame| {
+            cx >= frame.x && cx <= frame.x + frame.w && cy >= frame.y && cy <= frame.y + frame.h
+        })
         .min_by_key(|frame| frame.w * frame.h)
+}
+
+fn host_for(cx: i64, cy: i64) -> Option<Frame> {
+    select_host(frames(), cx, cy)
 }
 
 /// A freshly created CEF window can report (0,0) for a moment while the window
@@ -259,7 +288,11 @@ fn host_for(cx: i64, cy: i64) -> Option<Frame> {
 /// never taller than the space under the menu icon.
 pub fn panel_height(plans: i64, alert: bool, screen_height: i64) -> i64 {
     let mut height = 348 + plans.clamp(0, 4) * 76 + if alert { 46 } else { 0 };
-    let room = if screen_height > 0 { screen_height - 80 } else { 900 };
+    let room = if screen_height > 0 {
+        screen_height - 80
+    } else {
+        900
+    };
     height = height.min(room.max(240));
     height.max(240)
 }
@@ -301,6 +334,9 @@ fn status_snapshot() -> Value {
             let appid = record.get("appid").and_then(Value::as_u64).unwrap_or(0);
             let mut view = crate::state::app_summary(&st, record);
             view["launch_options"] = json!(crate::steamctl::read_launch_options(appid));
+            view["art"] = json!(format!(
+                "https://cdn.cloudflare.steamstatic.com/steam/apps/{appid}/library_600x900.jpg"
+            ));
             view
         })
         .collect();
@@ -324,7 +360,9 @@ fn open_dashboard_page(page: &str) -> Result<(), String> {
 
 fn run_action(action: &str) -> String {
     if let Some(rest) = action.strip_prefix("install:") {
-        let Ok(appid) = rest.parse::<u64>() else { return "bad app id".into() };
+        let Ok(appid) = rest.parse::<u64>() else {
+            return "bad app id".into();
+        };
         return match crate::plans::write_script(appid) {
             Ok(true) => format!("plan {appid} installed"),
             Ok(false) => format!("no saved plan for {appid}"),
@@ -332,7 +370,9 @@ fn run_action(action: &str) -> String {
         };
     }
     if let Some(rest) = action.strip_prefix("rebuild:") {
-        let Ok(appid) = rest.parse::<u64>() else { return "bad app id".into() };
+        let Ok(appid) = rest.parse::<u64>() else {
+            return "bad app id".into();
+        };
         return match crate::plans::refresh_plan(appid) {
             Ok(report) => format!(
                 "plan {appid} rebuilt ({} depot set(s))",
@@ -342,7 +382,9 @@ fn run_action(action: &str) -> String {
         };
     }
     if let Some(rest) = action.strip_prefix("sync:") {
-        let Ok(appid) = rest.parse::<u64>() else { return "bad app id".into() };
+        let Ok(appid) = rest.parse::<u64>() else {
+            return "bad app id".into();
+        };
         return match crate::plans::refresh_plan(appid) {
             Ok(report) => format!(
                 "plan {appid} synced ({} manifest update(s))",
@@ -352,7 +394,9 @@ fn run_action(action: &str) -> String {
         };
     }
     if let Some(rest) = action.strip_prefix("play:") {
-        let Ok(appid) = rest.parse::<u64>() else { return "bad app id".into() };
+        let Ok(appid) = rest.parse::<u64>() else {
+            return "bad app id".into();
+        };
         return match std::process::Command::new("steam")
             .arg(format!("steam://rungameid/{appid}"))
             .spawn()
@@ -362,18 +406,26 @@ fn run_action(action: &str) -> String {
         };
     }
     if let Some(rest) = action.strip_prefix("fix:") {
-        let Ok(appid) = rest.parse::<u64>() else { return "bad app id".into() };
+        let Ok(appid) = rest.parse::<u64>() else {
+            return "bad app id".into();
+        };
         return match crate::appmanifest::patch_with_restart(appid, &crate::appmanifest::Mode::Fix) {
             Ok(_) => format!("update flags repaired for {appid}; Steam restarted"),
             Err(error) => error,
         };
     }
     if let Some(rest) = action.strip_prefix("launch:") {
-        let Ok(appid) = rest.parse::<u64>() else { return "bad app id".into() };
+        let Ok(appid) = rest.parse::<u64>() else {
+            return "bad app id".into();
+        };
         let current = crate::steamctl::read_launch_options(appid).unwrap_or_default();
         let has = current.split_whitespace().any(|part| part == "-onlinefix");
         let next = if has {
-            current.split_whitespace().filter(|part| *part != "-onlinefix").collect::<Vec<_>>().join(" ")
+            current
+                .split_whitespace()
+                .filter(|part| *part != "-onlinefix")
+                .collect::<Vec<_>>()
+                .join(" ")
         } else {
             crate::verify::merge_launch_option(Some(&current), "-onlinefix")
         };
@@ -386,13 +438,19 @@ fn run_action(action: &str) -> String {
         "disk" => match crate::storage::report().get("lowest").cloned() {
             Some(lowest) => format!(
                 "Lowest free space: {} ({})",
-                lowest.get("free_human").and_then(Value::as_str).unwrap_or("?"),
+                lowest
+                    .get("free_human")
+                    .and_then(Value::as_str)
+                    .unwrap_or("?"),
                 lowest.get("path").and_then(Value::as_str).unwrap_or("")
             ),
             None => "Could not read free space".into(),
         },
         "engine" => match crate::engine::install(None) {
-            Ok(report) => format!("engine {} installed", report.get("version").and_then(Value::as_str).unwrap_or("")),
+            Ok(report) => format!(
+                "engine {} installed",
+                report.get("version").and_then(Value::as_str).unwrap_or("")
+            ),
             Err(error) => error,
         },
         "keys" => {
@@ -400,7 +458,9 @@ fn run_action(action: &str) -> String {
             let mut refreshed = 0;
             for record in st.apps.values() {
                 let appid = record.get("appid").and_then(Value::as_u64).unwrap_or(0);
-                if crate::vfsys::script_path(appid).exists() && crate::plans::write_script(appid).unwrap_or(false) {
+                if crate::vfsys::script_path(appid).exists()
+                    && crate::plans::write_script(appid).unwrap_or(false)
+                {
                     refreshed += 1;
                 }
             }
@@ -439,7 +499,12 @@ fn run_action(action: &str) -> String {
         },
         "provider" => {
             let st = crate::state::load().unwrap_or_default();
-            let order: Vec<Value> = st.settings.manifest_providers.iter().map(|name| json!(name)).collect();
+            let order: Vec<Value> = st
+                .settings
+                .manifest_providers
+                .iter()
+                .map(|name| json!(name))
+                .collect();
             match crate::lua::render_provider(&order) {
                 Ok(text) => match crate::vfsys::write_provider(&text) {
                     Ok(_) => "provider script written".into(),
@@ -476,7 +541,12 @@ fn handle_page_request(ws: &str, request: &Value) {
     let want = request.get("want").and_then(Value::as_str).unwrap_or("");
     let name = crate::steam::catalog(appid)
         .ok()
-        .and_then(|catalog| catalog.get("name").and_then(Value::as_str).map(str::to_string))
+        .and_then(|catalog| {
+            catalog
+                .get("name")
+                .and_then(Value::as_str)
+                .map(str::to_string)
+        })
         .unwrap_or_else(|| format!("App {appid}"));
     let planned = crate::state::load()
         .map(|state| state.apps.contains_key(&appid.to_string()))
@@ -506,10 +576,17 @@ fn handle_page_request(ws: &str, request: &Value) {
             };
             (message, false, planned, false)
         }
-        "fix" => match crate::appmanifest::patch_with_restart(appid, &crate::appmanifest::Mode::Fix) {
-            Ok(_) => (format!("{name} update flags repaired; Steam restarted"), false, true, false),
-            Err(error) => (error, false, true, false),
-        },
+        "fix" => {
+            match crate::appmanifest::patch_with_restart(appid, &crate::appmanifest::Mode::Fix) {
+                Ok(_) => (
+                    format!("{name} update flags repaired; Steam restarted"),
+                    false,
+                    true,
+                    false,
+                ),
+                Err(error) => (error, false, true, false),
+            }
+        }
         "add" => match crate::plans::fetch_plan(appid, Some(&name)) {
             Ok(_) => (
                 format!("{name} added — restart Steam to install it"),
@@ -552,57 +629,122 @@ fn handle_page_request(ws: &str, request: &Value) {
 }
 
 fn pump() {
+    let mut last_refresh = std::time::Instant::now() - std::time::Duration::from_secs(2);
+    let mut dirty = true;
+    let menu_script = script();
+    let expected_build = script_hash(&menu_script);
     loop {
         std::thread::sleep(std::time::Duration::from_millis(400));
         if !steamctl::is_running() || !debug_ready() {
             continue;
         }
-        let Some(target) = main_target() else { continue };
-        let ws = target.get("webSocketDebuggerUrl").and_then(Value::as_str).unwrap_or("");
+        let Some(target) = main_target() else {
+            continue;
+        };
+        let ws = target
+            .get("webSocketDebuggerUrl")
+            .and_then(Value::as_str)
+            .unwrap_or("");
         if ws.is_empty() {
             continue;
         }
-        // The icon asks Rust to place the panel: the shell is below the store
-        // and library windows, so a page-local panel would be covered.
-        let _ = cdp::evaluate(ws, "window.__vdWantPanel = null", std::time::Duration::from_millis(600));
-        for target in page_targets() {
-            let page_ws = target.get("webSocketDebuggerUrl").and_then(Value::as_str).unwrap_or("");
+        let preferred_host = PANEL_HOST.lock().ok().and_then(|guard| guard.clone());
+        let mut targets = page_targets();
+        // The icon lives in the shell. Read it first, then the visible panel;
+        // supernavs and background pages must not add seconds to a click.
+        targets.sort_by_key(|target| {
+            let page_ws = target
+                .get("webSocketDebuggerUrl")
+                .and_then(Value::as_str)
+                .unwrap_or("");
+            if page_ws == ws {
+                0
+            } else if preferred_host.as_deref() == Some(page_ws) {
+                1
+            } else {
+                2
+            }
+        });
+        for target in targets {
+            let page_ws = target
+                .get("webSocketDebuggerUrl")
+                .and_then(Value::as_str)
+                .unwrap_or("");
             if page_ws.is_empty() {
                 continue;
             }
-            let panel_request = cdp::evaluate(page_ws, "window.__vdPanelRequest || null", std::time::Duration::from_millis(600))
-                .ok()
-                .unwrap_or(Value::Null);
+            let batch = cdp::evaluate(
+                page_ws,
+                r#"(() => {
+                  const batch = {
+                    build: window.__vdBuild || '',
+                    panel: window.__vdPanelRequest || null,
+                    page: window.__vdPageRequest || null,
+                    action: window.__vdAction || ''
+                  };
+                  window.__vdPanelRequest = null;
+                  if (batch.page) window.__vdPageRequest = null;
+                  if (batch.action) window.__vdAction = '';
+                  return JSON.stringify(batch);
+                })()"#,
+                std::time::Duration::from_millis(700),
+            )
+            .ok()
+            .and_then(|value| {
+                value
+                    .as_str()
+                    .and_then(|text| serde_json::from_str::<Value>(text).ok())
+            })
+            .unwrap_or_else(|| json!({}));
+            if batch.get("build").and_then(Value::as_str) != Some(expected_build.as_str()) {
+                // A CEF navigation creates a fresh JS context. Reinject in the
+                // pump itself instead of leaving the icon absent until the
+                // slower filesystem watcher notices.
+                let bootstrap = format!(
+                    "window.__vdNoIcon = {};\n{}\nwindow.__vdBuild = {:?};\nwindow.__vdInject();\nif (window.__vdPanelOpen) window.__vdPanel({{ open: true }});",
+                    page_ws != ws, menu_script, expected_build
+                );
+                let _ = cdp::evaluate(page_ws, &bootstrap, std::time::Duration::from_secs(4));
+                dirty = true;
+                continue;
+            }
+            let panel_request = batch.get("panel").cloned().unwrap_or(Value::Null);
             if panel_request.is_object() {
-                let _ = cdp::evaluate(page_ws, "window.__vdPanelRequest = null", std::time::Duration::from_millis(600));
-                if panel_request.get("close").and_then(Value::as_bool).unwrap_or(false) {
+                if panel_request
+                    .get("close")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false)
+                {
                     hide_panel();
                 } else {
                     let x = panel_request.get("x").and_then(Value::as_i64).unwrap_or(0);
                     let y = panel_request.get("y").and_then(Value::as_i64).unwrap_or(0);
-                    let screen_x = panel_request.get("screen_x").and_then(Value::as_i64).unwrap_or(0);
-                    let screen_y = panel_request.get("screen_y").and_then(Value::as_i64).unwrap_or(0);
-                    let toggle = panel_request.get("toggle").and_then(Value::as_bool).unwrap_or(false);
+                    let screen_x = panel_request
+                        .get("screen_x")
+                        .and_then(Value::as_i64)
+                        .unwrap_or(0);
+                    let screen_y = panel_request
+                        .get("screen_y")
+                        .and_then(Value::as_i64)
+                        .unwrap_or(0);
+                    let toggle = panel_request
+                        .get("toggle")
+                        .and_then(Value::as_bool)
+                        .unwrap_or(false);
                     if let Err(error) = panel(true, toggle, x, y, screen_x, screen_y) {
                         eprintln!("steamui: panel placement failed: {error}");
                     }
                 }
             }
-            let request = cdp::evaluate(page_ws, "window.__vdPageRequest || null", std::time::Duration::from_millis(600))
-                .ok()
-                .unwrap_or(Value::Null);
+            let request = batch.get("page").cloned().unwrap_or(Value::Null);
             if request.is_object() {
-                let _ = cdp::evaluate(page_ws, "window.__vdPageRequest = null", std::time::Duration::from_millis(600));
                 handle_page_request(page_ws, &request);
             }
-            let act = cdp::evaluate(page_ws, "window.__vdAction || ''", std::time::Duration::from_millis(600))
-                .ok()
-                .and_then(|value| value.as_str().map(str::to_string))
-                .unwrap_or_default();
-            if !act.is_empty() {
-                let _ = cdp::evaluate(page_ws, "window.__vdAction = null", std::time::Duration::from_millis(600));
-                let message = run_action(&act);
-                if matches!(act.as_str(), "dashboard" | "discover" | "system" | "settings") {
+            let action = batch.get("action").and_then(Value::as_str).unwrap_or("");
+            if !action.is_empty() {
+                dirty = true;
+                let message = run_action(action);
+                if matches!(action, "dashboard" | "discover" | "system" | "settings") {
                     hide_panel();
                 }
                 let say = format!("window.__vdSay && window.__vdSay({message:?})");
@@ -614,40 +756,53 @@ fn pump() {
             .ok()
             .and_then(|guard| guard.clone())
             .unwrap_or_else(|| ws.to_string());
-        let open = cdp::evaluate(&panel_ws, "Boolean(window.__vdPanelOpen)", std::time::Duration::from_millis(800))
-            .ok()
-            .and_then(|value| value.as_bool())
-            .unwrap_or(false);
+        let open = cdp::evaluate(
+            &panel_ws,
+            "Boolean(window.__vdPanelOpen)",
+            std::time::Duration::from_millis(800),
+        )
+        .ok()
+        .and_then(|value| value.as_bool())
+        .unwrap_or(false);
         if !open {
-            continue;
-        }
-        let action = cdp::evaluate(&panel_ws, "window.__vdAction || ''", std::time::Duration::from_secs(2))
-            .ok()
-            .and_then(|value| value.as_str().map(str::to_string))
-            .unwrap_or_default();
-        if !action.is_empty() {
-            let _ = cdp::evaluate(&panel_ws, "window.__vdAction = ''", std::time::Duration::from_secs(2));
-            let message = run_action(&action);
-            if matches!(action.as_str(), "dashboard" | "discover" | "system" | "settings") {
-                hide_panel();
+            // A navigation or a closed CEF target invalidates the old host. The
+            // next icon click must open, not toggle a ghost closed.
+            PANEL_SHOWN.store(false, std::sync::atomic::Ordering::Relaxed);
+            if let Ok(mut guard) = PANEL_HOST.lock() {
+                *guard = None;
             }
-            let state = status_snapshot();
-            let payload = json!({ "engine": state["engine"], "apps": state["apps"], "msg": message });
-            let expression = format!("window.__vdUpdate({payload})");
-            let _ = cdp::evaluate(&panel_ws, &expression, std::time::Duration::from_secs(2));
             continue;
         }
-        let state = status_snapshot();
-        let expression = format!("window.__vdUpdate({state})");
-        let _ = cdp::evaluate(&panel_ws, &expression, std::time::Duration::from_secs(2));
+        if dirty || last_refresh.elapsed() >= std::time::Duration::from_secs(2) {
+            let state = status_snapshot();
+            let expression = format!("window.__vdUpdate({state})");
+            let _ = cdp::evaluate(&panel_ws, &expression, std::time::Duration::from_secs(2));
+            dirty = false;
+            last_refresh = std::time::Instant::now();
+        }
+    }
+}
+
+fn close_other_panels(except: Option<&str>) {
+    for target in page_targets() {
+        let ws = target
+            .get("webSocketDebuggerUrl")
+            .and_then(Value::as_str)
+            .unwrap_or("");
+        if ws.is_empty() || except == Some(ws) {
+            continue;
+        }
+        let _ = cdp::evaluate(
+            ws,
+            "window.__vdPanel && window.__vdPanel({ open: false })",
+            std::time::Duration::from_millis(800),
+        );
     }
 }
 
 fn hide_panel() {
     use std::sync::atomic::Ordering;
-    for frame in frames() {
-        let _ = cdp::evaluate(&frame.ws, "window.__vdPanel && window.__vdPanel({ open: false })", std::time::Duration::from_secs(3));
-    }
+    close_other_panels(None);
     PANEL_SHOWN.store(false, Ordering::Relaxed);
     if let Ok(mut guard) = PANEL_HOST.lock() {
         *guard = None;
@@ -656,10 +811,17 @@ fn hide_panel() {
 
 /// The panel lives inside Steam: it is injected into whichever window sits under
 /// the menu, so it scrolls with that window and cannot float over other apps.
-pub fn panel(open: bool, toggle: bool, x: i64, y: i64, screen_x: i64, screen_y: i64) -> Result<Value, String> {
+pub fn panel(
+    open: bool,
+    toggle: bool,
+    x: i64,
+    y: i64,
+    screen_x: i64,
+    screen_y: i64,
+) -> Result<Value, String> {
     use std::sync::atomic::Ordering;
 
-    if !open || (toggle && PANEL_SHOWN.load(Ordering::Relaxed)) {
+    if !open {
         hide_panel();
         return Ok(json!({ "open": false }));
     }
@@ -667,8 +829,10 @@ pub fn panel(open: bool, toggle: bool, x: i64, y: i64, screen_x: i64, screen_y: 
         return Err("Steam is not running".into());
     }
 
-    let width = 344i64;
-    let plans = crate::state::load().map(|state| state.apps.len()).unwrap_or(0) as i64;
+    let width = 360i64;
+    let plans = crate::state::load()
+        .map(|state| state.apps.len())
+        .unwrap_or(0) as i64;
     let alerts = crate::diagnose::from_files()
         .get("incidents")
         .and_then(Value::as_array)
@@ -678,7 +842,22 @@ pub fn panel(open: bool, toggle: bool, x: i64, y: i64, screen_x: i64, screen_y: 
     let icon_abs = screen_x + x;
     let mut left = icon_abs - width + 24;
     let top = screen_y + y + 10;
-    let host = host_for(left + width / 2, top + height / 2).ok_or("no Steam window covers that spot")?;
+    let host =
+        host_for(left + width / 2, top + height / 2).ok_or("no Steam window covers that spot")?;
+    if toggle {
+        let host_open = cdp::evaluate(
+            &host.ws,
+            "Boolean(window.__vdPanelOpen)",
+            std::time::Duration::from_millis(800),
+        )
+        .ok()
+        .and_then(|value| value.as_bool())
+        .unwrap_or(false);
+        if host_open {
+            hide_panel();
+            return Ok(json!({ "open": false }));
+        }
+    }
 
     ensure_panel(&host)?;
     let reference = frames().into_iter().max_by_key(|frame| frame.w * frame.h);
@@ -689,28 +868,28 @@ pub fn panel(open: bool, toggle: bool, x: i64, y: i64, screen_x: i64, screen_y: 
     let local_x = (left - origin_x).clamp(8, (host.w - width - 8).max(8));
     let local_y = (top - origin_y).max(8);
     let state = status_snapshot();
-    let expression = format!(
-        "window.__vdPanel({{ open: true, x: {local_x}, y: {local_y}, state: {state} }})"
-    );
+    let expression =
+        format!("window.__vdPanel({{ open: true, x: {local_x}, y: {local_y}, state: {state} }})");
     cdp::evaluate(&host.ws, &expression, std::time::Duration::from_secs(4))?;
     // A click left in the page from a previous panel must not fire against the
     // one we just opened (a stale "close" used to shut it instantly).
-    let _ = cdp::evaluate(&host.ws, "window.__vdAction = ''", std::time::Duration::from_secs(2));
+    let _ = cdp::evaluate(
+        &host.ws,
+        "window.__vdAction = ''",
+        std::time::Duration::from_secs(2),
+    );
     PANEL_SHOWN.store(true, Ordering::Relaxed);
     if let Ok(mut guard) = PANEL_HOST.lock() {
         *guard = Some(host.ws.clone());
     }
 
-    for frame in frames() {
-        if frame.ws == host.ws {
-            continue;
-        }
-        let _ = cdp::evaluate(&frame.ws, "window.__vdPanel && window.__vdPanel({ open: false })", std::time::Duration::from_secs(3));
-    }
+    close_other_panels(Some(&host.ws));
 
     start_pump();
 
-    Ok(json!({ "open": true, "host": [host.x, host.y, host.w, host.h], "left": local_x, "top": local_y }))
+    Ok(
+        json!({ "open": true, "host": [host.x, host.y, host.w, host.h], "left": local_x, "top": local_y }),
+    )
 }
 
 pub fn debug_ready() -> bool {
@@ -738,8 +917,15 @@ pub fn status() -> Value {
     let mut injected = false;
     let mut error: Option<String> = None;
     if let Some(target) = &target {
-        let ws = target.get("webSocketDebuggerUrl").and_then(Value::as_str).unwrap_or("");
-        match cdp::evaluate(ws, &format!("Boolean(document.getElementById({ROOT_ID:?}))"), std::time::Duration::from_secs(6)) {
+        let ws = target
+            .get("webSocketDebuggerUrl")
+            .and_then(Value::as_str)
+            .unwrap_or("");
+        match cdp::evaluate(
+            ws,
+            &format!("Boolean(document.getElementById({ROOT_ID:?}))"),
+            std::time::Duration::from_secs(6),
+        ) {
             Ok(value) => injected = value.as_bool().unwrap_or(false),
             Err(message) => error = Some(message),
         }
@@ -751,7 +937,11 @@ pub fn status() -> Value {
         .map(|text| launcher_uses_wrapper(&text))
         .unwrap_or(false);
     let autostart = crate::desktop::autostart_path().is_file();
-    let server = crate::http::get_json(&format!("http://127.0.0.1:{}/api/session", crate::server::port())).is_ok();
+    let server = crate::http::get_json(&format!(
+        "http://127.0.0.1:{}/api/session",
+        crate::server::port()
+    ))
+    .is_ok();
     json!({
         "steam_running": running,
         "debug_port": DEBUG_PORT,
@@ -773,7 +963,10 @@ pub fn status() -> Value {
 pub fn inject_plugins(ws: &str) -> Result<usize, String> {
     cdp::evaluate(ws, PLUGIN_BUS_JS, std::time::Duration::from_secs(5))?;
     let frontends = crate::plugins::frontends();
-    let keep: Vec<String> = frontends.iter().map(|(plugin, _)| plugin.id.clone()).collect();
+    let keep: Vec<String> = frontends
+        .iter()
+        .map(|(plugin, _)| plugin.id.clone())
+        .collect();
     let cleanup = format!(
         "(() => {{ const keep = new Set({}); document.querySelectorAll('#exxa-plugin-root > section[data-exxa-plugin]').forEach((node) => {{ if (!keep.has(node.getAttribute('data-exxa-plugin'))) node.remove(); }}); }})()",
         serde_json::to_string(&keep).unwrap_or_else(|_| "[]".into())
@@ -787,7 +980,12 @@ pub fn inject_plugins(ws: &str) -> Result<usize, String> {
             source,
             plugin.id
         );
-        match cdp::evaluate_isolated(ws, &format!("exxa-{}", plugin.id), &body, std::time::Duration::from_secs(20)) {
+        match cdp::evaluate_isolated(
+            ws,
+            &format!("exxa-{}", plugin.id),
+            &body,
+            std::time::Duration::from_secs(20),
+        ) {
             Ok(_) => loaded += 1,
             Err(error) => eprintln!("steamui: plugin {}: {error}", plugin.id),
         }
@@ -802,7 +1000,10 @@ pub fn bridge_tick() {
         return;
     }
     let Some(target) = main_target() else { return };
-    let ws = target.get("webSocketDebuggerUrl").and_then(Value::as_str).unwrap_or("");
+    let ws = target
+        .get("webSocketDebuggerUrl")
+        .and_then(Value::as_str)
+        .unwrap_or("");
     if ws.is_empty() {
         return;
     }
@@ -816,7 +1017,11 @@ pub fn bridge_tick() {
     }
     let mut answers = serde_json::Map::new();
     for call in calls {
-        let id = call.get("id").and_then(Value::as_str).unwrap_or("").to_string();
+        let id = call
+            .get("id")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_string();
         let plugin = call.get("plugin").and_then(Value::as_str).unwrap_or("");
         let method = call.get("method").and_then(Value::as_str).unwrap_or("");
         let params = call.get("params").cloned().unwrap_or_else(|| json!({}));
@@ -839,6 +1044,26 @@ pub fn bridge_tick() {
     let _ = cdp::evaluate(ws, &expression, std::time::Duration::from_secs(3));
 }
 
+fn injection_current(expected: &str) -> bool {
+    let targets = page_targets();
+    !targets.is_empty()
+        && targets.iter().all(|target| {
+            let ws = target
+                .get("webSocketDebuggerUrl")
+                .and_then(Value::as_str)
+                .unwrap_or("");
+            !ws.is_empty()
+                && cdp::evaluate(
+                    ws,
+                    &format!("window.__vdBuild === {expected:?}"),
+                    std::time::Duration::from_secs(2),
+                )
+                .ok()
+                .and_then(|value| value.as_bool())
+                .unwrap_or(false)
+        })
+}
+
 pub fn inject() -> Result<Value, String> {
     if !steamctl::is_running() {
         return Err("Steam is not running".into());
@@ -852,14 +1077,22 @@ pub fn inject() -> Result<Value, String> {
     let build = script_hash(&script);
     let plain = format!("{script}\nwindow.__vdBuild = {build:?};\nwindow.__vdInject();");
     let main_ws = main_target()
-        .and_then(|target| target.get("webSocketDebuggerUrl").and_then(Value::as_str).map(str::to_string))
+        .and_then(|target| {
+            target
+                .get("webSocketDebuggerUrl")
+                .and_then(Value::as_str)
+                .map(str::to_string)
+        })
         .unwrap_or_default();
     // Every page window gets the current script: the panel lives in the content
     // window, which is not the shell that carries the menu bar.
     let mut text = String::new();
     let mut reached = 0;
     for target in page_targets() {
-        let ws = target.get("webSocketDebuggerUrl").and_then(Value::as_str).unwrap_or("");
+        let ws = target
+            .get("webSocketDebuggerUrl")
+            .and_then(Value::as_str)
+            .unwrap_or("");
         if ws.is_empty() {
             continue;
         }
@@ -881,7 +1114,11 @@ pub fn inject() -> Result<Value, String> {
     if reached == 0 {
         return Err(format!(
             "injection failed: {}",
-            if text.is_empty() { "no page window answered" } else { &text }
+            if text.is_empty() {
+                "no page window answered"
+            } else {
+                &text
+            }
         ));
     }
     if !main_ws.is_empty() {
@@ -941,7 +1178,12 @@ fn wrapper_exe() -> std::path::PathBuf {
 }
 
 fn launcher_backup(path: &std::path::Path) -> std::path::PathBuf {
-    let name = format!("{}.{BACKUP_SUFFIX}", path.file_name().and_then(|value| value.to_str()).unwrap_or("steam.desktop"));
+    let name = format!(
+        "{}.{BACKUP_SUFFIX}",
+        path.file_name()
+            .and_then(|value| value.to_str())
+            .unwrap_or("steam.desktop")
+    );
     path.with_file_name(name)
 }
 
@@ -991,13 +1233,17 @@ pub fn install_launcher() -> Result<Value, String> {
         std::fs::create_dir_all(parent).map_err(|error| error.to_string())?;
     }
     if !backup.is_file() {
-        std::fs::write(&backup, &original).map_err(|error| format!("cannot back up {}: {error}", backup.display()))?;
+        std::fs::write(&backup, &original)
+            .map_err(|error| format!("cannot back up {}: {error}", backup.display()))?;
     }
     let text = original;
     let exe = wrapper_exe();
     let updated = rewrite_steam_entry(&text, &exe);
-    std::fs::write(&path, &updated).map_err(|error| format!("cannot write {}: {error}", path.display()))?;
-    Ok(json!({ "path": path.display().to_string(), "backup": backup.display().to_string(), "exec": format!("{} steam", exe.display()) }))
+    std::fs::write(&path, &updated)
+        .map_err(|error| format!("cannot write {}: {error}", path.display()))?;
+    Ok(
+        json!({ "path": path.display().to_string(), "backup": backup.display().to_string(), "exec": format!("{} steam", exe.display()) }),
+    )
 }
 
 pub fn uninstall_launcher() -> Value {
@@ -1026,11 +1272,10 @@ pub fn uninstall_launcher() -> Value {
 }
 
 fn launcher_uses_wrapper(text: &str) -> bool {
-    text.lines().any(|line| line.contains(&format!("{} steam", wrapper_exe().display())))
+    text.lines()
+        .any(|line| line.contains(&format!("{} steam", wrapper_exe().display())))
         || text.contains(WRAPPER_MARK)
 }
-
-
 
 /// The flag is an argument of the steam binary, not a command: putting it before
 /// `env` breaks the whole entry and Steam starts without a debugging port.
@@ -1064,18 +1309,25 @@ fn add_debug_flag(text: &str) -> String {
 /// Persist the debugging flag in the launcher, then restart Steam.
 pub fn enable_debug() -> Result<Value, String> {
     let mut patched: Vec<String> = Vec::new();
-    for path in [desktop_override(), Some(PathBuf::from("/usr/share/applications/steam.desktop"))]
-        .into_iter()
-        .flatten()
+    for path in [
+        desktop_override(),
+        Some(PathBuf::from("/usr/share/applications/steam.desktop")),
+    ]
+    .into_iter()
+    .flatten()
     {
         if !path.is_file() {
             continue;
         }
-        let Ok(text) = std::fs::read_to_string(&path) else { continue };
+        let Ok(text) = std::fs::read_to_string(&path) else {
+            continue;
+        };
         if !text.contains("Exec=") {
             continue;
         }
-        if path.file_name().and_then(|value| value.to_str()) == Some("steam.desktop") && !text.contains(DESKTOP_MARK) {
+        if path.file_name().and_then(|value| value.to_str()) == Some("steam.desktop")
+            && !text.contains(DESKTOP_MARK)
+        {
             continue;
         }
         let updated = add_debug_flag(&text);
@@ -1119,29 +1371,45 @@ pub fn ensure_started() {
                 std::thread::sleep(std::time::Duration::from_secs(10));
                 continue;
             }
-            let injected = status().get("injected").and_then(Value::as_bool).unwrap_or(false);
+            let expected = script_hash(&script());
+            let injected = status()
+                .get("injected")
+                .and_then(Value::as_bool)
+                .unwrap_or(false)
+                && injection_current(&expected);
             if !injected {
                 match inject() {
                     Ok(_) => eprintln!("steamui: menu injected"),
                     Err(error) => eprintln!("steamui: inject failed: {error}"),
                 }
             }
-            std::thread::sleep(std::time::Duration::from_secs(if injected { 20 } else { 3 }));
+            std::thread::sleep(std::time::Duration::from_secs(if injected {
+                20
+            } else {
+                3
+            }));
         }
     });
 }
 
 /// Writes the flag into the launcher without restarting anything.
 fn enable_debug_if_possible() -> Result<(), String> {
-    for path in [desktop_override(), Some(PathBuf::from("/usr/share/applications/steam.desktop"))]
-        .into_iter()
-        .flatten()
+    for path in [
+        desktop_override(),
+        Some(PathBuf::from("/usr/share/applications/steam.desktop")),
+    ]
+    .into_iter()
+    .flatten()
     {
-        let Ok(text) = std::fs::read_to_string(&path) else { continue };
+        let Ok(text) = std::fs::read_to_string(&path) else {
+            continue;
+        };
         if !text.contains("Exec=") {
             continue;
         }
-        if path.file_name().and_then(|value| value.to_str()) == Some("steam.desktop") && !text.contains(DESKTOP_MARK) {
+        if path.file_name().and_then(|value| value.to_str()) == Some("steam.desktop")
+            && !text.contains(DESKTOP_MARK)
+        {
             continue;
         }
         let updated = add_debug_flag(&text);
@@ -1156,7 +1424,6 @@ fn enable_debug_if_possible() -> Result<(), String> {
 pub fn watch_loop() {
     ensure_started();
 }
-
 
 #[cfg(test)]
 mod tests {
@@ -1186,9 +1453,10 @@ mod tests {
 
     #[test]
     fn wrapper_keeps_placeholders_and_actions() {
-        let entry = "[Desktop Entry]\nExec=env \"LD_AUDIT=/x\" /usr/bin/steam -cef-enable-debugging %U\n"
-            .to_string()
-            + "Exec=env \"LD_AUDIT=/x\" /usr/bin/steam steam://store\n";
+        let entry =
+            "[Desktop Entry]\nExec=env \"LD_AUDIT=/x\" /usr/bin/steam -cef-enable-debugging %U\n"
+                .to_string()
+                + "Exec=env \"LD_AUDIT=/x\" /usr/bin/steam steam://store\n";
         let out = super::rewrite_steam_entry(&entry, std::path::Path::new("/opt/exxa"));
         assert!(out.contains("Exec=/opt/exxa steam %U"));
         assert!(out.contains("Exec=/opt/exxa steam steam://store"));
@@ -1204,13 +1472,53 @@ mod tests {
     }
 }
 
+#[cfg(test)]
+mod host_tests {
+    use super::{select_host, Frame};
+
+    fn frame(name: &str, w: i64, h: i64) -> Frame {
+        Frame {
+            ws: name.into(),
+            x: 600,
+            y: 400,
+            w,
+            h,
+        }
+    }
+
+    #[test]
+    fn content_window_wins_over_a_supernav() {
+        let host = select_host(
+            vec![
+                frame("store-supernav", 145, 231),
+                frame("store-content", 1278, 657),
+                frame("shell", 1280, 800),
+            ],
+            700,
+            600,
+        )
+        .unwrap();
+        assert_eq!(host.ws, "store-content");
+    }
+
+    #[test]
+    fn tiny_popups_are_not_panel_hosts() {
+        assert!(select_host(vec![frame("root-menu", 300, 500)], 700, 600).is_none());
+    }
+}
 
 #[cfg(test)]
 mod origin_tests {
     use super::{panel_origin, Frame};
 
     fn frame(x: i64, y: i64, w: i64, h: i64, ws: &str) -> Frame {
-        Frame { ws: ws.to_string(), x, y, w, h }
+        Frame {
+            ws: ws.to_string(),
+            x,
+            y,
+            w,
+            h,
+        }
     }
 
     #[test]
@@ -1233,7 +1541,6 @@ mod origin_tests {
         assert_eq!(panel_origin(&host, None), (0, 0));
     }
 }
-
 
 #[cfg(test)]
 mod height_tests {
