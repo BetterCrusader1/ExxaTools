@@ -59,31 +59,31 @@ window.__vdPanel = (opts) => {
     style.textContent = `
       #${PANEL} {
         position: fixed; z-index: 2147483647; width: 360px;
-        background: #171a21; border: 1px solid #3b4a5a; border-radius: 8px;
+        background: #09090D; border: 1px solid #2A2935; border-radius: 8px;
         box-shadow: 0 16px 42px rgba(0,0,0,.46);
-        font: 500 12px/1.4 "Motiva Sans", "Segoe UI", Arial, sans-serif;
-        color: #dfe6ed; display: none;
+        font: 500 12px/1.4 "Inter", "Geist", "Noto Sans", "Motiva Sans", sans-serif;
+        color: #F4F2FA; display: none;
         max-height: calc(100vh - 16px); overflow-y: auto; overscroll-behavior: contain;
       }
       #${PANEL}.open { display: block; }
       #${PANEL} [hidden] { display: none !important; }
       #${PANEL} .vd-head { cursor: grab; user-select: none; padding: 10px 12px;
-        border-bottom: 1px solid #2a313b; }
+        border-bottom: 1px solid #232230; }
       #${PANEL}.dragging, #${PANEL}.dragging .vd-head { cursor: grabbing; }
       #${PANEL} .vd-brand { display: flex; align-items: center; gap: 8px; }
       #${PANEL} .vd-name { flex: 1; padding: 0; border: 0; background: transparent;
-        color: #dfe6ed; font: 600 14px/1.2 "Motiva Sans", "Segoe UI", Arial, sans-serif;
+        color: #F4F2FA; font: 600 14px/1.2 "Inter", "Geist", "Noto Sans", "Motiva Sans", sans-serif;
         text-align: left; cursor: pointer; }
-      #${PANEL} .vd-name:hover { color: #66c0f4; }
+      #${PANEL} .vd-name:hover { color: #C4B5FD; }
       #${PANEL} .vd-x, #${PANEL} .vd-more {
         width: 28px; height: 28px; flex: none; display: grid; place-items: center;
         border: 0; border-radius: 6px; background: transparent;
-        color: #aab7c4; font: 500 17px/1 Arial, sans-serif; cursor: pointer;
+        color: #A9A3BC; font: 500 17px/1 "Inter", sans-serif; cursor: pointer;
       }
-      #${PANEL} .vd-x:hover, #${PANEL} .vd-more:hover { background: #2a475e; color: #fff; }
+      #${PANEL} .vd-x:hover, #${PANEL} .vd-more:hover { background: #241E38; color: #fff; }
       #${PANEL} .vd-state { display: flex; align-items: center; gap: 7px; margin-top: 8px;
-        font-size: 11px; color: #b8c4cf; }
-      #${PANEL} .vd-dot { width: 7px; height: 7px; border-radius: 50%; background: #8294a5; flex: none; }
+        font-size: 11px; color: #A9A3BC; }
+      #${PANEL} .vd-dot { width: 7px; height: 7px; border-radius: 50%; background: #6F6A7D; flex: none; }
       #${PANEL} .vd-state.ok .vd-dot { background: #8fc7a5; }
       #${PANEL} .vd-state.warn .vd-dot { background: #d8b27a; }
       #${PANEL} .vd-state.bad .vd-dot { background: #d96a60; }
@@ -92,84 +92,86 @@ window.__vdPanel = (opts) => {
         padding: 8px 9px; border: 1px solid rgba(216,178,122,.32); border-radius: 6px;
         background: rgba(216,178,122,.08); font-size: 11px; color: #e9c48a; }
       #${PANEL} .vd-alert-text { flex: 1; line-height: 1.35; }
-      #${PANEL} .vd-mini { min-height: 26px; padding: 3px 9px; border: 1px solid #46647a;
-        border-radius: 6px; background: #2a475e; color: #e6eef4;
-        font: 600 11px "Motiva Sans", Arial, sans-serif; cursor: pointer; }
-      #${PANEL} .vd-quick { display: grid; grid-template-columns: 1fr auto; gap: 8px; }
-      #${PANEL} .vd-action { min-height: 32px; padding: 6px 11px; border: 1px solid #3b4a5a;
-        border-radius: 6px; background: #202a35; color: #d7e0e8;
-        font: 600 12px "Motiva Sans", Arial, sans-serif; cursor: pointer; }
-      #${PANEL} .vd-action:hover { background: #2a475e; border-color: #66c0f4; color: #fff; }
-      #${PANEL} .vd-action.primary { background: #66c0f4; border-color: #66c0f4;
-        color: #102331; font-weight: 700; }
-      #${PANEL} .vd-action.primary:hover { background: #8bd0f7; border-color: #8bd0f7; }
-      #${PANEL} .vd-label { margin: 14px 1px 7px; color: #8fa4b5; font-size: 11px; font-weight: 600; }
+      #${PANEL} .vd-mini { min-height: 26px; padding: 3px 9px; border: 1px solid #4C3A78;
+        border-radius: 6px; background: #241E38; color: #F4F2FA;
+        font: 600 11px "Inter", "Geist", "Noto Sans", "Motiva Sans", sans-serif; cursor: pointer; }
+      #${PANEL} .vd-quick { display: grid; grid-template-columns: 1fr auto auto; gap: 8px; }
+      #${PANEL} .vd-action { min-height: 32px; padding: 6px 11px; border: 1px solid #2A2935;
+        border-radius: 6px; background: #14141D; color: #F4F2FA;
+        font: 600 12px "Inter", "Geist", "Noto Sans", "Motiva Sans", sans-serif; cursor: pointer; }
+      #${PANEL} .vd-action:hover { background: #241E38; border-color: #8B5CF6; color: #fff; }
+      #${PANEL} .vd-action.primary { background: #8B5CF6; border-color: #8B5CF6;
+        color: #09090D; font-weight: 700; }
+      #${PANEL} .vd-action.primary:hover { background: #C4B5FD; border-color: #C4B5FD; }
+      #${PANEL} .vd-action.restart { border-color: #4C3A78; background: #1B1526; color: #C4B5FD; }
+      #${PANEL} .vd-action.restart:hover { background: #2A2140; border-color: #8B5CF6; color: #fff; }
+      #${PANEL} .vd-label { margin: 14px 1px 7px; color: #8B8598; font-size: 11px; font-weight: 600; }
       #${PANEL} .vd-games { display: flex; flex-direction: column; gap: 6px; }
       #${PANEL} .vd-games:empty { display: none; }
       #${PANEL} .vd-game { position: relative; display: grid;
         grid-template-columns: 34px minmax(0,1fr) auto 28px; align-items: center; gap: 8px;
-        min-height: 58px; padding: 5px 6px; border: 1px solid #2f3b47; border-radius: 8px;
-        background: #1b232d; }
-      #${PANEL} .vd-game.expanded { border-color: #46647a; }
+        min-height: 58px; padding: 5px 6px; border: 1px solid #2A2935; border-radius: 8px;
+        background: #101017; }
+      #${PANEL} .vd-game.expanded { border-color: #4C3A78; }
       #${PANEL} .vd-art { width: 34px; height: 48px; object-fit: cover; border-radius: 4px;
-        background: #202a35; }
+        background: #14141D; }
       #${PANEL} .vd-art-fallback { width: 34px; height: 48px; display: grid; place-items: center;
-        border-radius: 4px; background: #2a475e; color: #8fa4b5; font-weight: 700; }
+        border-radius: 4px; background: #241E38; color: #8B8598; font-weight: 700; }
       #${PANEL} .vd-game-copy { min-width: 0; }
       #${PANEL} .vd-game-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-        font-size: 12px; font-weight: 600; color: #e3eaf0; }
-      #${PANEL} .vd-game-state { margin-top: 3px; font-size: 10.5px; color: #8fa4b5; }
+        font-size: 12px; font-weight: 600; color: #F4F2FA; }
+      #${PANEL} .vd-game-state { margin-top: 3px; font-size: 10.5px; color: #8B8598; }
       #${PANEL} .vd-game.ready .vd-game-state { color: #8fc7a5; }
       #${PANEL} .vd-game.keys_missing .vd-game-state { color: #d96a60; }
-      #${PANEL} .vd-play { min-height: 28px; padding: 4px 9px; border: 1px solid #46647a;
-        border-radius: 6px; background: #2a475e; color: #e6eef4;
-        font: 600 11px "Motiva Sans", Arial, sans-serif; cursor: pointer; }
-      #${PANEL} .vd-play:hover { background: #66c0f4; border-color: #66c0f4; color: #102331; }
+      #${PANEL} .vd-play { min-height: 28px; padding: 4px 9px; border: 1px solid #4C3A78;
+        border-radius: 6px; background: #241E38; color: #F4F2FA;
+        font: 600 11px "Inter", "Geist", "Noto Sans", "Motiva Sans", sans-serif; cursor: pointer; }
+      #${PANEL} .vd-play:hover { background: #8B5CF6; border-color: #8B5CF6; color: #09090D; }
       #${PANEL} .vd-more { font-size: 16px; line-height: 1; }
       #${PANEL} .vd-game-more { grid-column: 1 / -1; display: grid; grid-template-columns: 1fr 1fr;
-        gap: 6px; padding: 7px 0 1px; border-top: 1px solid #2f3b47; }
+        gap: 6px; padding: 7px 0 1px; border-top: 1px solid #2A2935; }
       #${PANEL} .vd-game-more button { min-height: 28px; padding: 4px 7px;
-        border: 1px solid #3b4a5a; border-radius: 6px; background: #202a35; color: #cdd9e3;
-        font: 500 11px "Motiva Sans", Arial, sans-serif; cursor: pointer; }
-      #${PANEL} .vd-game-more button:hover { background: #2a475e; color: #fff; }
-      #${PANEL} .vd-empty { padding: 18px 10px; border: 1px dashed #3b4a5a; border-radius: 8px;
-        text-align: center; color: #8fa4b5; }
-      #${PANEL} .vd-empty strong { display: block; margin-bottom: 4px; color: #dfe6ed; font-size: 12px; }
-      #${PANEL} .vd-msg { padding: 8px 2px 0; font-size: 11px; line-height: 1.35; color: #9eb3c3; }
+        border: 1px solid #2A2935; border-radius: 6px; background: #14141D; color: #D8D3E2;
+        font: 500 11px "Inter", "Geist", "Noto Sans", "Motiva Sans", sans-serif; cursor: pointer; }
+      #${PANEL} .vd-game-more button:hover { background: #241E38; color: #fff; }
+      #${PANEL} .vd-empty { padding: 18px 10px; border: 1px dashed #2A2935; border-radius: 8px;
+        text-align: center; color: #8B8598; }
+      #${PANEL} .vd-empty strong { display: block; margin-bottom: 4px; color: #F4F2FA; font-size: 12px; }
+      #${PANEL} .vd-msg { padding: 8px 2px 0; font-size: 11px; line-height: 1.35; color: #A9A3BC; }
       #${PANEL} .vd-msg:empty { display: none; }
       #${PANEL} .vd-plugins { display: flex; flex-direction: column; gap: 7px; margin-top: 10px; }
-      #${PANEL} .vd-plugins section { padding: 10px; border: 1px solid #2f3b47;
-        border-radius: 8px; background: #1b232d; }
-      #${PANEL} .vd-plugins section .vd-label { margin: 0 0 6px; color: #b8c4cf; }
+      #${PANEL} .vd-plugins section { padding: 10px; border: 1px solid #2A2935;
+        border-radius: 8px; background: #101017; }
+      #${PANEL} .vd-plugins section .vd-label { margin: 0 0 6px; color: #A9A3BC; }
       #${PANEL} .vd-plugins:empty { display: none; }
       #${PANEL} .vd-foot-row { display: flex; align-items: center; gap: 10px; margin-top: 12px;
-        padding-top: 9px; border-top: 1px solid #2a313b; }
+        padding-top: 9px; border-top: 1px solid #232230; }
       #${PANEL} .vd-link { padding: 4px 0; border: 0; background: none;
-        color: #9eb3c3; font: 500 11px "Motiva Sans", Arial, sans-serif; cursor: pointer; }
-      #${PANEL} .vd-link:hover { color: #66c0f4; }
-      #${PANEL} .vd-ver { margin-left: auto; font-size: 10.5px; color: #8294a5;
+        color: #A9A3BC; font: 500 11px "Inter", "Geist", "Noto Sans", "Motiva Sans", sans-serif; cursor: pointer; }
+      #${PANEL} .vd-link:hover { color: #C4B5FD; }
+      #${PANEL} .vd-ver { margin-left: auto; font-size: 10.5px; color: #6F6A7D;
         font-variant-numeric: tabular-nums; }
-      #${PANEL} button:focus-visible { outline: 2px solid #8bd0f7; outline-offset: 2px; }
+      #${PANEL} button:focus-visible { outline: 2px solid #C4B5FD; outline-offset: 2px; }
       #${PANEL} button:disabled { opacity: .55; cursor: default; }
       #${PANEL}-dash {
         position: fixed; inset: 0; z-index: 2147483647;
-        display: none; flex-direction: column; background: #171a21;
-        font-family: "Motiva Sans", "Segoe UI", Arial, sans-serif;
+        display: none; flex-direction: column; background: #09090D;
+        font-family: "Inter", "Geist", "Noto Sans", "Motiva Sans", sans-serif;
       }
       #${PANEL}-dash.open { display: flex; }
       #${PANEL}-dash .vd-dash-bar {
         display: flex; align-items: center; gap: 10px; height: 40px; flex: none;
-        padding: 0 10px 0 14px; background: #171a21; border-bottom: 1px solid #2a313b;
-        color: #dfe6ed; font-size: 12.5px; font-weight: 600;
+        padding: 0 10px 0 14px; background: #09090D; border-bottom: 1px solid #232230;
+        color: #F4F2FA; font-size: 12.5px; font-weight: 600;
       }
-      #${PANEL}-dash .vd-dash-bar span { flex: 1; color: #8fa4b5; font-weight: 400; }
+      #${PANEL}-dash .vd-dash-bar span { flex: 1; color: #8B8598; font-weight: 400; }
       #${PANEL}-dash .vd-dash-x {
         width: 27px; height: 27px; display: grid; place-items: center;
-        border: 1px solid #3b4a5a; border-radius: 6px; background: transparent;
-        color: #aab7c4; font: 500 15px/1 Arial, sans-serif; cursor: pointer;
+        border: 1px solid #2A2935; border-radius: 6px; background: transparent;
+        color: #A9A3BC; font: 500 15px/1 "Inter", sans-serif; cursor: pointer;
       }
-      #${PANEL}-dash .vd-dash-x:hover { background: #2a475e; color: #ffffff; }
-      #${PANEL}-dash iframe { flex: 1; width: 100%; border: 0; background: #171a21; }
+      #${PANEL}-dash .vd-dash-x:hover { background: #241E38; color: #ffffff; }
+      #${PANEL}-dash iframe { flex: 1; width: 100%; border: 0; background: #09090D; }
     `;
     // Refresh the stylesheet instead of skipping it: a panel injected by an
     // older build leaves a style node behind, and new rules would never apply.
@@ -193,6 +195,7 @@ window.__vdPanel = (opts) => {
         <div class="vd-quick">
           <button class="vd-action primary" data-act="discover">Add games</button>
           <button class="vd-action" data-act="sync_all">Sync all</button>
+          <button class="vd-action restart" data-act="restart">Restart Steam</button>
         </div>
         <div class="vd-label vd-library-label" id="vd-library-label" hidden>Library</div>
         <div class="vd-games" id="vd-games"></div>
@@ -484,30 +487,21 @@ window.__vdInject = () => {
   item.appendChild(icon);
   wrapper.insertAdjacentElement("afterend", item);
 
-  // The page has no HTTP path to the app: Steam's CSP blocks loopback, and the
-  // API now refuses unauthenticated writes. A flag read over CDP is enough.
-  const toggle = () => {
-    // The menu icon lives in the shell, but the store and library are separate
-    // CEF windows layered above it. Opening locally would put the panel behind
-    // those windows, so ask Rust which window is actually under the icon.
-    const rect = item.getBoundingClientRect();
-    window.__vdPanelRequest = {
-      toggle: true,
-      x: Math.round(rect.left),
-      y: Math.round(rect.bottom),
-      screen_x: Math.round(window.screenX),
-      screen_y: Math.round(window.screenY),
-    };
+  // The icon opens the full dashboard, not the floating quick panel. Rust owns
+  // the window launch, so the shell target only raises the request flag.
+  const open_app = () => {
+    window.__vdPanelRequest = { close: true };
+    window.__vdAction = "dashboard";
   };
 
   item.addEventListener("click", (event) => {
     event.stopPropagation();
-    toggle();
+    open_app();
   });
   document.addEventListener("keydown", (event) => {
     if (event.ctrlKey && event.shiftKey && (event.key === "E" || event.key === "e")) {
       event.preventDefault();
-      toggle();
+      open_app();
     }
     if (event.key === "Escape") {
       const shell = document.getElementById("__PANEL__-dash");

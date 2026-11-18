@@ -213,10 +213,21 @@ fn build(app: &adw::Application, initial: Page) -> Ctx {
         });
     }
 
+    let restart = gtk::Button::with_label("Restart Steam");
+    restart.add_css_class("suggested-action");
+    restart.add_css_class("restart-steam");
+    restart.set_tooltip_text(Some("Close Steam and start it with ExxaTools wired"));
+    restart.set_cursor_from_name(Some("pointer"));
+    {
+        let commands = worker.clone();
+        restart.connect_clicked(move |_| commands.send(Command::RestartSteam));
+    }
+
     let header = adw::HeaderBar::new();
     header.add_css_class("global-header");
     header.set_title_widget(Some(&search));
     header.pack_end(&theme_button);
+    header.pack_end(&restart);
     header.pack_end(&refresh);
 
     let root = GtkBox::new(Orientation::Vertical, 0);
