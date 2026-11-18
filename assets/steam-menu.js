@@ -568,11 +568,14 @@ window.__vdAppPage = () => {
     } else if (state && Number(state.appid) === appid) {
       if (state.can_restart) {
         html = button("restart", "Restart Steam", "primary", glyph("restart"));
-      } else if (state.can_add) {
-        html = button("add", "Add", "primary", plusIcon);
-      } else if (state.can_sync) {
-        html = button("sync", "Sync", "secondary", glyph("sync"));
-        if (state.can_fix) html += sep + button("fix", "Fix update", "secondary", glyph("fix"));
+      } else {
+        if (state.can_add) {
+          html = button("add", "Add", "primary", plusIcon);
+        } else if (state.can_sync) {
+          html = button("sync", "Sync", "secondary", glyph("sync"));
+          if (state.can_fix) html += sep + button("fix", "Fix update", "secondary", glyph("fix"));
+        }
+        html += (html ? sep : "") + button("restart", "Restart Steam", "secondary", glyph("restart"));
       }
       if (state.can_setup) html += (html ? sep : "") + button("settings", "Setup source", "secondary", glyph("provider"));
       if (state.error && state.status) html += '<span class="exxa-store-error">' + escapeHtml(state.status) + "</span>";
@@ -641,7 +644,7 @@ window.__vdAppPage = () => {
   }
   wrap.dataset.build = window.__vdBuild || "";
   const state = (window.__vdPageCache || {})[appid];
-  const key = JSON.stringify(state || null) + "|" + (window.__vdPageBusy || "");
+  const key = (window.__vdBuild || "") + "|" + JSON.stringify(state || null) + "|" + (window.__vdPageBusy || "");
   if (wrap.dataset.key !== key) {
     wrap.dataset.key = key;
     render(wrap, state);
