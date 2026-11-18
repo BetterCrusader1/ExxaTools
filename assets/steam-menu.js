@@ -535,127 +535,145 @@ if (!window.__vdWatcher) {
 }
 
 
-// A small card on Steam store pages for the game being viewed. It asks Rust for
-// the app state over the same push channel the panel uses, so no CSP applies.
+// Inline actions beside the store page title. No floating card: the row uses
+// Steam's Motiva Sans and ExxaTools' violet accent, and shows only the actions
+// that matter for this app (Add, then Restart Steam, then Sync/Fix).
 window.__vdAppPage = () => {
   const match = (window.location.pathname || "").match(/^\/app\/(\d+)/);
   if (!match) return false;
   if (!/(^|\.)store\.steampowered\.com$/.test(window.location.hostname || "")) return false;
   const appid = Number(match[1]);
-  if (window.__vdAppDismissed === appid) return false;
-  if (window.__vdAppWidgetId !== appid) {
-    const old = document.getElementById("vd-app-card");
-    if (old) old.remove();
-    window.__vdPageState = null;
-  }
-  const stale = document.getElementById("vd-app-card");
-  if (stale && stale.dataset.build !== (window.__vdBuild || "")) stale.remove();
-  if (window.__vdAppWidgetId === appid && document.getElementById("vd-app-card")) return true;
-  window.__vdAppWidgetId = appid;
+  const title = document.getElementById("appHubAppName") || document.querySelector(".apphub_AppName");
+  if (!title) return false;
 
-  let style = document.getElementById("vd-app-style");
+  // Drop the previous floating card if an older build left one behind.
+  const legacy = document.getElementById("vd-app-card");
+  if (legacy) legacy.remove();
+  const legacyStyle = document.getElementById("vd-app-style");
+  if (legacyStyle) legacyStyle.remove();
+  if (window.__vdAppPoll) { clearInterval(window.__vdAppPoll); window.__vdAppPoll = null; }
+  window.__vdAppDismissed = null;
+  window.__vdAppWidgetId = null;
+
+  const escapeHtml = (value) => String(value == null ? "" : value)
+    .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+  const plusIcon = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M8 3v10M3 8h10"/></svg>';
+  const glyph = (name) => (window.__vdGlyphs || {})[name] || "";
+  const button = (want, label, cls, icon, disabled) =>
+    '<button type="button" class="exxa-store-btn ' + cls + '" data-want="' + want + '"'
+    + (disabled ? " disabled" : "") + ">" + (icon || "") + "<span>" + escapeHtml(label) + "</span></button>";
+  const sep = '<span class="exxa-store-sep"></span>';
+
+  const render = (wrap, state) => {
+    const busy = window.__vdPageBusy;
+    let html = "";
+    if (busy) {
+      const labels = { add: "Adding…", restart: "Restarting…", sync: "Syncing…", fix: "Fixing…", settings: "Opening…" };
+      html = button(busy, labels[busy] || "Working…", "primary", "", true);
+    } else if (state && Number(state.appid) === appid) {
+      if (state.can_restart) {
+        html = button("restart", "Restart Steam", "primary", glyph("restart"));
+      } else if (state.can_add) {
+        html = button("add", "Add", "primary", plusIcon);
+      } else if (state.can_sync) {
+        html = button("sync", "Sync", "secondary", glyph("sync"));
+        if (state.can_fix) html += sep + button("fix", "Fix update", "secondary", glyph("fix"));
+      }
+      if (state.can_setup) html += (html ? sep : "") + button("settings", "Setup source", "secondary", glyph("provider"));
+      if (state.error && state.status) html += '<span class="exxa-store-error">' + escapeHtml(state.status) + "</span>";
+    } else {
+      html = button("add", "Add", "primary", plusIcon, true);
+    }
+    wrap.innerHTML = html;
+  };
+
+  let style = document.getElementById("vd-store-style");
   if (!style) {
     style = document.createElement("style");
-    style.id = "vd-app-style";
+    style.id = "vd-store-style";
     style.textContent = `
-      #vd-app-card { position: fixed; right: 18px; bottom: 64px; z-index: 2147483000;
-        width: 308px; padding: 13px; border-radius: 8px; background: #171a21;
-        border: 1px solid #3b4a5a; box-shadow: 0 16px 40px rgba(0,0,0,.48);
-        font-family: "Motiva Sans", "Segoe UI", Arial, sans-serif; color: #dfe6ed; }
-      #vd-app-card .t { display: flex; align-items: center; gap: 8px; font-size: 11px;
-        font-weight: 600; color: #8fa4b5; }
-      #vd-app-card .t span { flex: 1; }
-      #vd-app-card .n { margin-top: 6px; font-size: 14px; font-weight: 600; color: #eef3f7; }
-      #vd-app-card .s { margin-top: 4px; font-size: 11.5px; color: #a9b8c5; line-height: 1.4; }
-      #vd-app-card .a { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: 11px; }
-      #vd-app-card button { box-sizing: border-box; min-height: 30px; padding: 6px 9px;
-        border-radius: 7px; white-space: nowrap; line-height: 1.15;
-        border: 1px solid #3b4a5a; background: #202a35; color: #d7e0e8;
-        font: 600 11px "Motiva Sans", Arial, sans-serif; cursor: pointer;
-        transition: background-color 120ms ease, border-color 120ms ease, color 120ms ease; }
-      #vd-app-card button.primary { background: #66c0f4; border-color: #66c0f4; color: #102331; }
-      #vd-app-card button:hover { border-color: #57809e; background: #2a475e; color: #ffffff; }
-      #vd-app-card button.primary:hover { background: #8bd0f7; border-color: #8bd0f7; color: #102331; }
-      #vd-app-card button[data-want="close"] { position: absolute; right: 8px; top: 8px;
-        width: 25px; min-height: 25px; padding: 0; border: 0; background: transparent;
-        color: #8fa4b5; font-size: 15px; }
-      #vd-app-card button[data-want="close"]:hover { color: #ffffff; background: #2a475e; }
-      #vd-app-card button[disabled] { opacity: .55; cursor: default; }
-      #vd-app-card [hidden] { display: none !important; }
+      .exxa-store-actions { display: inline-flex; align-items: center; gap: 8px;
+        margin-left: 14px; vertical-align: middle; white-space: nowrap;
+        font-family: "Motiva Sans", sans-serif; font-size: 13px; line-height: 1; }
+      .exxa-store-sep { width: 1px; height: 18px; background: rgba(255,255,255,.18); flex: none; }
+      .exxa-store-btn { display: inline-flex; align-items: center; gap: 6px; height: 28px;
+        padding: 0 12px; border-radius: 3px; border: 1px solid rgba(167,139,250,.55);
+        background: linear-gradient(180deg, rgba(139,92,246,.22), rgba(109,40,217,.12));
+        color: #ede9fe; font: 600 13px/1 "Motiva Sans", sans-serif; letter-spacing: .01em;
+        cursor: pointer; transition: background .15s, border-color .15s, transform .1s; }
+      .exxa-store-btn svg { width: 14px; height: 14px; flex: none; }
+      .exxa-store-btn:hover { border-color: #a78bfa;
+        background: linear-gradient(180deg, rgba(139,92,246,.34), rgba(109,40,217,.2)); }
+      .exxa-store-btn:active { transform: translateY(1px); }
+      .exxa-store-btn.primary { background: linear-gradient(180deg, #8b5cf6, #6d28d9);
+        border-color: #a78bfa; color: #fff;
+        box-shadow: 0 1px 0 rgba(0,0,0,.35), inset 0 1px 0 rgba(255,255,255,.18); }
+      .exxa-store-btn.primary:hover { background: linear-gradient(180deg, #9f75ff, #7c3aed); }
+      .exxa-store-btn.secondary { background: rgba(255,255,255,.06);
+        border-color: rgba(255,255,255,.2); color: #c6d4df; }
+      .exxa-store-btn.secondary:hover { border-color: rgba(167,139,250,.6); color: #ede9fe;
+        background: rgba(139,92,246,.12); }
+      .exxa-store-btn:disabled { opacity: .55; cursor: default; transform: none; }
+      .exxa-store-error { margin-left: 10px; color: #fca5a5;
+        font: 400 12px/1.3 "Motiva Sans", sans-serif; white-space: normal;
+        max-width: 340px; display: inline-block; vertical-align: middle; }
     `;
     document.head.appendChild(style);
   }
 
-  let card = document.getElementById("vd-app-card");
-  if (card && card.dataset.build !== (window.__vdBuild || "")) {
-    card.remove();
-    card = null;
+  let wrap = document.getElementById("vd-store-actions");
+  if (wrap && (wrap.dataset.appid !== String(appid) || !title.contains(wrap))) {
+    wrap.remove();
+    wrap = null;
   }
-  if (!card) {
-    card = document.createElement("div");
-    card.id = "vd-app-card";
-    card.dataset.build = window.__vdBuild || "";
-    card.innerHTML = '<div class="t"><span>ExxaTools</span></div>'
-      + '<div class="n" data-name>App ' + appid + '</div>'
-      + '<div class="s" data-status>Looking up this game…</div>'
-      + '<div class="a"><button class="primary" data-want="add" hidden>Add to library</button>'
-      + '<button data-want="launch" hidden>Launch</button>'
-      + '<button data-want="sync" hidden>Sync manifests</button>'
-      + '<button data-want="fix" hidden title="Repair update flags and restart Steam">Fix update</button>'
-      + '<button data-want="settings" hidden>Setup source</button>'
-      + '<button data-want="dashboard">Dashboard</button>'
-      + '<button data-want="close" title="Hide">×</button></div>';
-    card.addEventListener("click", (event) => {
-      const button = event.target.closest("button[data-want]");
-      if (!button) return;
-      const want = button.dataset.want;
-      if (want === "close") {
-        window.__vdAppDismissed = appid;
-        card.remove();
-        window.__vdAppWidgetId = null;
-        return;
-      }
-      window.__vdPageState = null;
-      window.__vdPageRequest = { appid: appid, want: want };
-      card.querySelectorAll("button").forEach((node) => { node.disabled = true; });
+  if (!wrap) {
+    wrap = document.createElement("span");
+    wrap.id = "vd-store-actions";
+    wrap.className = "exxa-store-actions";
+    wrap.dataset.appid = String(appid);
+    wrap.setAttribute("role", "group");
+    wrap.setAttribute("aria-label", "ExxaTools actions");
+    title.appendChild(wrap);
+    wrap.addEventListener("click", (event) => {
+      const btn = event.target.closest("button[data-want]");
+      if (!btn || btn.disabled) return;
+      window.__vdPageBusy = btn.dataset.want;
+      window.__vdPageRequest = { appid: appid, want: btn.dataset.want };
+      render(wrap, (window.__vdPageCache || {})[appid]);
     });
-    document.body.appendChild(card);
+    const cache = window.__vdPageCache || (window.__vdPageCache = {});
+    if (!cache[appid]) window.__vdPageRequest = { appid: appid, want: "probe" };
   }
-
-  const render = (state) => {
-    if (!state || Number(state.appid) !== appid) return;
-    const name = card.querySelector("[data-name]");
-    const status = card.querySelector("[data-status]");
-    const add = card.querySelector('[data-want="add"]');
-    const sync = card.querySelector('[data-want="sync"]');
-    if (state.name) name.textContent = state.name;
-    status.textContent = state.status || "";
-    add.hidden = !state.can_add;
-    sync.hidden = !state.can_sync;
-    const setup = card.querySelector('[data-want="settings"]');
-    if (setup) setup.hidden = !state.can_setup;
-    const launch = card.querySelector('[data-want="launch"]');
-    if (launch) launch.hidden = !state.can_launch;
-    const fix = card.querySelector('[data-want="fix"]');
-    if (fix) fix.hidden = !state.can_fix;
-    card.querySelectorAll("button").forEach((node) => { node.disabled = false; });
-  };
-
-  window.__vdAppCardRender = render;
-  if (!window.__vdAppPoll) {
-    window.__vdAppPoll = setInterval(() => {
-      const state = window.__vdPageState;
-      if (state && window.__vdAppCardRender) window.__vdAppCardRender(state);
-    }, 400);
+  wrap.dataset.build = window.__vdBuild || "";
+  const state = (window.__vdPageCache || {})[appid];
+  const key = JSON.stringify(state || null) + "|" + (window.__vdPageBusy || "");
+  if (wrap.dataset.key !== key) {
+    wrap.dataset.key = key;
+    render(wrap, state);
   }
-  window.__vdPageState = null;
-  window.__vdPageRequest = { appid: appid, want: "probe" };
   return true;
 };
+
+// Rust pushes state by assigning window.__vdPageState; cache it and re-render.
+Object.defineProperty(window, "__vdPageState", {
+  configurable: true,
+  get() { return window.__vdPageStateValue || null; },
+  set(state) {
+    window.__vdPageStateValue = state;
+    window.__vdPageBusy = null;
+    if (state && state.appid) {
+      const cache = window.__vdPageCache || (window.__vdPageCache = {});
+      cache[Number(state.appid)] = state;
+    }
+    try { window.__vdAppPage(); } catch (error) { /* Steam is mid-render */ }
+  },
+});
 
 if (!window.__vdAppWatcher) {
   window.__vdAppWatcher = setInterval(() => { try { window.__vdAppPage(); } catch (error) { } }, 1200);
 }
+try { window.__vdAppPage(); } catch (error) { /* store page not ready yet */ }
 
 
 // Top-level so a fresh injection repairs the route without rebuilding the panel.

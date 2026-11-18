@@ -531,8 +531,8 @@ pub fn start_pump() {
     }
 }
 
-/// Answers the store-page card: a probe reports whether the app is in the library,
-/// Add fetches a plan through the configured sources, Sync refreshes manifests.
+/// Answers the inline store-page actions: a probe reports whether the app is in
+/// the library, Add fetches a plan, Restart applies it, Sync refreshes manifests.
 fn handle_page_request(ws: &str, request: &Value) {
     let appid = request.get("appid").and_then(Value::as_u64).unwrap_or(0);
     if appid == 0 {
@@ -551,20 +551,20 @@ fn handle_page_request(ws: &str, request: &Value) {
     let planned = crate::state::load()
         .map(|state| state.apps.contains_key(&appid.to_string()))
         .unwrap_or(false);
-    let (status, can_add, can_sync, can_setup) = match want {
+    let (status, can_add, can_sync, can_setup, can_restart, error) = match want {
         "dashboard" => {
             let message = match open_dashboard_page("") {
                 Ok(()) => "Dashboard opened".to_string(),
                 Err(error) => error,
             };
-            (message, false, planned, false)
+            (message, false, planned, false, false, false)
         }
         "settings" => {
             let message = match open_dashboard_page("settings") {
                 Ok(()) => "Settings opened".to_string(),
                 Err(error) => error,
             };
-            (message, false, planned, false)
+            (message, false, planned, false, false, false)
         }
         "launch" => {
             let message = match std::process::Command::new("steam")
@@ -574,8 +574,19 @@ fn handle_page_request(ws: &str, request: &Value) {
                 Ok(_) => format!("Launching {name}"),
                 Err(error) => format!("Steam did not open: {error}"),
             };
-            (message, false, planned, false)
+            (message, false, planned, false, false, false)
         }
+        "restart" => match crate::steamctl::restart(&[]) {
+            Ok(_) => (
+                "Steam restarted".to_string(),
+                false,
+                true,
+                false,
+                false,
+                false,
+            ),
+            Err(error) => (error, false, true, false, true, true),
+        },
         "fix" => {
             match crate::appmanifest::patch_with_restart(appid, &crate::appmanifest::Mode::Fix) {
                 Ok(_) => (
@@ -583,8 +594,10 @@ fn handle_page_request(ws: &str, request: &Value) {
                     false,
                     true,
                     false,
+                    false,
+                    false,
                 ),
-                Err(error) => (error, false, true, false),
+                Err(error) => (error, false, true, false, false, true),
             }
         }
         "add" => match crate::plans::fetch_plan(appid, Some(&name)) {
@@ -593,15 +606,24 @@ fn handle_page_request(ws: &str, request: &Value) {
                 false,
                 true,
                 false,
+                true,
+                false,
             ),
             Err(error) => {
                 let setup = error.contains("plan source");
-                (error, true, planned, setup)
+                (error, true, planned, setup, false, true)
             }
         },
         "sync" => match crate::plans::refresh_plan(appid) {
-            Ok(_) => (format!("{name} manifests synced"), false, true, false),
-            Err(error) => (error, false, true, false),
+            Ok(_) => (
+                format!("{name} manifests synced"),
+                false,
+                true,
+                false,
+                false,
+                false,
+            ),
+            Err(error) => (error, false, true, false, false, true),
         },
         _ => (
             if planned {
@@ -612,6 +634,8 @@ fn handle_page_request(ws: &str, request: &Value) {
             !planned,
             planned,
             false,
+            false,
+            false,
         ),
     };
     let payload = json!({
@@ -621,6 +645,8 @@ fn handle_page_request(ws: &str, request: &Value) {
         "can_add": can_add,
         "can_sync": can_sync,
         "can_setup": can_setup,
+        "can_restart": can_restart,
+        "error": error,
         "can_launch": planned,
         "can_fix": planned && crate::appmanifest::manifest_path(appid).is_some(),
     });
@@ -1566,5 +1592,26 @@ mod height_tests {
     fn short_screens_clamp() {
         assert_eq!(panel_height(4, true, 400), 320);
         assert_eq!(panel_height(0, false, 200), 240);
+    }
+}
+
+#[cfg(test)]
+mod store_tests {
+    use super::MENU_SCRIPT;
+
+    #[test]
+    fn store_actions_are_inline_not_a_fixed_card() {
+        assert!(MENU_SCRIPT.contains("vd-store-actions"));
+        assert!(MENU_SCRIPT.contains("exxa-store-btn"));
+        assert!(MENU_SCRIPT.contains("Restart Steam"));
+        assert!(MENU_SCRIPT.contains("vd-app-card"));
+        assert!(!MENU_SCRIPT.contains("#vd-app-card { position: fixed"));
+    }
+
+    #[test]
+    fn store_actions_use_steam_font_and_exxa_accent() {
+        assert!(MENU_SCRIPT.contains("\"Motiva Sans\""));
+        assert!(MENU_SCRIPT.contains("#8b5cf6"));
+        assert!(MENU_SCRIPT.contains("#a78bfa"));
     }
 }
