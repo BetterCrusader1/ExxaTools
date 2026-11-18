@@ -487,21 +487,27 @@ window.__vdInject = () => {
   item.appendChild(icon);
   wrapper.insertAdjacentElement("afterend", item);
 
-  // The icon opens the full dashboard, not the floating quick panel. Rust owns
-  // the window launch, so the shell target only raises the request flag.
-  const open_app = () => {
-    window.__vdPanelRequest = { close: true };
-    window.__vdAction = "dashboard";
+  // The icon opens the Steam-side panel. The panel's brand button opens the
+  // full dashboard when it is wanted; the menu itself stays inside Steam.
+  const open_panel = () => {
+    const rect = item.getBoundingClientRect();
+    window.__vdPanelRequest = {
+      toggle: true,
+      x: Math.round(rect.left),
+      y: Math.round(rect.bottom),
+      screen_x: Math.round(window.screenX),
+      screen_y: Math.round(window.screenY),
+    };
   };
 
   item.addEventListener("click", (event) => {
     event.stopPropagation();
-    open_app();
+    open_panel();
   });
   document.addEventListener("keydown", (event) => {
     if (event.ctrlKey && event.shiftKey && (event.key === "E" || event.key === "e")) {
       event.preventDefault();
-      open_app();
+      open_panel();
     }
     if (event.key === "Escape") {
       const shell = document.getElementById("__PANEL__-dash");
