@@ -727,8 +727,8 @@ fn pump() {
                 // pump itself instead of leaving the icon absent until the
                 // slower filesystem watcher notices.
                 let bootstrap = format!(
-                    "window.__vdNoIcon = {};\n{}\nwindow.__vdBuild = {:?};\nwindow.__vdInject();\nif (window.__vdPanelOpen) window.__vdPanel({{ open: true }});",
-                    page_ws != ws, menu_script, expected_build
+                    "window.__vdNoIcon = {};\n{}\nwindow.__vdBuild = {:?};\nwindow.__vdPanelOpen = false;\nvar oldPanel = document.getElementById({:?}); if (oldPanel) oldPanel.classList.remove('open');\nwindow.__vdInject();",
+                    page_ws != ws, menu_script, expected_build, PANEL_ID
                 );
                 let _ = cdp::evaluate(page_ws, &bootstrap, std::time::Duration::from_secs(4));
                 dirty = true;
