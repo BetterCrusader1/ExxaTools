@@ -487,27 +487,23 @@ window.__vdInject = () => {
   item.appendChild(icon);
   wrapper.insertAdjacentElement("afterend", item);
 
-  // The icon opens the Steam-side panel. The panel's brand button opens the
-  // full dashboard when it is wanted; the menu itself stays inside Steam.
-  const open_panel = () => {
-    const rect = item.getBoundingClientRect();
-    window.__vdPanelRequest = {
-      toggle: true,
-      x: Math.round(rect.left),
-      y: Math.round(rect.bottom),
-      screen_x: Math.round(window.screenX),
-      screen_y: Math.round(window.screenY),
-    };
+  // The icon next to Help opens the full ExxaTools app. The floating quick
+  // panel is retired: nothing requests it open anymore, and any leftover node
+  // is closed on injection.
+  const open_app = () => {
+    window.__vdPanelRequest = { close: true };
+    if (window.__vdPanel) window.__vdPanel({ open: false });
+    window.__vdAction = "dashboard";
   };
 
   item.addEventListener("click", (event) => {
     event.stopPropagation();
-    open_panel();
+    open_app();
   });
   document.addEventListener("keydown", (event) => {
     if (event.ctrlKey && event.shiftKey && (event.key === "E" || event.key === "e")) {
       event.preventDefault();
-      open_panel();
+      open_app();
     }
     if (event.key === "Escape") {
       const shell = document.getElementById("__PANEL__-dash");
