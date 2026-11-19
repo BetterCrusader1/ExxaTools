@@ -26,11 +26,31 @@ pub struct Spec {
 
 fn builtin(name: &str) -> Option<Spec> {
     let (url, format, field, agent) = match name {
-        "steamrun" => ("https://manifest.steam.run/api/manifest/{gid}", "json", Some("content"), Some("ExxaTools/1.0")),
-        "20770407" => ("https://20770407.xyz/manifest/{depotId}/{gid}", "plain", None, Some("ExxaTools/1.0")),
+        "steamrun" => (
+            "https://manifest.steam.run/api/manifest/{gid}",
+            "json",
+            Some("content"),
+            Some("ExxaTools/1.0"),
+        ),
+        "20770407" => (
+            "https://20770407.xyz/manifest/{depotId}/{gid}",
+            "plain",
+            None,
+            Some("ExxaTools/1.0"),
+        ),
         "wudrm" => ("http://gmrc.wudrm.com/manifest/{gid}", "plain", None, None),
-        "manifestdex" => ("https://manifest.manifestdex.com/{gid}", "plain", None, Some("ManifestDeX/1.0")),
-        "opensteamtool" => ("https://manifest.opensteamtool.com/{gid}", "plain", None, Some("OpenSteamTool/1.0")),
+        "manifestdex" => (
+            "https://manifest.manifestdex.com/{gid}",
+            "plain",
+            None,
+            Some("ManifestDeX/1.0"),
+        ),
+        "opensteamtool" => (
+            "https://manifest.opensteamtool.com/{gid}",
+            "plain",
+            None,
+            Some("OpenSteamTool/1.0"),
+        ),
         _ => return None,
     };
     Some(Spec {
@@ -54,8 +74,15 @@ pub fn resolve(entry: &Value) -> Option<Spec> {
             if !(url.starts_with("http://") || url.starts_with("https://")) {
                 return None;
             }
-            let format = map.get("format").and_then(Value::as_str).unwrap_or("plain").to_string();
-            let json_field = map.get("json_field").and_then(Value::as_str).map(str::to_string);
+            let format = map
+                .get("format")
+                .and_then(Value::as_str)
+                .unwrap_or("plain")
+                .to_string();
+            let json_field = map
+                .get("json_field")
+                .and_then(Value::as_str)
+                .map(str::to_string);
             if format == "json" && json_field.is_none() {
                 return None;
             }
@@ -64,7 +91,10 @@ pub fn resolve(entry: &Value) -> Option<Spec> {
                 url,
                 format,
                 json_field,
-                user_agent: map.get("user_agent").and_then(Value::as_str).map(str::to_string),
+                user_agent: map
+                    .get("user_agent")
+                    .and_then(Value::as_str)
+                    .map(str::to_string),
             })
         }
         _ => None,
@@ -87,7 +117,8 @@ fn parse_code(body: &str, spec: &Spec) -> Result<u64, String> {
         return Err("HTML response (challenge or outage)".into());
     }
     if spec.format == "json" || text.starts_with('{') {
-        let payload: Value = serde_json::from_str(&text).map_err(|_| "malformed JSON".to_string())?;
+        let payload: Value =
+            serde_json::from_str(&text).map_err(|_| "malformed JSON".to_string())?;
         let field = spec.json_field.clone().unwrap_or_else(|| "content".into());
         text = match &payload {
             Value::Object(_) => payload.get(&field).map(value_to_text).unwrap_or_default(),
@@ -97,7 +128,8 @@ fn parse_code(body: &str, spec: &Spec) -> Result<u64, String> {
     if text.is_empty() || !text.chars().all(|ch| ch.is_ascii_digit()) {
         return Err(format!("not a manifest code: {:.60}", text));
     }
-    text.parse::<u64>().map_err(|_| "manifest code out of range".to_string())
+    text.parse::<u64>()
+        .map_err(|_| "manifest code out of range".to_string())
 }
 
 fn value_to_text(value: &Value) -> String {
@@ -119,19 +151,31 @@ static LIMITER: std::sync::LazyLock<Limiter> = std::sync::LazyLock::new(|| Limit
 });
 
 fn wait_for(name: &str) -> Result<(), String> {
-    let until = LIMITER.cool.lock().ok().and_then(|map| map.get(name).copied());
+    let until = LIMITER
+        .cool
+        .lock()
+        .ok()
+        .and_then(|map| map.get(name).copied());
     let now = Instant::now();
     if let Some(until) = until {
         if until > now {
-            return Err(format!("{name} is cooling down for {}s", (until - now).as_secs()));
+            return Err(format!(
+                "{name} is cooling down for {}s",
+                (until - now).as_secs()
+            ));
         }
     }
     let delay = {
-        let mut last = LIMITER.last.lock().map_err(|_| "limiter poisoned".to_string())?;
+        let mut last = LIMITER
+            .last
+            .lock()
+            .map_err(|_| "limiter poisoned".to_string())?;
         let previous = last.get(name).copied();
         last.insert(name.to_string(), now);
         match previous {
-            Some(previous) if now.duration_since(previous) < MIN_INTERVAL => MIN_INTERVAL - now.duration_since(previous),
+            Some(previous) if now.duration_since(previous) < MIN_INTERVAL => {
+                MIN_INTERVAL - now.duration_since(previous)
+            }
             _ => Duration::ZERO,
         }
     };
@@ -156,7 +200,12 @@ pub fn fetch_code(app_id: u64, depot_id: u64, gid: &str, order: &[Value]) -> Res
     for spec in specs {
         let attempt = wait_for(&spec.name).and_then(|_| {
             let url = build_url(&spec, app_id, depot_id, gid);
-            let body = http::get_text_with(&url, spec.user_agent.as_deref(), Some(Duration::from_secs(15))).map_err(|error| error.to_string())?;
+            let body = http::get_text_with(
+                &url,
+                spec.user_agent.as_deref(),
+                Some(Duration::from_secs(15)),
+            )
+            .map_err(|error| error.to_string())?;
             parse_code(&body, &spec)
         });
         match attempt {
@@ -195,13 +244,19 @@ mod tests {
 
     #[test]
     fn parses_plain_codes() {
-        assert_eq!(parse_code(" 12345 \n", &spec("plain", None)).unwrap(), 12345);
+        assert_eq!(
+            parse_code(" 12345 \n", &spec("plain", None)).unwrap(),
+            12345
+        );
     }
 
     #[test]
     fn parses_json_field() {
         let body = r#"{"content":"987654321"}"#;
-        assert_eq!(parse_code(body, &spec("json", Some("content"))).unwrap(), 987654321);
+        assert_eq!(
+            parse_code(body, &spec("json", Some("content"))).unwrap(),
+            987654321
+        );
     }
 
     #[test]
@@ -219,9 +274,11 @@ mod tests {
 
     #[test]
     fn resolves_custom_entries() {
-        let entry = serde_json::json!({ "name": "mine", "url": "https://x.test/{gid}", "format": "plain" });
+        let entry =
+            serde_json::json!({ "name": "mine", "url": "https://x.test/{gid}", "format": "plain" });
         assert!(resolve(&entry).is_some());
-        let broken = serde_json::json!({ "name": "mine", "url": "https://x.test/none", "format": "plain" });
+        let broken =
+            serde_json::json!({ "name": "mine", "url": "https://x.test/none", "format": "plain" });
         assert!(resolve(&broken).is_none());
     }
 }

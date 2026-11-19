@@ -30,16 +30,20 @@ static SOCKETS: std::sync::Mutex<Option<std::collections::HashMap<String, Socket
 
 fn take_socket(ws_url: &str, timeout: std::time::Duration) -> Result<Socket, String> {
     let cached = {
-        let mut guard = SOCKETS.lock().map_err(|_| "CDP socket cache is poisoned".to_string())?;
+        let mut guard = SOCKETS
+            .lock()
+            .map_err(|_| "CDP socket cache is poisoned".to_string())?;
         guard
             .get_or_insert_with(std::collections::HashMap::new)
             .remove(ws_url)
     };
     let mut socket = match cached {
         Some(socket) => socket,
-        None => tungstenite::connect(ws_url)
-            .map_err(|error| format!("cannot connect to CDP: {error}"))?
-            .0,
+        None => {
+            tungstenite::connect(ws_url)
+                .map_err(|error| format!("cannot connect to CDP: {error}"))?
+                .0
+        }
     };
     if let tungstenite::stream::MaybeTlsStream::Plain(stream) = socket.get_mut() {
         let _ = stream.set_read_timeout(Some(timeout));
@@ -57,7 +61,11 @@ fn keep_socket(ws_url: &str, socket: Socket) {
     }
 }
 
-pub fn evaluate(ws_url: &str, expression: &str, timeout: std::time::Duration) -> Result<Value, String> {
+pub fn evaluate(
+    ws_url: &str,
+    expression: &str,
+    timeout: std::time::Duration,
+) -> Result<Value, String> {
     use tungstenite::Message;
 
     let mut socket = take_socket(ws_url, timeout)?;
@@ -84,7 +92,9 @@ pub fn evaluate(ws_url: &str, expression: &str, timeout: std::time::Duration) ->
             Message::Close(_) => return Err("CDP closed the connection".into()),
             _ => continue,
         };
-        let Ok(parsed) = serde_json::from_str::<Value>(&text) else { continue };
+        let Ok(parsed) = serde_json::from_str::<Value>(&text) else {
+            continue;
+        };
         if parsed.get("id").and_then(Value::as_i64) != Some(1) {
             continue;
         }
@@ -94,10 +104,15 @@ pub fn evaluate(ws_url: &str, expression: &str, timeout: std::time::Duration) ->
         let result = parsed.get("result").cloned().unwrap_or_else(|| json!({}));
         if let Some(details) = result.get("exceptionDetails") {
             let detail = details.get("text").cloned();
-            return Err(detail.map(|value| value.to_string()).unwrap_or_else(|| "evaluation threw".into()));
+            return Err(detail
+                .map(|value| value.to_string())
+                .unwrap_or_else(|| "evaluation threw".into()));
         }
         keep_socket(ws_url, socket);
-        return Ok(result.pointer("/result/value").cloned().unwrap_or(Value::Null));
+        return Ok(result
+            .pointer("/result/value")
+            .cloned()
+            .unwrap_or(Value::Null));
     }
 }
 
@@ -113,7 +128,8 @@ pub fn evaluate_isolated(
     use tungstenite::stream::MaybeTlsStream;
     use tungstenite::Message;
 
-    let (mut socket, _) = tungstenite::connect(ws_url).map_err(|error| format!("cannot connect to CDP: {error}"))?;
+    let (mut socket, _) =
+        tungstenite::connect(ws_url).map_err(|error| format!("cannot connect to CDP: {error}"))?;
     if let MaybeTlsStream::Plain(stream) = socket.get_mut() {
         let _ = stream.set_read_timeout(Some(timeout));
     }
@@ -143,7 +159,9 @@ pub fn evaluate_isolated(
                 Message::Close(_) => return Err("CDP closed the connection".into()),
                 _ => continue,
             };
-            let Ok(parsed) = serde_json::from_str::<Value>(&text) else { continue };
+            let Ok(parsed) = serde_json::from_str::<Value>(&text) else {
+                continue;
+            };
             if parsed.get("id").and_then(Value::as_i64) != Some(id) {
                 continue;
             }
@@ -180,5 +198,8 @@ pub fn evaluate_isolated(
     if let Some(details) = result.get("exceptionDetails") {
         return Err(details.to_string());
     }
-    Ok(result.pointer("/result/value").cloned().unwrap_or(Value::Null))
+    Ok(result
+        .pointer("/result/value")
+        .cloned()
+        .unwrap_or(Value::Null))
 }

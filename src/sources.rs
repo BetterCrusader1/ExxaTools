@@ -6,7 +6,17 @@ use crate::state::Settings;
 
 pub fn builtin() -> Vec<Value> {
     let pairs = [
-        ("auto", "Auto (all providers, in order)", vec!["steamrun", "20770407", "wudrm", "manifestdex", "opensteamtool"]),
+        (
+            "auto",
+            "Auto (all providers, in order)",
+            vec![
+                "steamrun",
+                "20770407",
+                "wudrm",
+                "manifestdex",
+                "opensteamtool",
+            ],
+        ),
         ("steamrun", "steam.run", vec!["steamrun"]),
         ("20770407", "20770407.xyz", vec!["20770407"]),
         ("wudrm", "Wudrm", vec!["wudrm"]),
@@ -24,11 +34,18 @@ pub fn builtin() -> Vec<Value> {
 pub fn catalog(settings: &Settings) -> Vec<Value> {
     let mut out = builtin();
     for (name, spec) in &settings.sources {
-        let Some(object) = spec.as_object() else { continue };
+        let Some(object) = spec.as_object() else {
+            continue;
+        };
         let providers: Vec<Value> = object
             .get("providers")
             .and_then(Value::as_array)
-            .map(|list| list.iter().filter(|value| value.is_string() || value.is_object()).cloned().collect())
+            .map(|list| {
+                list.iter()
+                    .filter(|value| value.is_string() || value.is_object())
+                    .cloned()
+                    .collect()
+            })
             .unwrap_or_default();
         if providers.is_empty() {
             continue;

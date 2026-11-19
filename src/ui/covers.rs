@@ -17,7 +17,11 @@ pub fn ensure_cover(appid: u64) -> Option<PathBuf> {
         return None;
     }
     let path = cover_path(appid);
-    if path.is_file() && std::fs::metadata(&path).map(|meta| meta.len() > 1024).unwrap_or(false) {
+    if path.is_file()
+        && std::fs::metadata(&path)
+            .map(|meta| meta.len() > 1024)
+            .unwrap_or(false)
+    {
         return Some(path);
     }
     let _ = std::fs::remove_file(&path);
@@ -40,7 +44,11 @@ pub fn ensure_cover_url(appid: u64, url: &str) -> Option<PathBuf> {
         return None;
     }
     let path = cover_path(appid);
-    if path.is_file() && std::fs::metadata(&path).map(|meta| meta.len() > 1024).unwrap_or(false) {
+    if path.is_file()
+        && std::fs::metadata(&path)
+            .map(|meta| meta.len() > 1024)
+            .unwrap_or(false)
+    {
         return Some(path);
     }
     let _ = std::fs::remove_file(&path);

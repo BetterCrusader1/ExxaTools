@@ -233,8 +233,8 @@ impl DiscoverPage {
     }
 
     fn update_filter_sensitivity(&self) {
-        let has_games = !self.state.games.borrow().is_empty()
-            || !self.state.library_games.borrow().is_empty();
+        let has_games =
+            !self.state.games.borrow().is_empty() || !self.state.library_games.borrow().is_empty();
         self.filter_bar.set_sensitive(has_games);
     }
 

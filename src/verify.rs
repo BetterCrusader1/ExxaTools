@@ -41,7 +41,10 @@ pub fn run(appid: u64) -> Value {
     let status = engine::detect();
     let mut items = Vec::new();
 
-    let installed = status.get("installed").and_then(Value::as_bool).unwrap_or(false);
+    let installed = status
+        .get("installed")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
     let libs = status
         .get("libs")
         .and_then(Value::as_object)
@@ -57,7 +60,11 @@ pub fn run(appid: u64) -> Value {
         "vapor_forge",
         "Vapor Forge libraries",
         if installed { "ok" } else { "bad" },
-        if libs.is_empty() { "not installed".into() } else { libs.join(", ") },
+        if libs.is_empty() {
+            "not installed".into()
+        } else {
+            libs.join(", ")
+        },
     ));
 
     let audit = status.get("ld_audit").and_then(Value::as_str).unwrap_or("");
@@ -65,11 +72,20 @@ pub fn run(appid: u64) -> Value {
         "ld_audit",
         "LD_AUDIT wired for Steam",
         if audit.is_empty() { "bad" } else { "ok" },
-        if audit.is_empty() { "no drop-in, .env.steam, or launcher entry".into() } else { audit.to_string() },
+        if audit.is_empty() {
+            "no drop-in, .env.steam, or launcher entry".into()
+        } else {
+            audit.to_string()
+        },
     ));
 
     let Some(plan) = st.apps.get(&appid.to_string()).cloned() else {
-        items.push(item("plan", "Saved plan", "bad", "no plan for this app yet".into()));
+        items.push(item(
+            "plan",
+            "Saved plan",
+            "bad",
+            "no plan for this app yet".into(),
+        ));
         return json!({ "appid": appid, "items": items, "ok": false });
     };
 
@@ -90,7 +106,16 @@ pub fn run(appid: u64) -> Value {
         "lua",
         "Lua plan parses",
         if problems.is_empty() { "ok" } else { "bad" },
-        if problems.is_empty() { format!("{} lines", text.lines().count()) } else { problems.iter().take(4).cloned().collect::<Vec<_>>().join("; ") },
+        if problems.is_empty() {
+            format!("{} lines", text.lines().count())
+        } else {
+            problems
+                .iter()
+                .take(4)
+                .cloned()
+                .collect::<Vec<_>>()
+                .join("; ")
+        },
     ));
 
     // A depot switched off in the drawer is intentionally absent from the script,
@@ -100,7 +125,12 @@ pub fn run(appid: u64) -> Value {
         .and_then(Value::as_array)
         .map(|list| {
             list.iter()
-                .filter(|depot| depot.get("enabled").and_then(Value::as_bool).unwrap_or(true))
+                .filter(|depot| {
+                    depot
+                        .get("enabled")
+                        .and_then(Value::as_bool)
+                        .unwrap_or(true)
+                })
                 .cloned()
                 .collect()
         })
@@ -115,36 +145,68 @@ pub fn run(appid: u64) -> Value {
         "keys",
         "Depot keys",
         if missing.is_empty() { "ok" } else { "warn" },
-        if missing.is_empty() { "all enabled depots keyed".into() } else { format!("missing: {}", missing.join(", ")) },
+        if missing.is_empty() {
+            "all enabled depots keyed".into()
+        } else {
+            format!("missing: {}", missing.join(", "))
+        },
     ));
 
     let resolved = depots
         .iter()
-        .filter(|depot| depot.get("gid").and_then(Value::as_str).map(|gid| st.codes.contains_key(gid)).unwrap_or(false))
+        .filter(|depot| {
+            depot
+                .get("gid")
+                .and_then(Value::as_str)
+                .map(|gid| st.codes.contains_key(gid))
+                .unwrap_or(false)
+        })
         .count();
     items.push(item(
         "codes",
         "Manifest request codes",
-        if resolved == depots.len() { "ok" } else { "warn" },
-        format!("{resolved}/{} resolved (Vapor Forge can also fetch them itself)", depots.len()),
+        if resolved == depots.len() {
+            "ok"
+        } else {
+            "warn"
+        },
+        format!(
+            "{resolved}/{} resolved (Vapor Forge can also fetch them itself)",
+            depots.len()
+        ),
     ));
 
     if let Some(fixes) = plan.get("fixes").and_then(Value::as_object) {
-        if fixes.get("online_fix").and_then(Value::as_bool).unwrap_or(false) {
+        if fixes
+            .get("online_fix")
+            .and_then(Value::as_bool)
+            .unwrap_or(false)
+        {
             let current = steamctl::read_launch_options(appid).unwrap_or_default();
             let present = current.split_whitespace().any(|part| part == "-onlinefix");
             items.push(item(
                 "launch_options",
                 "Launch option -onlinefix",
                 if present { "ok" } else { "warn" },
-                if current.is_empty() { "not set".into() } else { current },
+                if current.is_empty() {
+                    "not set".into()
+                } else {
+                    current
+                },
             ));
         }
     }
 
     let flags = appmanifest::report(appid, Some(&plan));
-    let flag_value = flags.get("state_flags").and_then(Value::as_u64).unwrap_or(0);
-    if flags.get("installed").and_then(Value::as_bool).unwrap_or(false) {
+    let flag_value = flags
+        .get("state_flags")
+        .and_then(Value::as_u64)
+        .unwrap_or(0);
+    if flags
+        .get("installed")
+        .and_then(Value::as_bool)
+        .unwrap_or(false)
+    {
         items.push(item(
             "appmanifest",
             "appmanifest flags",
@@ -157,7 +219,11 @@ pub fn run(appid: u64) -> Value {
         "steam",
         "Steam client",
         if steamctl::is_running() { "warn" } else { "ok" },
-        if steamctl::is_running() { "running - restart it to load the plan".into() } else { "not running".into() },
+        if steamctl::is_running() {
+            "running - restart it to load the plan".into()
+        } else {
+            "not running".into()
+        },
     ));
 
     let ok = items
@@ -177,7 +243,6 @@ pub fn merge_launch_option(current: Option<&str>, flag: &str) -> String {
     }
     format!("{text} {flag}").trim().to_string()
 }
-
 
 #[cfg(test)]
 mod record_lint_tests {
@@ -200,7 +265,11 @@ mod record_lint_tests {
             "dlc": [323180]
         });
         let text = crate::lua::render_record(&plan, &BTreeMap::new());
-        assert!(lint_lua(&text).is_empty(), "lint objections: {:?}", lint_lua(&text));
+        assert!(
+            lint_lua(&text).is_empty(),
+            "lint objections: {:?}",
+            lint_lua(&text)
+        );
         assert!(text.lines().count() >= 5);
     }
 }

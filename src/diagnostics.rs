@@ -58,7 +58,14 @@ pub fn build() -> Value {
         })
         .collect();
     let log = std::fs::read_to_string(crate::paths::steam_log()).unwrap_or_default();
-    let tail: Vec<&str> = log.lines().rev().take(200).collect::<Vec<_>>().into_iter().rev().collect();
+    let tail: Vec<&str> = log
+        .lines()
+        .rev()
+        .take(200)
+        .collect::<Vec<_>>()
+        .into_iter()
+        .rev()
+        .collect();
 
     let mut bundle = json!({
         "version": env!("CARGO_PKG_VERSION"),
@@ -98,7 +105,6 @@ mod tests {
         assert_eq!(redact("Portal 2 - 620"), "Portal 2 - 620");
     }
 }
-
 
 #[cfg(test)]
 mod value_tests {

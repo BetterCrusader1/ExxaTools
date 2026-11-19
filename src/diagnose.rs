@@ -69,8 +69,14 @@ pub fn scan(text: &str) -> Vec<Value> {
         for needle in rule.needles {
             if let Some(index) = lower.find(needle) {
                 // Pull the original line back out for the excerpt.
-                let start = lower[..index].rfind('\n').map(|value| value + 1).unwrap_or(0);
-                let end = lower[index..].find('\n').map(|value| index + value).unwrap_or(lower.len());
+                let start = lower[..index]
+                    .rfind('\n')
+                    .map(|value| value + 1)
+                    .unwrap_or(0);
+                let end = lower[index..]
+                    .find('\n')
+                    .map(|value| index + value)
+                    .unwrap_or(lower.len());
                 hit = Some(text[start..end].trim());
                 break;
             }
@@ -101,7 +107,9 @@ fn engine_incidents(text: &str) -> Vec<Value> {
         let field = |name: &str| -> Option<i64> {
             let start = line.find(&format!("{name}="))? + name.len() + 1;
             let rest = &line[start..];
-            let end = rest.find(|ch: char| !ch.is_ascii_digit()).unwrap_or(rest.len());
+            let end = rest
+                .find(|ch: char| !ch.is_ascii_digit())
+                .unwrap_or(rest.len());
             rest[..end].parse().ok()
         };
         let found = field("found").unwrap_or(0);
@@ -167,7 +175,10 @@ pub fn from_files() -> Value {
             "incidents": found.len(),
         }));
         for incident in found {
-            if !incidents.iter().any(|seen| seen.get("id") == incident.get("id")) {
+            if !incidents
+                .iter()
+                .any(|seen| seen.get("id") == incident.get("id"))
+            {
                 incidents.push(incident);
             }
         }
@@ -180,7 +191,15 @@ mod tests {
     use super::scan;
 
     fn ids(text: &str) -> Vec<String> {
-        scan(text).iter().filter_map(|entry| entry.get("id").and_then(|value| value.as_str()).map(str::to_string)).collect()
+        scan(text)
+            .iter()
+            .filter_map(|entry| {
+                entry
+                    .get("id")
+                    .and_then(|value| value.as_str())
+                    .map(str::to_string)
+            })
+            .collect()
     }
 
     #[test]
@@ -190,22 +209,34 @@ mod tests {
 
     #[test]
     fn matches_update_required() {
-        assert_eq!(ids("App state is 0x6 after update required"), vec!["update-required"]);
+        assert_eq!(
+            ids("App state is 0x6 after update required"),
+            vec!["update-required"]
+        );
     }
 
     #[test]
     fn matches_encrypted_content() {
-        assert_eq!(ids("Mounting depot 621: Content still encrypted"), vec!["still-encrypted"]);
+        assert_eq!(
+            ids("Mounting depot 621: Content still encrypted"),
+            vec!["still-encrypted"]
+        );
     }
 
     #[test]
     fn matches_disk_write() {
-        assert_eq!(ids("Disk write error while writing chunk"), vec!["disk-write"]);
+        assert_eq!(
+            ids("Disk write error while writing chunk"),
+            vec!["disk-write"]
+        );
     }
 
     #[test]
     fn matches_missing_license() {
-        assert_eq!(ids("[vapor-forge] no license for app 620"), vec!["no-license"]);
+        assert_eq!(
+            ids("[vapor-forge] no license for app 620"),
+            vec!["no-license"]
+        );
     }
 
     #[test]
@@ -242,7 +273,10 @@ mod tests {
         let found = super::engine_incidents(text);
         assert_eq!(found.len(), 1);
         assert_eq!(found[0]["id"], "engine-patterns");
-        assert!(found[0]["line"].as_str().unwrap_or("").contains("steamui.so: 6/9"));
+        assert!(found[0]["line"]
+            .as_str()
+            .unwrap_or("")
+            .contains("steamui.so: 6/9"));
     }
 
     #[test]

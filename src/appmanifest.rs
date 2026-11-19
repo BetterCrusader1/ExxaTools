@@ -121,8 +121,12 @@ pub fn libraries() -> Vec<PathBuf> {
         }
         for name in ["libraryfolders.vdf", "libraryfolders.acf"] {
             let path = direct.join(name);
-            let Ok(text) = std::fs::read_to_string(&path) else { continue };
-            let Ok(tree) = vdf::parse(&text) else { continue };
+            let Ok(text) = std::fs::read_to_string(&path) else {
+                continue;
+            };
+            let Ok(tree) = vdf::parse(&text) else {
+                continue;
+            };
             let mut paths = Vec::new();
             vdf::collect_paths(&tree, &mut paths);
             for base in paths {
@@ -145,13 +149,20 @@ pub fn libraries() -> Vec<PathBuf> {
 
 pub fn manifest_path(appid: u64) -> Option<PathBuf> {
     let name = format!("appmanifest_{appid}.acf");
-    libraries().into_iter().map(|library| library.join(&name)).find(|path| path.is_file())
+    libraries()
+        .into_iter()
+        .map(|library| library.join(&name))
+        .find(|path| path.is_file())
 }
 
 pub fn read(appid: u64) -> Result<Option<Manifest>, String> {
-    let Some(path) = manifest_path(appid) else { return Ok(None) };
-    let text = std::fs::read_to_string(&path).map_err(|error| format!("cannot read {}: {error}", path.display()))?;
-    let tree = vdf::parse(&text).map_err(|error| format!("cannot parse {}: {error}", path.display()))?;
+    let Some(path) = manifest_path(appid) else {
+        return Ok(None);
+    };
+    let text = std::fs::read_to_string(&path)
+        .map_err(|error| format!("cannot read {}: {error}", path.display()))?;
+    let tree =
+        vdf::parse(&text).map_err(|error| format!("cannot parse {}: {error}", path.display()))?;
     // keyvalues-parser hands back the root object's contents, so AppState is
     // already unwrapped; older callers may still pass a wrapped tree.
     let state = match vdf::child(&tree, "AppState") {
@@ -159,7 +170,9 @@ pub fn read(appid: u64) -> Result<Option<Manifest>, String> {
         None => tree,
     };
     let scalar = |key: &str| vdf::scalar(&state, key);
-    let flags: u64 = scalar("StateFlags").and_then(|value| value.trim().parse().ok()).unwrap_or(0);
+    let flags: u64 = scalar("StateFlags")
+        .and_then(|value| value.trim().parse().ok())
+        .unwrap_or(0);
     let mut labels = Vec::new();
     for (bit, label) in FLAG_BITS {
         if flags & bit != 0 {
@@ -190,7 +203,9 @@ pub fn read(appid: u64) -> Result<Option<Manifest>, String> {
     Ok(Some(Manifest {
         library: path.parent().map(Path::to_path_buf).unwrap_or_default(),
         path,
-        appid: scalar("appid").and_then(|value| value.trim().parse().ok()).unwrap_or(appid),
+        appid: scalar("appid")
+            .and_then(|value| value.trim().parse().ok())
+            .unwrap_or(appid),
         name: scalar("name"),
         state_flags: flags,
         state: labels,
@@ -210,12 +225,23 @@ pub fn read(appid: u64) -> Result<Option<Manifest>, String> {
 pub fn running_apps() -> Vec<Value> {
     let mut out = Vec::new();
     for library in libraries() {
-        let Ok(entries) = std::fs::read_dir(&library) else { continue };
+        let Ok(entries) = std::fs::read_dir(&library) else {
+            continue;
+        };
         for entry in entries.flatten() {
             let name = entry.file_name().to_string_lossy().to_string();
-            let Some(rest) = name.strip_prefix("appmanifest_") else { continue };
-            let Some(appid) = rest.strip_suffix(".acf").and_then(|text| text.parse::<u64>().ok()) else { continue };
-            let Ok(Some(data)) = read(appid) else { continue };
+            let Some(rest) = name.strip_prefix("appmanifest_") else {
+                continue;
+            };
+            let Some(appid) = rest
+                .strip_suffix(".acf")
+                .and_then(|text| text.parse::<u64>().ok())
+            else {
+                continue;
+            };
+            let Ok(Some(data)) = read(appid) else {
+                continue;
+            };
             if data.state_flags & 64 == 0 {
                 continue;
             }
@@ -227,7 +253,10 @@ pub fn running_apps() -> Vec<Value> {
 
 pub fn report(appid: u64, plan: Option<&Value>) -> Value {
     let running = steamctl::is_running();
-    let libs: Vec<String> = libraries().iter().map(|path| path.display().to_string()).collect();
+    let libs: Vec<String> = libraries()
+        .iter()
+        .map(|path| path.display().to_string())
+        .collect();
     let Ok(Some(data)) = read(appid) else {
         return json!({
             "appid": appid,
@@ -255,9 +284,9 @@ pub fn report(appid: u64, plan: Option<&Value>) -> Value {
     }
     if plan.is_some() {
         match data.auto_update.as_deref() {
-            None | Some("") | Some("0") => {
-                problems.push("automatic updates enabled: Steam may re-download on its own schedule".into())
-            }
+            None | Some("") | Some("0") => problems.push(
+                "automatic updates enabled: Steam may re-download on its own schedule".into(),
+            ),
             _ => {}
         }
         if let Some(value) = data.scheduled_auto_update.as_deref() {
@@ -272,11 +301,17 @@ pub fn report(appid: u64, plan: Option<&Value>) -> Value {
         if let Some(depots) = plan.get("depots").and_then(Value::as_array) {
             for depot in depots {
                 let depot_id = depot.get("depot_id").cloned().unwrap_or(Value::Null);
-                let key = depot_id.as_u64().map(|id| id.to_string()).or_else(|| depot_id.as_str().map(str::to_string));
-                let current = key.as_ref().and_then(|key| data.depots.iter().find(|item| &item.depot_id == key));
+                let key = depot_id
+                    .as_u64()
+                    .map(|id| id.to_string())
+                    .or_else(|| depot_id.as_str().map(str::to_string));
+                let current = key
+                    .as_ref()
+                    .and_then(|key| data.depots.iter().find(|item| &item.depot_id == key));
                 let planned_gid = depot.get("gid").cloned().unwrap_or(Value::Null);
                 let steam_gid = current.and_then(|item| item.manifest.clone());
-                let pinned = matches!((&steam_gid, planned_gid.as_str()), (Some(a), Some(b)) if a == b);
+                let pinned =
+                    matches!((&steam_gid, planned_gid.as_str()), (Some(a), Some(b)) if a == b);
                 planned.push(json!({
                     "depot_id": depot_id,
                     "planned_gid": planned_gid,
@@ -342,10 +377,22 @@ fn set_key(text: &str, key: &str, value: &str) -> (String, bool) {
             }
         }
     }
-    let Some(close) = text.rfind('}') else { return (text.to_string(), false) };
-    let line_start = text[..close].rfind('\n').map(|index| index + 1).unwrap_or(0);
-    let indent: String = text[line_start..close].chars().take_while(|ch| *ch == '\t' || *ch == ' ').collect();
-    let indent = if indent.is_empty() { "\t".to_string() } else { indent };
+    let Some(close) = text.rfind('}') else {
+        return (text.to_string(), false);
+    };
+    let line_start = text[..close]
+        .rfind('\n')
+        .map(|index| index + 1)
+        .unwrap_or(0);
+    let indent: String = text[line_start..close]
+        .chars()
+        .take_while(|ch| *ch == '\t' || *ch == ' ')
+        .collect();
+    let indent = if indent.is_empty() {
+        "\t".to_string()
+    } else {
+        indent
+    };
     let mut out = String::with_capacity(text.len() + key.len() + value.len() + 16);
     out.push_str(&text[..line_start]);
     out.push_str(&format!("{indent}\"{key}\"\t\t\"{value}\"\n"));
@@ -362,7 +409,12 @@ pub fn patch_with_restart(appid: u64, mode: &Mode) -> Result<Value, String> {
         if !busy.is_empty() {
             let names: Vec<String> = busy
                 .iter()
-                .map(|app| app.get("name").and_then(Value::as_str).unwrap_or("?").to_string())
+                .map(|app| {
+                    app.get("name")
+                        .and_then(Value::as_str)
+                        .unwrap_or("?")
+                        .to_string()
+                })
                 .collect();
             return Err(format!(
                 "a game is running ({}): close it before restarting Steam",
@@ -393,9 +445,13 @@ pub fn patch(appid: u64, mode: &Mode, steam_check: bool) -> Result<Value, String
     };
     let running = steamctl::is_running();
     if steam_check && running {
-        return Err("Steam is running and will overwrite the file: close Steam, patch, then start it".into());
+        return Err(
+            "Steam is running and will overwrite the file: close Steam, patch, then start it"
+                .into(),
+        );
     }
-    let original = std::fs::read_to_string(&path).map_err(|error| format!("cannot read {}: {error}", path.display()))?;
+    let original = std::fs::read_to_string(&path)
+        .map_err(|error| format!("cannot read {}: {error}", path.display()))?;
     let before = read(appid)?;
     let mut text = original.clone();
     let mut changes = Vec::new();
@@ -420,7 +476,8 @@ pub fn patch(appid: u64, mode: &Mode, steam_check: bool) -> Result<Value, String
 
     let backup = path.with_extension("acf.exxatools.bak");
     if !backup.exists() {
-        std::fs::copy(&path, &backup).map_err(|error| format!("cannot back up {}: {error}", path.display()))?;
+        std::fs::copy(&path, &backup)
+            .map_err(|error| format!("cannot back up {}: {error}", path.display()))?;
     }
     let temp = path.with_extension("acf.tmp");
     {
@@ -434,7 +491,8 @@ pub fn patch(appid: u64, mode: &Mode, steam_check: bool) -> Result<Value, String
         file.sync_all()
             .map_err(|error| format!("cannot flush {}: {error}", temp.display()))?;
     }
-    std::fs::rename(&temp, &path).map_err(|error| format!("cannot replace {}: {error}", path.display()))?;
+    std::fs::rename(&temp, &path)
+        .map_err(|error| format!("cannot replace {}: {error}", path.display()))?;
 
     match vdf::parse(&text) {
         Ok(tree) if vdf::child(&tree, "appid").is_some() => {}
@@ -444,7 +502,9 @@ pub fn patch(appid: u64, mode: &Mode, steam_check: bool) -> Result<Value, String
         }
         Err(error) => {
             let _ = std::fs::copy(&backup, &path);
-            return Err(format!("patched file failed validation, restored the backup: {error}"));
+            return Err(format!(
+                "patched file failed validation, restored the backup: {error}"
+            ));
         }
     }
 
@@ -490,7 +550,10 @@ mod tests {
     fn reads_flags_and_depots() {
         let tree = crate::vdf::parse(ACF).unwrap();
         let state = &tree;
-        let flags: u64 = crate::vdf::scalar(state, "StateFlags").unwrap().parse().unwrap();
+        let flags: u64 = crate::vdf::scalar(state, "StateFlags")
+            .unwrap()
+            .parse()
+            .unwrap();
         assert_eq!(flags & 2, 2);
         assert_eq!(flags & 1024, 1024);
         let depots = crate::vdf::child(state, "InstalledDepots").unwrap();

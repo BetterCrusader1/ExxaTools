@@ -72,7 +72,11 @@ pub fn collect_paths(node: &Value, out: &mut Vec<String>) {
 pub fn find_key<'a>(node: &'a Value, key: &str) -> Option<&'a Value> {
     match node {
         Value::Object(map) => {
-            if let Some(found) = map.iter().find(|(name, _)| name.eq_ignore_ascii_case(key)).map(|(_, value)| value) {
+            if let Some(found) = map
+                .iter()
+                .find(|(name, _)| name.eq_ignore_ascii_case(key))
+                .map(|(_, value)| value)
+            {
                 return Some(found);
             }
             for value in map.values() {
@@ -118,4 +122,3 @@ mod tests {
         assert_eq!(scalar_i64(&tree, "StateFlags"), Some(4));
     }
 }
-

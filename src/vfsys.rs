@@ -30,9 +30,18 @@ pub fn provider_path() -> PathBuf {
 pub fn write_script(appid: u64, text: &str, enabled: bool) -> Result<PathBuf, String> {
     std::fs::create_dir_all(paths::vf_scripts())
         .map_err(|error| format!("cannot create {}: {error}", paths::vf_scripts().display()))?;
-    let target = if enabled { script_path(appid) } else { disabled_path(appid) };
-    let other = if enabled { disabled_path(appid) } else { script_path(appid) };
-    std::fs::write(&target, text).map_err(|error| format!("cannot write {}: {error}", target.display()))?;
+    let target = if enabled {
+        script_path(appid)
+    } else {
+        disabled_path(appid)
+    };
+    let other = if enabled {
+        disabled_path(appid)
+    } else {
+        script_path(appid)
+    };
+    std::fs::write(&target, text)
+        .map_err(|error| format!("cannot write {}: {error}", target.display()))?;
     let _ = std::fs::remove_file(other);
     Ok(target)
 }
@@ -48,7 +57,11 @@ pub fn remove_script(appid: u64) -> bool {
 }
 
 pub fn toggle_script(appid: u64, enabled: bool) -> Option<PathBuf> {
-    let (from, to) = if enabled { (disabled_path(appid), script_path(appid)) } else { (script_path(appid), disabled_path(appid)) };
+    let (from, to) = if enabled {
+        (disabled_path(appid), script_path(appid))
+    } else {
+        (script_path(appid), disabled_path(appid))
+    };
     if !from.is_file() {
         return if to.is_file() { Some(to) } else { None };
     }
@@ -64,7 +77,8 @@ pub fn write_provider(text: &str) -> Result<PathBuf, String> {
         let _ = std::fs::remove_file(legacy);
     }
     let target = provider_path();
-    std::fs::write(&target, text).map_err(|error| format!("cannot write {}: {error}", target.display()))?;
+    std::fs::write(&target, text)
+        .map_err(|error| format!("cannot write {}: {error}", target.display()))?;
     Ok(target)
 }
 

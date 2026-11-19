@@ -1,36 +1,18 @@
 //! ExxaTools: Steam depots and manifests for the Linux client, on Vapor Forge.
 
 use exxa::{
-    appmanifest,
-    steamui,
-    window,
-    desktop,
-    diagnose,
-    diagnostics,
-    doctor,
-    engine,
-    lua,
-    paths,
-    pins,
-    plans,
-    plugins,
-    providers,
-    selftest,
-    server,
-    sources,
-    verify,
-    state,
-    storage,
-    steam,
-    steamctl,
-    vfsys,
-    watch,
+    appmanifest, desktop, diagnose, diagnostics, doctor, engine, lua, paths, pins, plans, plugins,
+    providers, selftest, server, sources, state, steam, steamctl, steamui, storage, verify, vfsys,
+    watch, window,
 };
 
 use serde_json::{json, Value};
 
 fn arg_value(args: &[String], flag: &str) -> Option<String> {
-    args.iter().position(|arg| arg == flag).and_then(|index| args.get(index + 1)).cloned()
+    args.iter()
+        .position(|arg| arg == flag)
+        .and_then(|index| args.get(index + 1))
+        .cloned()
 }
 
 fn has_flag(args: &[String], flag: &str) -> bool {
@@ -38,7 +20,10 @@ fn has_flag(args: &[String], flag: &str) -> bool {
 }
 
 fn print_json(value: &Value) {
-    println!("{}", serde_json::to_string_pretty(value).unwrap_or_else(|_| "{}".into()));
+    println!(
+        "{}",
+        serde_json::to_string_pretty(value).unwrap_or_else(|_| "{}".into())
+    );
 }
 
 fn fail(message: impl AsRef<str>) -> ! {
@@ -117,10 +102,14 @@ fn main() {
                 }
                 "install" => {
                     let tag = rest.get(1).cloned();
-                    print_json(&engine::install(tag.as_deref()).unwrap_or_else(|error| fail(error)));
+                    print_json(
+                        &engine::install(tag.as_deref()).unwrap_or_else(|error| fail(error)),
+                    );
                 }
                 "uninstall" => print_json(&engine::uninstall().unwrap_or_else(|error| fail(error))),
-                other => fail(format!("unknown engine action {other}; use status, install, uninstall, releases")),
+                other => fail(format!(
+                    "unknown engine action {other}; use status, install, uninstall, releases"
+                )),
             }
         }
         "search" => {
@@ -129,11 +118,15 @@ fn main() {
                 fail("search needs a term");
             }
             let st = state::load().unwrap_or_default();
-            let items = steam::search(&term, &st.settings.country).unwrap_or_else(|error| fail(error));
+            let items =
+                steam::search(&term, &st.settings.country).unwrap_or_else(|error| fail(error));
             print_json(&Value::Array(items));
         }
         "discover" => {
-            let limit = rest.first().and_then(|value| value.parse::<usize>().ok()).unwrap_or(18);
+            let limit = rest
+                .first()
+                .and_then(|value| value.parse::<usize>().ok())
+                .unwrap_or(18);
             let st = state::load().unwrap_or_default();
             print_json(&Value::Array(steam::discover(&st.settings.country, limit)));
         }
@@ -149,7 +142,9 @@ fn main() {
                     fail("plan fetch needs a numeric app id");
                 };
                 let name = arg_value(rest, "--name");
-                print_json(&plans::fetch_plan(appid, name.as_deref()).unwrap_or_else(|error| fail(error)));
+                print_json(
+                    &plans::fetch_plan(appid, name.as_deref()).unwrap_or_else(|error| fail(error)),
+                );
                 return;
             }
             let Some(appid) = rest.first().and_then(|value| value.parse::<u64>().ok()) else {
@@ -158,17 +153,29 @@ fn main() {
             let st = state::load().unwrap_or_else(|error| fail(error));
             let branch = arg_value(rest, "--branch").unwrap_or_else(|| "public".into());
             let catalog = steam::catalog(appid).unwrap_or_else(|error| fail(error));
-            let name = catalog.get("name").and_then(Value::as_str).unwrap_or("").to_string();
+            let name = catalog
+                .get("name")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .to_string();
             let mut depots: Vec<Value> = Vec::new();
             if let Some(list) = catalog.get("depots").and_then(Value::as_array) {
                 for depot in list {
-                    let oslist = depot.get("oslist").and_then(Value::as_array).cloned().unwrap_or_default();
+                    let oslist = depot
+                        .get("oslist")
+                        .and_then(Value::as_array)
+                        .cloned()
+                        .unwrap_or_default();
                     let platform_ok = oslist.is_empty()
-                        || oslist.iter().any(|value| value.as_str() == Some(st.settings.default_os.as_str()));
+                        || oslist
+                            .iter()
+                            .any(|value| value.as_str() == Some(st.settings.default_os.as_str()));
                     if !platform_ok {
                         continue;
                     }
-                    let Some(manifest) = steam::pick_manifest(depot, &branch) else { continue };
+                    let Some(manifest) = steam::pick_manifest(depot, &branch) else {
+                        continue;
+                    };
                     let mut entry = depot.clone();
                     entry["gid"] = manifest.get("gid").cloned().unwrap_or(Value::Null);
                     entry["size"] = manifest.get("size").cloned().unwrap_or(Value::Null);
@@ -180,17 +187,35 @@ fn main() {
                 .and_then(Value::as_array)
                 .map(|list| list.iter().filter_map(Value::as_u64).collect())
                 .unwrap_or_default();
-            let text = lua::render_plan(appid, &name, &branch, &depots, &st.depot_keys, &dlc, &crate::vfsys::stamp(), "auto");
+            let text = lua::render_plan(
+                appid,
+                &name,
+                &branch,
+                &depots,
+                &st.depot_keys,
+                &dlc,
+                &crate::vfsys::stamp(),
+                "auto",
+            );
             if has_flag(rest, "--write") {
-                std::fs::create_dir_all(paths::vf_scripts()).unwrap_or_else(|error| fail(error.to_string()));
+                std::fs::create_dir_all(paths::vf_scripts())
+                    .unwrap_or_else(|error| fail(error.to_string()));
                 let target = paths::vf_scripts().join(format!("exxatools-{appid}.lua"));
                 std::fs::write(&target, &text).unwrap_or_else(|error| fail(error.to_string()));
-                print_json(&json!({ "written": target.display().to_string(), "bytes": text.len() }));
+                print_json(
+                    &json!({ "written": target.display().to_string(), "bytes": text.len() }),
+                );
             } else {
                 println!("{text}");
                 let check = engine::check_script(&text, "plan.lua");
                 if !check.get("ok").and_then(Value::as_bool).unwrap_or(false) {
-                    eprintln!("{}", check.get("output").and_then(Value::as_str).unwrap_or("luac failed"));
+                    eprintln!(
+                        "{}",
+                        check
+                            .get("output")
+                            .and_then(Value::as_str)
+                            .unwrap_or("luac failed")
+                    );
                     std::process::exit(2);
                 }
             }
@@ -209,23 +234,43 @@ fn main() {
             };
             let st = state::load().unwrap_or_default();
             let catalog = steam::catalog(appid).unwrap_or_else(|error| fail(error));
-            let name = catalog.get("name").and_then(Value::as_str).unwrap_or("").to_string();
-            let depots: Vec<Value> = catalog.get("depots").and_then(Value::as_array).cloned().unwrap_or_default();
-            let text = lua::render_plan(appid, &name, "public", &depots, &st.depot_keys, &[], &crate::vfsys::stamp(), "auto");
+            let name = catalog
+                .get("name")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .to_string();
+            let depots: Vec<Value> = catalog
+                .get("depots")
+                .and_then(Value::as_array)
+                .cloned()
+                .unwrap_or_default();
+            let text = lua::render_plan(
+                appid,
+                &name,
+                "public",
+                &depots,
+                &st.depot_keys,
+                &[],
+                &crate::vfsys::stamp(),
+                "auto",
+            );
             print_json(&engine::check_script(&text, "plan.lua"));
         }
         "key" => {
             let Some(depot) = rest.first().and_then(|value| value.parse::<u64>().ok()) else {
                 fail("key needs a depot id");
             };
-            let Some(raw) = rest.get(1) else { fail("key needs a value") };
+            let Some(raw) = rest.get(1) else {
+                fail("key needs a value")
+            };
             let Some(key) = state::valid_key(raw) else {
                 fail("that is not a depot key: 64 hex characters expected")
             };
             state::update(|st| {
                 state::set_key(st, depot, Some(&key));
                 Ok(())
-            }).unwrap_or_else(|error| fail(error));
+            })
+            .unwrap_or_else(|error| fail(error));
             print_json(&json!({ "depot": depot, "key": format!("{}...", &key[..8]) }));
         }
         "code" => {
@@ -235,7 +280,9 @@ fn main() {
             let Some(depot) = rest.get(1).and_then(|value| value.parse::<u64>().ok()) else {
                 fail("code needs a depot id");
             };
-            let Some(gid) = rest.get(2) else { fail("code needs a manifest id") };
+            let Some(gid) = rest.get(2) else {
+                fail("code needs a manifest id")
+            };
             let st = state::load().unwrap_or_default();
             let order: Vec<Value> = st
                 .settings
@@ -243,7 +290,9 @@ fn main() {
                 .iter()
                 .map(|name| Value::String(name.clone()))
                 .collect();
-            print_json(&providers::fetch_code(app, depot, gid, &order).unwrap_or_else(|error| fail(error)));
+            print_json(
+                &providers::fetch_code(app, depot, gid, &order).unwrap_or_else(|error| fail(error)),
+            );
         }
         "steam" => {
             let mut args: Vec<String> = rest.to_vec();
@@ -272,7 +321,9 @@ fn main() {
             }
         }
         "serve" => {
-            let port = arg_value(rest, "--port").and_then(|value| value.parse().ok()).unwrap_or(8765);
+            let port = arg_value(rest, "--port")
+                .and_then(|value| value.parse().ok())
+                .unwrap_or(8765);
             // A serve started by the Steam-side shim has no controlling
             // terminal and a different cwd; keep the private companion copy
             // fresh so the next Steam launch execs this same build.
@@ -291,7 +342,8 @@ fn main() {
         }
         "window" => {
             let port = arg_value(rest, "--port").unwrap_or_else(|| "8765".into());
-            let url = arg_value(rest, "--url").unwrap_or_else(|| format!("http://127.0.0.1:{port}/"));
+            let url =
+                arg_value(rest, "--url").unwrap_or_else(|| format!("http://127.0.0.1:{port}/"));
             if std::net::TcpStream::connect(("127.0.0.1", port.parse().unwrap_or(8765))).is_err() {
                 let exe = paths::executable().unwrap_or_default();
                 let _ = std::process::Command::new(exe)
@@ -346,9 +398,13 @@ fn main() {
         "shortcut" => {
             let action = rest.first().cloned().unwrap_or_else(|| "install".into());
             match action.as_str() {
-                "install" => print_json(&desktop::install_desktop_entry().unwrap_or_else(|error| fail(error))),
+                "install" => print_json(
+                    &desktop::install_desktop_entry().unwrap_or_else(|error| fail(error)),
+                ),
                 "remove" => print_json(&desktop::uninstall_desktop_entry()),
-                other => fail(format!("unknown shortcut action {other}; use install or remove")),
+                other => fail(format!(
+                    "unknown shortcut action {other}; use install or remove"
+                )),
             }
         }
         "version" => print_json(&json!({
@@ -362,7 +418,13 @@ fn main() {
                 fail("this checkout has no .git; update it the way it was installed");
             }
             let pull = std::process::Command::new("git")
-                .args(["-C", &project.display().to_string(), "pull", "--ff-only", "--quiet"])
+                .args([
+                    "-C",
+                    &project.display().to_string(),
+                    "pull",
+                    "--ff-only",
+                    "--quiet",
+                ])
                 .output();
             match pull {
                 Ok(output) if output.status.success() => {
@@ -384,28 +446,47 @@ fn main() {
             };
             let mut st = state::load().unwrap_or_else(|error| fail(error));
             let branch = arg_value(rest, "--branch").unwrap_or_else(|| "public".into());
-            let before = st.build_history.get(&appid.to_string()).cloned().unwrap_or_default();
+            let before = st
+                .build_history
+                .get(&appid.to_string())
+                .cloned()
+                .unwrap_or_default();
             // compare fetches the catalog: keep that network work outside the
             // transaction, then replay only newly observed gids into fresh state.
-            let mut result = pins::compare(&mut st, appid, &branch).unwrap_or_else(|error| fail(error));
-            if result.get("changed").and_then(Value::as_bool).unwrap_or(false) {
+            let mut result =
+                pins::compare(&mut st, appid, &branch).unwrap_or_else(|error| fail(error));
+            if result
+                .get("changed")
+                .and_then(Value::as_bool)
+                .unwrap_or(false)
+            {
                 let (changed, history) = state::update(|fresh| {
                     let mut changed = false;
                     if let Some(depots) = st.build_history.get(&appid.to_string()) {
                         for (depot, entries) in depots {
-                            let Some(entry) = entries.first() else { continue };
-                            if before.get(depot).and_then(|entries| entries.first()) == Some(entry) {
+                            let Some(entry) = entries.first() else {
+                                continue;
+                            };
+                            if before.get(depot).and_then(|entries| entries.first()) == Some(entry)
+                            {
                                 continue;
                             }
-                            let depot_id = depot.parse::<u64>().map_err(|error| error.to_string())?;
+                            let depot_id =
+                                depot.parse::<u64>().map_err(|error| error.to_string())?;
                             let gid = entry.get("gid").and_then(Value::as_str).unwrap_or("");
                             let size = entry.get("size").and_then(Value::as_u64);
-                            changed |= state::record_gid(fresh, appid, depot_id, gid, size, &branch);
+                            changed |=
+                                state::record_gid(fresh, appid, depot_id, gid, size, &branch);
                         }
                     }
-                    let history = fresh.build_history.get(&appid.to_string()).cloned().unwrap_or_default();
+                    let history = fresh
+                        .build_history
+                        .get(&appid.to_string())
+                        .cloned()
+                        .unwrap_or_default();
                     Ok((changed, history))
-                }).unwrap_or_else(|error| fail(error));
+                })
+                .unwrap_or_else(|error| fail(error));
                 result["changed"] = json!(changed);
                 result["history"] = json!(history);
             }
@@ -428,29 +509,45 @@ fn main() {
                 fail("export needs a numeric app id");
             };
             let st = state::load().unwrap_or_else(|error| fail(error));
-            let record = st.apps.get(&appid.to_string()).cloned().unwrap_or_else(|| fail("no saved plan"));
+            let record = st
+                .apps
+                .get(&appid.to_string())
+                .cloned()
+                .unwrap_or_else(|| fail("no saved plan"));
             print_json(&record);
         }
         "import-plan" => {
-            let Some(path) = rest.first() else { fail("import-plan needs a file path") };
-            let text = std::fs::read_to_string(path).unwrap_or_else(|error| fail(error.to_string()));
-            let record: Value = serde_json::from_str(&text).unwrap_or_else(|error| fail(format!("that is not a plan: {error}")));
-            let appid = record.get("appid").and_then(Value::as_u64).unwrap_or_else(|| fail("plan has no appid"));
+            let Some(path) = rest.first() else {
+                fail("import-plan needs a file path")
+            };
+            let text =
+                std::fs::read_to_string(path).unwrap_or_else(|error| fail(error.to_string()));
+            let record: Value = serde_json::from_str(&text)
+                .unwrap_or_else(|error| fail(format!("that is not a plan: {error}")));
+            let appid = record
+                .get("appid")
+                .and_then(Value::as_u64)
+                .unwrap_or_else(|| fail("plan has no appid"));
             if record.get("depots").and_then(Value::as_array).is_none() {
                 fail("plan has no depots");
             }
             state::update(|st| {
                 st.apps.insert(appid.to_string(), record);
                 Ok(())
-            }).unwrap_or_else(|error| fail(error));
+            })
+            .unwrap_or_else(|error| fail(error));
             print_json(&json!({ "imported": appid }));
         }
         "autostart" => {
             let action = rest.first().cloned().unwrap_or_else(|| "install".into());
             match action.as_str() {
-                "install" | "on" => print_json(&desktop::install_autostart().unwrap_or_else(|error| fail(error))),
+                "install" | "on" => {
+                    print_json(&desktop::install_autostart().unwrap_or_else(|error| fail(error)))
+                }
                 "remove" | "off" => print_json(&desktop::remove_autostart()),
-                other => fail(format!("unknown autostart action {other}; use install or remove")),
+                other => fail(format!(
+                    "unknown autostart action {other}; use install or remove"
+                )),
             }
         }
         "doctor" => print_json(&doctor::run()),
@@ -465,9 +562,14 @@ fn main() {
                 fail("launchoptions needs a numeric app id");
             };
             if let Some(flag) = arg_value(rest, "--add") {
-                print_json(&steamctl::add_launch_option(appid, &flag).unwrap_or_else(|error| fail(error)));
+                print_json(
+                    &steamctl::add_launch_option(appid, &flag).unwrap_or_else(|error| fail(error)),
+                );
             } else if let Some(options) = rest.get(1).filter(|value| !value.starts_with("--")) {
-                print_json(&steamctl::set_launch_options(appid, options).unwrap_or_else(|error| fail(error)));
+                print_json(
+                    &steamctl::set_launch_options(appid, options)
+                        .unwrap_or_else(|error| fail(error)),
+                );
             } else {
                 print_json(&json!({
                     "path": steamctl::localconfig_path().map(|path| path.display().to_string()),
@@ -491,7 +593,10 @@ fn main() {
             }
         }
         "log" => {
-            let lines = rest.first().and_then(|value| value.parse::<usize>().ok()).unwrap_or(200);
+            let lines = rest
+                .first()
+                .and_then(|value| value.parse::<usize>().ok())
+                .unwrap_or(200);
             print_json(&engine::log(lines));
         }
         "provider" => {
@@ -504,7 +609,8 @@ fn main() {
                 .collect();
             let text = lua::render_provider(&order).unwrap_or_else(|error| fail(error));
             if has_flag(rest, "--write") {
-                std::fs::create_dir_all(paths::vf_scripts()).unwrap_or_else(|error| fail(error.to_string()));
+                std::fs::create_dir_all(paths::vf_scripts())
+                    .unwrap_or_else(|error| fail(error.to_string()));
                 let target = paths::vf_scripts().join(lua::PROVIDER_FILE);
                 std::fs::write(&target, &text).unwrap_or_else(|error| fail(error.to_string()));
                 print_json(&json!({ "written": target.display().to_string() }));

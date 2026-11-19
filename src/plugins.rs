@@ -53,9 +53,9 @@ pub fn plugins_dir() -> PathBuf {
 pub fn valid_id(id: &str) -> bool {
     !id.is_empty()
         && id.len() <= 64
-        && id
-            .chars()
-            .all(|ch| ch.is_ascii_lowercase() || ch.is_ascii_digit() || matches!(ch, '.' | '_' | '-'))
+        && id.chars().all(|ch| {
+            ch.is_ascii_lowercase() || ch.is_ascii_digit() || matches!(ch, '.' | '_' | '-')
+        })
         && id
             .chars()
             .next()
@@ -108,7 +108,10 @@ fn validate(dir: &Path, manifest: &Manifest) -> Result<(), String> {
         return Err("entry is not a file".into());
     }
     if meta.len() > MAX_ENTRY_BYTES {
-        return Err(format!("entry is larger than {} KiB", MAX_ENTRY_BYTES / 1024));
+        return Err(format!(
+            "entry is larger than {} KiB",
+            MAX_ENTRY_BYTES / 1024
+        ));
     }
     Ok(())
 }
@@ -158,7 +161,8 @@ fn read_plugin(dir: &Path, enabled: &BTreeMap<String, bool>) -> Option<Plugin> {
 
 pub fn scan() -> Result<Vec<Plugin>, String> {
     let root = plugins_dir();
-    std::fs::create_dir_all(&root).map_err(|error| format!("cannot create {}: {error}", root.display()))?;
+    std::fs::create_dir_all(&root)
+        .map_err(|error| format!("cannot create {}: {error}", root.display()))?;
     let enabled = enabled_map();
     let mut dirs: Vec<PathBuf> = std::fs::read_dir(&root)
         .map_err(|error| error.to_string())?
@@ -167,7 +171,10 @@ pub fn scan() -> Result<Vec<Plugin>, String> {
         .map(|entry| entry.path())
         .collect();
     dirs.sort();
-    let mut plugins: Vec<Plugin> = dirs.iter().filter_map(|dir| read_plugin(dir, &enabled)).collect();
+    let mut plugins: Vec<Plugin> = dirs
+        .iter()
+        .filter_map(|dir| read_plugin(dir, &enabled))
+        .collect();
     plugins.sort_by(|left, right| left.id.cmp(&right.id));
     Ok(plugins)
 }
@@ -202,7 +209,9 @@ pub fn remove(id: &str) -> Result<Value, String> {
     if !valid_id(id) {
         return Err("invalid plugin id".into());
     }
-    let root = plugins_dir().canonicalize().map_err(|error| error.to_string())?;
+    let root = plugins_dir()
+        .canonicalize()
+        .map_err(|error| error.to_string())?;
     let target = root.join(id);
     if !target.is_dir() {
         return Err(format!("no plugin named {id}"));
@@ -211,7 +220,8 @@ pub fn remove(id: &str) -> Result<Value, String> {
     if !canonical.starts_with(&root) {
         return Err("refusing to remove a path outside the plugins folder".into());
     }
-    std::fs::remove_dir_all(&canonical).map_err(|error| format!("cannot remove {}: {error}", canonical.display()))?;
+    std::fs::remove_dir_all(&canonical)
+        .map_err(|error| format!("cannot remove {}: {error}", canonical.display()))?;
     let _ = crate::state::update(|state| {
         state.plugins.remove(id);
         Ok(())
@@ -223,7 +233,10 @@ pub fn remove(id: &str) -> Result<Value, String> {
 pub fn frontends() -> Vec<(Plugin, String)> {
     let plugins = scan().unwrap_or_default();
     let mut out = Vec::new();
-    for plugin in plugins.into_iter().filter(|plugin| plugin.valid && plugin.enabled) {
+    for plugin in plugins
+        .into_iter()
+        .filter(|plugin| plugin.valid && plugin.enabled)
+    {
         if out.len() >= MAX_PLUGINS {
             break;
         }
@@ -274,7 +287,10 @@ pub fn dispatch(plugin_id: &str, method: &str, params: &Value) -> Result<Value, 
                 return Err("config key must be 1..64 characters".into());
             }
             let value = params.get("value").cloned().unwrap_or(Value::Null);
-            if serde_json::to_string(&value).map(|text| text.len() > 4096).unwrap_or(true) {
+            if serde_json::to_string(&value)
+                .map(|text| text.len() > 4096)
+                .unwrap_or(true)
+            {
                 return Err("config value is too large".into());
             }
             crate::state::update(|state| {

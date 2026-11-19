@@ -50,7 +50,12 @@ pub fn render_plan(
 ) -> String {
     let active: Vec<&Value> = depots
         .iter()
-        .filter(|depot| depot.get("enabled").and_then(Value::as_bool).unwrap_or(true))
+        .filter(|depot| {
+            depot
+                .get("enabled")
+                .and_then(Value::as_bool)
+                .unwrap_or(true)
+        })
         .collect();
     let depot_ids: Vec<String> = active
         .iter()
@@ -103,10 +108,17 @@ pub fn render_plan(
         lines.push(String::new());
         lines.push("-- manifest pinning".into());
         for depot in pinned {
-            let Some(depot_id) = depot.get("depot_id").and_then(value_to_id) else { continue };
-            let Some(gid) = depot.get("gid").and_then(value_to_gid) else { continue };
+            let Some(depot_id) = depot.get("depot_id").and_then(value_to_id) else {
+                continue;
+            };
+            let Some(gid) = depot.get("gid").and_then(value_to_gid) else {
+                continue;
+            };
             match depot.get("size").and_then(Value::as_u64) {
-                Some(size) if size > 0 => lines.push(format!("setmanifestid({depot_id}, {}, {size})", quote(&gid))),
+                Some(size) if size > 0 => lines.push(format!(
+                    "setmanifestid({depot_id}, {}, {size})",
+                    quote(&gid)
+                )),
                 _ => lines.push(format!("setmanifestid({depot_id}, {})", quote(&gid))),
             }
         }
@@ -133,7 +145,9 @@ pub fn value_to_id(value: &Value) -> Option<String> {
         Value::Number(number) => number.as_u64().map(|id| id.to_string()),
         Value::String(text) => {
             let trimmed = text.trim();
-            let digits = !trimmed.is_empty() && trimmed.len() <= 20 && trimmed.chars().all(|ch| ch.is_ascii_digit());
+            let digits = !trimmed.is_empty()
+                && trimmed.len() <= 20
+                && trimmed.chars().all(|ch| ch.is_ascii_digit());
             digits.then(|| trimmed.to_string())
         }
         _ => None,
@@ -147,7 +161,9 @@ pub fn value_to_gid(value: &Value) -> Option<String> {
         Value::Number(number) => number.as_u64().map(|gid| gid.to_string()),
         Value::String(text) => {
             let trimmed = text.trim();
-            let digits = !trimmed.is_empty() && trimmed.len() <= 20 && trimmed.chars().all(|ch| ch.is_ascii_digit());
+            let digits = !trimmed.is_empty()
+                && trimmed.len() <= 20
+                && trimmed.chars().all(|ch| ch.is_ascii_digit());
             digits.then(|| trimmed.to_string())
         }
         _ => None,
@@ -159,15 +175,25 @@ pub fn value_to_gid(value: &Value) -> Option<String> {
 pub fn render_record(record: &Value, keys: &BTreeMap<String, String>) -> String {
     let appid = record.get("appid").and_then(Value::as_u64).unwrap_or(0);
     let name = record.get("name").and_then(Value::as_str).unwrap_or("");
-    let branch = record.get("branch").and_then(Value::as_str).unwrap_or("public");
-    let depots = record.get("depots").and_then(Value::as_array).cloned().unwrap_or_default();
+    let branch = record
+        .get("branch")
+        .and_then(Value::as_str)
+        .unwrap_or("public");
+    let depots = record
+        .get("depots")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
     let dlc: Vec<u64> = record
         .get("dlc")
         .and_then(Value::as_array)
         .map(|list| list.iter().filter_map(Value::as_u64).collect())
         .unwrap_or_default();
     let generated = record.get("updated").and_then(Value::as_str).unwrap_or("");
-    let source = record.get("source").and_then(Value::as_str).unwrap_or("auto");
+    let source = record
+        .get("source")
+        .and_then(Value::as_str)
+        .unwrap_or("auto");
     render_plan(appid, name, branch, &depots, keys, &dlc, generated, source)
 }
 
@@ -201,7 +227,9 @@ pub fn provider_order(state: &crate::state::State) -> Vec<Value> {
 pub fn render_provider(order: &[Value]) -> Result<String, String> {
     let mut rows: Vec<String> = Vec::new();
     for entry in order {
-        let Some(spec) = providers::resolve(entry) else { continue };
+        let Some(spec) = providers::resolve(entry) else {
+            continue;
+        };
         let mut parts = vec![
             format!("name = {}", quote(&spec.name)),
             format!("url = {}", quote(&spec.url)),
@@ -219,7 +247,9 @@ pub fn render_provider(order: &[Value]) -> Result<String, String> {
         return Err("no usable manifest provider configured".into());
     }
     let block = format!("{{\n{}\n}}", rows.join("\n"));
-    Ok(PROVIDER_TEMPLATE.replace("__STAMP__", &stamp()).replace("__SOURCES__", &block))
+    Ok(PROVIDER_TEMPLATE
+        .replace("__STAMP__", &stamp())
+        .replace("__SOURCES__", &block))
 }
 #[cfg(test)]
 mod tests {
@@ -239,7 +269,16 @@ mod tests {
             json!({ "depot_id": 624, "gid": "222" }),
             json!({ "depot_id": 625 }),
         ];
-        let text = render_plan(620, "Portal 2", "public", &depots, &keys(), &[650], "test", "auto");
+        let text = render_plan(
+            620,
+            "Portal 2",
+            "public",
+            &depots,
+            &keys(),
+            &[650],
+            "test",
+            "auto",
+        );
         assert!(text.contains("addappid(620)"));
         assert!(text.contains("addappid(621, 1, \""));
         assert!(text.contains("setmanifestid(621, \"111\", 1200)"));
@@ -250,12 +289,24 @@ mod tests {
     }
 
     fn lint_hint(text: &str) -> usize {
-        text.lines().filter(|line| line.starts_with("setmanifestid")).count() - 2
+        text.lines()
+            .filter(|line| line.starts_with("setmanifestid"))
+            .count()
+            - 2
     }
 
     #[test]
     fn escapes_quotes_in_names() {
-        let text = render_plan(1, "Some \"Game\"", "public", &[], &BTreeMap::new(), &[], "test", "auto");
+        let text = render_plan(
+            1,
+            "Some \"Game\"",
+            "public",
+            &[],
+            &BTreeMap::new(),
+            &[],
+            "test",
+            "auto",
+        );
         assert!(text.contains("-- @name Some \"Game\""));
     }
 
@@ -270,8 +321,19 @@ mod tests {
 
     #[test]
     fn disabled_depot_disappears() {
-        let depots = vec![json!({ "depot_id": 621, "gid": "9044256803759256265", "size": 1200, "enabled": false })];
-        let text = render_plan(620, "Portal 2", "public", &depots, &keys(), &[], "test", "auto");
+        let depots = vec![
+            json!({ "depot_id": 621, "gid": "9044256803759256265", "size": 1200, "enabled": false }),
+        ];
+        let text = render_plan(
+            620,
+            "Portal 2",
+            "public",
+            &depots,
+            &keys(),
+            &[],
+            "test",
+            "auto",
+        );
         assert!(!text.contains("addappid(621"));
         assert!(!text.contains("setmanifestid(621"));
         assert!(text.contains("addappid(620)"));
@@ -279,13 +341,22 @@ mod tests {
 
     #[test]
     fn enabled_depot_stays() {
-        let depots = vec![json!({ "depot_id": 621, "gid": "9044256803759256265", "enabled": true })];
-        let text = render_plan(620, "Portal 2", "public", &depots, &keys(), &[], "test", "auto");
+        let depots =
+            vec![json!({ "depot_id": 621, "gid": "9044256803759256265", "enabled": true })];
+        let text = render_plan(
+            620,
+            "Portal 2",
+            "public",
+            &depots,
+            &keys(),
+            &[],
+            "test",
+            "auto",
+        );
         assert!(text.contains("addappid(621, 1, \""));
         assert!(text.contains("setmanifestid(621"));
     }
 }
-
 
 #[cfg(test)]
 mod comment_tests {
@@ -295,31 +366,48 @@ mod comment_tests {
 
     fn render(name: &str) -> String {
         let depots = vec![json!({ "depot_id": 621, "gid": "9044256803759256265" })];
-        render_plan(620, name, "public", &depots, &BTreeMap::new(), &[], "test", "selftest")
+        render_plan(
+            620,
+            name,
+            "public",
+            &depots,
+            &BTreeMap::new(),
+            &[],
+            "test",
+            "selftest",
+        )
     }
 
     #[test]
     fn newline_in_name_cannot_inject_lua() {
         let script = render("Evil\naddappid(999)");
-        assert!(!script.lines().any(|line| line.trim() == "addappid(999)"), "injected line survived: {script}");
+        assert!(
+            !script.lines().any(|line| line.trim() == "addappid(999)"),
+            "injected line survived: {script}"
+        );
         assert!(script.contains("-- @name Evil addappid(999)"));
     }
 
     #[test]
     fn carriage_return_and_tabs_are_flattened() {
         let script = render("A\r\nB\tC");
-        let name_line = script.lines().find(|line| line.starts_with("-- @name")).unwrap_or("");
+        let name_line = script
+            .lines()
+            .find(|line| line.starts_with("-- @name"))
+            .unwrap_or("");
         assert_eq!(name_line, "-- @name A  B C");
     }
 
     #[test]
     fn long_names_are_bounded() {
         let script = render(&"x".repeat(400));
-        let name_line = script.lines().find(|line| line.starts_with("-- @name")).unwrap_or("");
+        let name_line = script
+            .lines()
+            .find(|line| line.starts_with("-- @name"))
+            .unwrap_or("");
         assert!(name_line.len() <= "-- @name ".len() + 120);
     }
 }
-
 
 #[cfg(test)]
 mod id_tests {
@@ -338,7 +426,10 @@ mod id_tests {
 
     #[test]
     fn gids_must_be_decimal() {
-        assert_eq!(value_to_gid(&json!("9044256803759256265")), Some("9044256803759256265".into()));
+        assert_eq!(
+            value_to_gid(&json!("9044256803759256265")),
+            Some("9044256803759256265".into())
+        );
         assert_eq!(value_to_gid(&json!("42")), Some("42".into()));
         assert_eq!(value_to_gid(&json!("42; os.execute('x')")), None);
         assert_eq!(value_to_gid(&json!("")), None);
@@ -347,7 +438,16 @@ mod id_tests {
     #[test]
     fn non_numeric_depot_is_not_written() {
         let depots = vec![json!({ "depot_id": "62x1", "gid": "123" })];
-        let script = render_plan(620, "Test", "public", &depots, &BTreeMap::new(), &[], "test", "selftest");
+        let script = render_plan(
+            620,
+            "Test",
+            "public",
+            &depots,
+            &BTreeMap::new(),
+            &[],
+            "test",
+            "selftest",
+        );
         assert!(!script.contains("addappid(62x1"));
         assert!(!script.contains("setmanifestid(62x1"));
     }
@@ -357,12 +457,20 @@ mod id_tests {
         let depots = vec![json!({ "depot_id": 621, "gid": "123" })];
         let mut keys = BTreeMap::new();
         keys.insert("621".to_string(), "not-a-key".to_string());
-        let script = render_plan(620, "Test", "public", &depots, &keys, &[], "test", "selftest");
+        let script = render_plan(
+            620,
+            "Test",
+            "public",
+            &depots,
+            &keys,
+            &[],
+            "test",
+            "selftest",
+        );
         assert!(!script.contains("not-a-key"));
         assert!(!script.contains("addappid(621, 1"));
     }
 }
-
 
 #[cfg(test)]
 mod stable_tests {
@@ -372,7 +480,16 @@ mod stable_tests {
 
     fn render(generated: &str) -> String {
         let depots = vec![json!({ "depot_id": 621, "gid": "9044256803759256265" })];
-        render_plan(620, "Portal 2", "public", &depots, &BTreeMap::new(), &[], generated, "auto")
+        render_plan(
+            620,
+            "Portal 2",
+            "public",
+            &depots,
+            &BTreeMap::new(),
+            &[],
+            generated,
+            "auto",
+        )
     }
 
     #[test]
@@ -393,7 +510,6 @@ mod stable_tests {
         assert!(!render("").contains("-- generated"));
     }
 }
-
 
 #[cfg(test)]
 mod record_tests {
@@ -442,7 +558,10 @@ mod record_tests {
             {"depot_id": 622, "gid": "2", "enabled": true}
         ]);
         let text = render_record(&value, &BTreeMap::new());
-        assert!(!text.contains("setmanifestid(621"), "disabled depot was pinned: {text}");
+        assert!(
+            !text.contains("setmanifestid(621"),
+            "disabled depot was pinned: {text}"
+        );
         assert!(text.contains("setmanifestid(622"));
     }
 }

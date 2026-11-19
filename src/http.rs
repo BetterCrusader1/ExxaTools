@@ -15,7 +15,10 @@ pub struct HttpError {
 
 impl HttpError {
     fn new(message: impl Into<String>) -> Self {
-        Self { message: message.into(), status: None }
+        Self {
+            message: message.into(),
+            status: None,
+        }
     }
 }
 
@@ -33,7 +36,10 @@ impl std::error::Error for HttpError {}
 impl From<ureq::Error> for HttpError {
     fn from(error: ureq::Error) -> Self {
         match error {
-            ureq::Error::StatusCode(code) => Self { message: format!("HTTP {code}"), status: Some(code) },
+            ureq::Error::StatusCode(code) => Self {
+                message: format!("HTTP {code}"),
+                status: Some(code),
+            },
             other => Self::new(other.to_string()),
         }
     }
@@ -49,7 +55,11 @@ fn agent_for(headers: Option<&str>) -> String {
     headers.unwrap_or(USER_AGENT).to_string()
 }
 
-pub fn get_with(url: &str, user_agent: Option<&str>, timeout: Option<Duration>) -> Result<Vec<u8>, HttpError> {
+pub fn get_with(
+    url: &str,
+    user_agent: Option<&str>,
+    timeout: Option<Duration>,
+) -> Result<Vec<u8>, HttpError> {
     let config = ureq::Agent::config_builder()
         .timeout_global(Some(timeout.unwrap_or(TIMEOUT)))
         .user_agent(agent_for(user_agent))
@@ -87,7 +97,11 @@ pub fn get_with_headers(url: &str, headers: &[(&str, &str)]) -> Result<Vec<u8>, 
     Ok(body)
 }
 
-pub fn get_text_with(url: &str, user_agent: Option<&str>, timeout: Option<Duration>) -> Result<String, HttpError> {
+pub fn get_text_with(
+    url: &str,
+    user_agent: Option<&str>,
+    timeout: Option<Duration>,
+) -> Result<String, HttpError> {
     let body = get_with(url, user_agent, timeout)?;
     Ok(String::from_utf8_lossy(&body).into_owned())
 }

@@ -42,7 +42,10 @@ fn needs_fix(appid: u64) -> Option<String> {
 
 fn appid_from(path: &Path) -> Option<u64> {
     let name = path.file_name()?.to_str()?;
-    name.strip_prefix("appmanifest_")?.strip_suffix(".acf")?.parse().ok()
+    name.strip_prefix("appmanifest_")?
+        .strip_suffix(".acf")?
+        .parse()
+        .ok()
 }
 
 /// One sweep over every known appmanifest.
@@ -52,18 +55,27 @@ pub fn sweep(apply: bool) -> Value {
     let mut fixed = Vec::new();
     let mut failed = Vec::new();
     for library in appmanifest::libraries() {
-        let Ok(entries) = std::fs::read_dir(&library) else { continue };
+        let Ok(entries) = std::fs::read_dir(&library) else {
+            continue;
+        };
         for entry in entries.flatten() {
             let path = entry.path();
-            let Some(appid) = appid_from(&path) else { continue };
-            let Some(reason) = needs_fix(appid) else { continue };
+            let Some(appid) = appid_from(&path) else {
+                continue;
+            };
+            let Some(reason) = needs_fix(appid) else {
+                continue;
+            };
             if apply && !running {
                 match appmanifest::patch(appid, &appmanifest::Mode::Fix, false) {
-                    Ok(result) => fixed.push(json!({ "appid": appid, "changes": result.get("changes").cloned() })),
+                    Ok(result) => fixed
+                        .push(json!({ "appid": appid, "changes": result.get("changes").cloned() })),
                     Err(error) => failed.push(json!({ "appid": appid, "error": error })),
                 }
             } else {
-                pending.push(json!({ "appid": appid, "path": path.display().to_string(), "reason": reason }));
+                pending.push(
+                    json!({ "appid": appid, "path": path.display().to_string(), "reason": reason }),
+                );
             }
         }
     }
@@ -101,7 +113,8 @@ pub fn run() -> Result<(), String> {
     // the writes go quiet, or a half-written file can be read and rewritten.
     let debounce = Duration::from_millis(1500);
     let idle = Duration::from_secs(60);
-    let mut pending: std::collections::HashMap<u64, std::time::Instant> = std::collections::HashMap::new();
+    let mut pending: std::collections::HashMap<u64, std::time::Instant> =
+        std::collections::HashMap::new();
     let mut last_sweep = std::time::Instant::now();
     loop {
         let wait = pending
@@ -127,20 +140,33 @@ pub fn run() -> Result<(), String> {
                     .collect();
                 for appid in ready {
                     pending.remove(&appid);
-                    let Some(reason) = needs_fix(appid) else { continue };
+                    let Some(reason) = needs_fix(appid) else {
+                        continue;
+                    };
                     if steamctl::is_running() {
                         eprintln!("{appid} needs a fix ({reason}); waiting for Steam to exit");
                         continue;
                     }
                     match appmanifest::patch(appid, &appmanifest::Mode::Fix, false) {
-                        Ok(_) => println!("{}", json!({ "appid": appid, "fixed": true, "reason": reason })),
-                        Err(error) => println!("{}", json!({ "appid": appid, "fixed": false, "error": error })),
+                        Ok(_) => println!(
+                            "{}",
+                            json!({ "appid": appid, "fixed": true, "reason": reason })
+                        ),
+                        Err(error) => println!(
+                            "{}",
+                            json!({ "appid": appid, "fixed": false, "error": error })
+                        ),
                     }
                 }
                 if pending.is_empty() && last_sweep.elapsed() >= idle {
                     last_sweep = std::time::Instant::now();
                     let report = sweep(true);
-                    if report.get("fixed").and_then(Value::as_array).map(|list| !list.is_empty()).unwrap_or(false) {
+                    if report
+                        .get("fixed")
+                        .and_then(Value::as_array)
+                        .map(|list| !list.is_empty())
+                        .unwrap_or(false)
+                    {
                         println!("{report}");
                     }
                 }

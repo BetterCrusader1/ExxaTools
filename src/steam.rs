@@ -7,8 +7,10 @@ use serde_json::{json, Value};
 
 use crate::http;
 
-const STORE_SEARCH: &str = "https://store.steampowered.com/api/storesearch/?term={term}&l=english&cc={cc}";
-const STORE_DETAILS: &str = "https://store.steampowered.com/api/appdetails?appids={appid}&l=english&cc={cc}";
+const STORE_SEARCH: &str =
+    "https://store.steampowered.com/api/storesearch/?term={term}&l=english&cc={cc}";
+const STORE_DETAILS: &str =
+    "https://store.steampowered.com/api/appdetails?appids={appid}&l=english&cc={cc}";
 const APPINFO: &str = "https://api.steamcmd.net/v1/info/{appid}";
 const FEATURED: &str = "https://store.steampowered.com/api/featuredcategories?l=english&cc={cc}";
 const STEAMSPY: &str = "https://steamspy.com/api.php?request=top100in2weeks";
@@ -35,7 +37,11 @@ fn price_of(item: &Value) -> Option<String> {
         return Some("free".into());
     }
     let currency = price.get("currency").and_then(Value::as_str).unwrap_or("");
-    Some(format!("{:.2} {}", final_price as f64 / 100.0, currency).trim().to_string())
+    Some(
+        format!("{:.2} {}", final_price as f64 / 100.0, currency)
+            .trim()
+            .to_string(),
+    )
 }
 
 pub fn search(term: &str, cc: &str) -> Result<Vec<Value>, String> {
@@ -54,8 +60,13 @@ pub fn search(term: &str, cc: &str) -> Result<Vec<Value>, String> {
             })]);
         }
         if let Ok(info) = app_info(appid) {
-            let name = info.pointer("/common/name").and_then(Value::as_str).unwrap_or(term);
-            return Ok(vec![json!({ "appid": appid, "name": name, "image": "", "price": null })]);
+            let name = info
+                .pointer("/common/name")
+                .and_then(Value::as_str)
+                .unwrap_or(term);
+            return Ok(vec![
+                json!({ "appid": appid, "name": name, "image": "", "price": null }),
+            ]);
         }
     }
     // Steam's store search wants spaces as plus signs; %20 comes back empty.
@@ -68,7 +79,9 @@ pub fn search(term: &str, cc: &str) -> Result<Vec<Value>, String> {
             if item.get("type").and_then(Value::as_str) != Some("app") {
                 continue;
             }
-            let Some(appid) = item.get("id").and_then(Value::as_u64) else { continue };
+            let Some(appid) = item.get("id").and_then(Value::as_u64) else {
+                continue;
+            };
             items.push(json!({
                 "appid": appid,
                 "name": item.get("name").cloned().unwrap_or_else(|| json!("")),
@@ -81,7 +94,9 @@ pub fn search(term: &str, cc: &str) -> Result<Vec<Value>, String> {
 }
 
 pub fn store_details(appid: u64, cc: &str) -> Option<Value> {
-    let url = STORE_DETAILS.replace("{appid}", &appid.to_string()).replace("{cc}", cc);
+    let url = STORE_DETAILS
+        .replace("{appid}", &appid.to_string())
+        .replace("{cc}", cc);
     let payload = http::get_json(&url).ok()?;
     let entry = payload.get(appid.to_string())?;
     if entry.get("success").and_then(Value::as_bool) != Some(true) {
@@ -116,8 +131,16 @@ pub fn catalog(appid: u64) -> Result<Value, String> {
         .filter(|value| !value.is_empty())
         .unwrap_or("")
         .to_string();
-    let app_type = info.pointer("/common/type").and_then(Value::as_str).unwrap_or("unknown").to_string();
-    let developers = info.pointer("/extended/developer").and_then(Value::as_str).unwrap_or("").to_string();
+    let app_type = info
+        .pointer("/common/type")
+        .and_then(Value::as_str)
+        .unwrap_or("unknown")
+        .to_string();
+    let developers = info
+        .pointer("/extended/developer")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .to_string();
     let dlc = dlc_ids(&info);
     let mut branches = parse_branches(info.get("branches"));
     let depots = parse_depots(info.get("depots"));
@@ -136,7 +159,9 @@ pub fn catalog(appid: u64) -> Result<Value, String> {
 }
 
 fn parse_branches(raw: Option<&Value>) -> Vec<Value> {
-    let Some(map) = raw.and_then(Value::as_object) else { return Vec::new() };
+    let Some(map) = raw.and_then(Value::as_object) else {
+        return Vec::new();
+    };
     let mut out: Vec<Value> = Vec::new();
     for (name, value) in map {
         if value.get("buildid").is_none() {
@@ -178,7 +203,10 @@ fn branches_from_depots(depots: &[Value]) -> Vec<Value> {
 }
 
 fn dlc_ids(info: &Value) -> Vec<u64> {
-    let raw = info.pointer("/extended/listofdlc").map(value_text).unwrap_or_default();
+    let raw = info
+        .pointer("/extended/listofdlc")
+        .map(value_text)
+        .unwrap_or_default();
     raw.split(|ch: char| ch == ',' || ch.is_whitespace())
         .filter(|chunk| !chunk.is_empty() && chunk.chars().all(|ch| ch.is_ascii_digit()))
         .filter_map(|chunk| chunk.parse().ok())
@@ -186,16 +214,22 @@ fn dlc_ids(info: &Value) -> Vec<u64> {
 }
 
 fn parse_depots(raw: Option<&Value>) -> Vec<Value> {
-    let Some(map) = raw.and_then(Value::as_object) else { return Vec::new() };
+    let Some(map) = raw.and_then(Value::as_object) else {
+        return Vec::new();
+    };
     let mut out = Vec::new();
     for (key, value) in map {
         if !key.chars().all(|ch| ch.is_ascii_digit()) {
             continue;
         }
-        let Some(manifests_raw) = value.get("manifests").and_then(Value::as_object) else { continue };
+        let Some(manifests_raw) = value.get("manifests").and_then(Value::as_object) else {
+            continue;
+        };
         let mut manifests = serde_json::Map::new();
         for (branch, entry) in manifests_raw {
-            let Some(gid) = entry.get("gid").and_then(value_to_gid) else { continue };
+            let Some(gid) = entry.get("gid").and_then(value_to_gid) else {
+                continue;
+            };
             if gid.is_empty() {
                 continue;
             }
@@ -253,7 +287,10 @@ fn value_to_gid(value: &Value) -> Option<String> {
 
 pub fn pick_manifest(depot: &Value, branch: &str) -> Option<Value> {
     let manifests = depot.get("manifests")?.as_object()?;
-    manifests.get(branch).or_else(|| manifests.get("public")).cloned()
+    manifests
+        .get(branch)
+        .or_else(|| manifests.get("public"))
+        .cloned()
 }
 
 /// Discovery results, keyed by the store country they were fetched for.
@@ -283,7 +320,11 @@ fn shuffle(items: &mut [Value]) {
 fn discover_pool(cc: &str) -> Vec<Value> {
     let mut pool: Vec<Value> = Vec::new();
     let mut seen: Vec<u64> = Vec::new();
-    let push = |appid: u64, name: &str, image: Option<&str>, pool: &mut Vec<Value>, seen: &mut Vec<u64>| {
+    let push = |appid: u64,
+                name: &str,
+                image: Option<&str>,
+                pool: &mut Vec<Value>,
+                seen: &mut Vec<u64>| {
         if name.is_empty() || seen.contains(&appid) {
             return;
         }
@@ -302,7 +343,10 @@ fn discover_pool(cc: &str) -> Vec<Value> {
     if let Ok(spy) = http::get_json_with(STEAMSPY, None) {
         if let Some(map) = spy.as_object() {
             for item in map.values() {
-                if let (Some(appid), Some(name)) = (item.get("appid").and_then(Value::as_u64), item.get("name").and_then(Value::as_str)) {
+                if let (Some(appid), Some(name)) = (
+                    item.get("appid").and_then(Value::as_u64),
+                    item.get("name").and_then(Value::as_str),
+                ) {
                     push(appid, name, None, &mut pool, &mut seen);
                 }
             }
@@ -311,9 +355,17 @@ fn discover_pool(cc: &str) -> Vec<Value> {
     let featured_url = FEATURED.replace("{cc}", cc);
     if let Ok(featured) = http::get_json(&featured_url) {
         for section in ["top_sellers", "new_releases", "specials"] {
-            let Some(items) = featured.pointer(&format!("/{section}/items")).and_then(Value::as_array) else { continue };
+            let Some(items) = featured
+                .pointer(&format!("/{section}/items"))
+                .and_then(Value::as_array)
+            else {
+                continue;
+            };
             for item in items {
-                if let (Some(appid), Some(name)) = (item.get("id").and_then(Value::as_u64), item.get("name").and_then(Value::as_str)) {
+                if let (Some(appid), Some(name)) = (
+                    item.get("id").and_then(Value::as_u64),
+                    item.get("name").and_then(Value::as_str),
+                ) {
                     push(appid, name, None, &mut pool, &mut seen);
                 }
             }
@@ -325,7 +377,11 @@ fn discover_pool(cc: &str) -> Vec<Value> {
 pub fn discover(cc: &str, limit: usize) -> Vec<Value> {
     let cached = DISCOVER_CACHE.lock().ok().and_then(|guard| guard.clone());
     let mut items = match cached {
-        Some((key, at, items)) if key == cc && at.elapsed() < Duration::from_secs(900) && !items.is_empty() => items,
+        Some((key, at, items))
+            if key == cc && at.elapsed() < Duration::from_secs(900) && !items.is_empty() =>
+        {
+            items
+        }
         _ => {
             let items = discover_pool(cc);
             if let Ok(mut guard) = DISCOVER_CACHE.lock() {
@@ -348,12 +404,18 @@ static DLC_CACHE: DlcCache = Mutex::new(None);
 pub fn dlc_names(appid: u64, cc: &str) -> Vec<Value> {
     if let Ok(guard) = DLC_CACHE.lock() {
         if let Some((cached_app, cached_cc, at, items)) = guard.as_ref() {
-            if *cached_app == appid && cached_cc == cc && at.elapsed() < Duration::from_secs(900) && !items.is_empty() {
+            if *cached_app == appid
+                && cached_cc == cc
+                && at.elapsed() < Duration::from_secs(900)
+                && !items.is_empty()
+            {
                 return items.clone();
             }
         }
     }
-    let Some(details) = store_details(appid, cc) else { return Vec::new() };
+    let Some(details) = store_details(appid, cc) else {
+        return Vec::new();
+    };
     let ids: Vec<u64> = details
         .get("dlc")
         .and_then(Value::as_array)

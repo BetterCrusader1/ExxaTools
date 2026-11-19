@@ -8,7 +8,11 @@ use std::path::PathBuf;
 use serde_json::{json, Value};
 
 pub fn free_bytes(path: &std::path::Path) -> Option<u64> {
-    let output = std::process::Command::new("df").args(["-B1", "--output=avail"]).arg(path).output().ok()?;
+    let output = std::process::Command::new("df")
+        .args(["-B1", "--output=avail"])
+        .arg(path)
+        .output()
+        .ok()?;
     let text = String::from_utf8_lossy(&output.stdout);
     text.lines().nth(1)?.trim().parse().ok()
 }
@@ -31,12 +35,18 @@ pub fn human(bytes: u64) -> String {
 /// The Steam root plus every extra library folder declared in libraryfolders.vdf.
 pub fn library_dirs() -> Vec<PathBuf> {
     let mut out: Vec<PathBuf> = Vec::new();
-    let Some(root) = crate::steamctl::root() else { return out };
+    let Some(root) = crate::steamctl::root() else {
+        return out;
+    };
     out.push(root.clone());
     for name in ["steamapps/libraryfolders.vdf", "config/libraryfolders.vdf"] {
         let path = root.join(name);
-        let Ok(text) = std::fs::read_to_string(&path) else { continue };
-        let Ok(tree) = crate::vdf::parse(&text) else { continue };
+        let Ok(text) = std::fs::read_to_string(&path) else {
+            continue;
+        };
+        let Ok(tree) = crate::vdf::parse(&text) else {
+            continue;
+        };
         let mut paths = Vec::new();
         crate::vdf::collect_paths(&tree, &mut paths);
         for entry in paths {
@@ -55,8 +65,14 @@ pub fn report() -> Value {
     let mut drives: Vec<Value> = Vec::new();
     let mut lowest: Option<(PathBuf, u64)> = None;
     for dir in library_dirs() {
-        let Some(free) = free_bytes(&dir) else { continue };
-        if lowest.as_ref().map(|(_, value)| free < *value).unwrap_or(true) {
+        let Some(free) = free_bytes(&dir) else {
+            continue;
+        };
+        if lowest
+            .as_ref()
+            .map(|(_, value)| free < *value)
+            .unwrap_or(true)
+        {
             lowest = Some((dir.clone(), free));
         }
         drives.push(json!({

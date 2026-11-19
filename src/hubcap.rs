@@ -44,7 +44,10 @@ fn request(path: &str, key: &str, params: &[(String, String)]) -> Result<Vec<u8>
     let mut response = match agent
         .get(&url)
         .header("Authorization", &format!("Bearer {}", key.trim()))
-        .header("Accept", "application/json, application/zip, text/plain, */*")
+        .header(
+            "Accept",
+            "application/json, application/zip, text/plain, */*",
+        )
         .call()
     {
         Ok(response) => response,
@@ -68,7 +71,8 @@ fn request(path: &str, key: &str, params: &[(String, String)]) -> Result<Vec<u8>
 
 fn request_json(path: &str, key: &str, params: &[(String, String)]) -> Result<Value, HubcapError> {
     let raw = request(path, key, params)?;
-    serde_json::from_slice(&raw).map_err(|_| HubcapError("Hubcap returned a non-JSON payload".into()))
+    serde_json::from_slice(&raw)
+        .map_err(|_| HubcapError("Hubcap returned a non-JSON payload".into()))
 }
 
 pub fn valid_key(value: &str) -> Option<String> {
@@ -90,14 +94,26 @@ pub fn validate(key: &str) -> Result<Value, HubcapError> {
 }
 
 pub fn search(key: &str, term: &str, limit: usize) -> Result<Vec<Value>, HubcapError> {
-    let params = vec![("q".to_string(), term.to_string()), ("limit".to_string(), limit.clamp(1, 100).to_string())];
+    let params = vec![
+        ("q".to_string(), term.to_string()),
+        ("limit".to_string(), limit.clamp(1, 100).to_string()),
+    ];
     let payload = request_json("/search", key, &params)?;
-    let items = payload.get("results").and_then(Value::as_array).cloned().unwrap_or_default();
+    let items = payload
+        .get("results")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
     let mut out = Vec::new();
     for item in items {
-        let appid = item.get("game_id").or_else(|| item.get("appid")).and_then(|value| {
-            value.as_u64().or_else(|| value.as_str().and_then(|text| text.parse().ok()))
-        });
+        let appid = item
+            .get("game_id")
+            .or_else(|| item.get("appid"))
+            .and_then(|value| {
+                value
+                    .as_u64()
+                    .or_else(|| value.as_str().and_then(|text| text.parse().ok()))
+            });
         let Some(appid) = appid else { continue };
         out.push(json!({
             "appid": appid,
@@ -128,10 +144,14 @@ pub fn fetch(key: &str, appid: u64) -> Result<Fetched, HubcapError> {
     let text = String::from_utf8_lossy(&raw).into_owned();
     let stripped = text.trim_start();
     if stripped.starts_with('<') {
-        return Err(HubcapError(format!("app {appid} is not in the Hubcap database")));
+        return Err(HubcapError(format!(
+            "app {appid} is not in the Hubcap database"
+        )));
     }
     if stripped.starts_with('{') {
-        return Err(HubcapError(format!("Hubcap answered with JSON for {appid}")));
+        return Err(HubcapError(format!(
+            "Hubcap answered with JSON for {appid}"
+        )));
     }
     Ok(Fetched {
         lua: text,
@@ -142,16 +162,21 @@ pub fn fetch(key: &str, appid: u64) -> Result<Fetched, HubcapError> {
 }
 
 fn from_zip(raw: &[u8], appid: u64) -> Result<Fetched, HubcapError> {
-    let mut archive = zip::ZipArchive::new(Cursor::new(raw)).map_err(|_| HubcapError("Hubcap archive is not a valid zip".into()))?;
+    let mut archive = zip::ZipArchive::new(Cursor::new(raw))
+        .map_err(|_| HubcapError("Hubcap archive is not a valid zip".into()))?;
     let mut lua: Option<String> = None;
     let mut manifests = Vec::new();
     let mut manifest_data = Vec::new();
     for index in 0..archive.len() {
-        let mut entry = archive.by_index(index).map_err(|error| HubcapError(error.to_string()))?;
+        let mut entry = archive
+            .by_index(index)
+            .map_err(|error| HubcapError(error.to_string()))?;
         let name = entry.name().to_string();
         let lower = name.to_lowercase();
         let mut buffer = Vec::new();
-        entry.read_to_end(&mut buffer).map_err(|error| HubcapError(error.to_string()))?;
+        entry
+            .read_to_end(&mut buffer)
+            .map_err(|error| HubcapError(error.to_string()))?;
         if lower.ends_with(".lua") && lua.is_none() {
             lua = Some(String::from_utf8_lossy(&buffer).into_owned());
         } else if lower.ends_with(".manifest") {
@@ -160,15 +185,23 @@ fn from_zip(raw: &[u8], appid: u64) -> Result<Fetched, HubcapError> {
             manifest_data.push((base, buffer));
         }
     }
-    let lua = lua.ok_or_else(|| HubcapError(format!("Hubcap archive for {appid} has no .lua inside")))?;
-    Ok(Fetched { lua, manifests, manifest_data, source: "zip".into() })
+    let lua =
+        lua.ok_or_else(|| HubcapError(format!("Hubcap archive for {appid} has no .lua inside")))?;
+    Ok(Fetched {
+        lua,
+        manifests,
+        manifest_data,
+        source: "zip".into(),
+    })
 }
 
 impl Fetched {
     /// Persist archive manifests into Steam's `depotcache` directory. Existing
     /// files are kept: a newer snapshot must not overwrite a pinned install.
     pub fn cache_manifests(&self) -> Result<usize, String> {
-        let Some(root) = crate::steamctl::root() else { return Ok(0) };
+        let Some(root) = crate::steamctl::root() else {
+            return Ok(0);
+        };
         let dir = root.join("depotcache");
         std::fs::create_dir_all(&dir)
             .map_err(|error| format!("cannot create {}: {error}", dir.display()))?;
@@ -249,7 +282,8 @@ fn digits(value: &str) -> Option<u64> {
 pub fn parse_lua(text: &str, appid: Option<u64>) -> Parsed {
     let mut apps: Vec<u64> = Vec::new();
     let mut depots: std::collections::BTreeMap<u64, Value> = std::collections::BTreeMap::new();
-    let mut pins: std::collections::BTreeMap<u64, (String, Option<u64>)> = std::collections::BTreeMap::new();
+    let mut pins: std::collections::BTreeMap<u64, (String, Option<u64>)> =
+        std::collections::BTreeMap::new();
     for line in text.lines() {
         let stripped = line.trim();
         if stripped.is_empty() || stripped.starts_with("--") {
@@ -257,38 +291,62 @@ pub fn parse_lua(text: &str, appid: Option<u64>) -> Parsed {
         }
         let lower = stripped.to_lowercase();
         let args = if lower.starts_with("addappid(") {
-            call_args(stripped.trim_start_matches("addappid(").trim_end_matches(')'))
+            call_args(
+                stripped
+                    .trim_start_matches("addappid(")
+                    .trim_end_matches(')'),
+            )
         } else if lower.starts_with("setmanifestid(") {
-            call_args(stripped.trim_start_matches("setmanifestid(").trim_end_matches(')'))
+            call_args(
+                stripped
+                    .trim_start_matches("setmanifestid(")
+                    .trim_end_matches(')'),
+            )
         } else {
             continue;
         };
         if lower.starts_with("addappid(") {
-            let Some(target) = args.first().and_then(|value| digits(value)) else { continue };
-            let key = args.get(2).map(|value| value.trim().to_lowercase()).unwrap_or_default();
+            let Some(target) = args.first().and_then(|value| digits(value)) else {
+                continue;
+            };
+            let key = args
+                .get(2)
+                .map(|value| value.trim().to_lowercase())
+                .unwrap_or_default();
             let is_key = key.len() == 64 && key.chars().all(|ch| ch.is_ascii_hexdigit());
             if is_key {
-                depots.entry(target).or_insert_with(|| json!({ "depot_id": target, "key": key, "gid": null, "size": null }));
+                depots.entry(target).or_insert_with(
+                    || json!({ "depot_id": target, "key": key, "gid": null, "size": null }),
+                );
             } else {
                 apps.push(target);
             }
             continue;
         }
-        let (Some(depot_id), Some(gid)) = (args.first().and_then(|value| digits(value)), args.get(1).and_then(|value| digits(value))) else {
+        let (Some(depot_id), Some(gid)) = (
+            args.first().and_then(|value| digits(value)),
+            args.get(1).and_then(|value| digits(value)),
+        ) else {
             continue;
         };
         let size = args.get(2).and_then(|value| digits(value));
         pins.insert(depot_id, (gid.to_string(), size));
     }
     for (depot_id, (gid, size)) in pins {
-        let entry = depots.entry(depot_id).or_insert_with(|| json!({ "depot_id": depot_id, "key": "", "gid": null, "size": null }));
+        let entry = depots.entry(depot_id).or_insert_with(
+            || json!({ "depot_id": depot_id, "key": "", "gid": null, "size": null }),
+        );
         entry["gid"] = json!(gid);
         if size.is_some() {
             entry["size"] = json!(size);
         }
     }
     let root = appid.or_else(|| apps.first().copied());
-    let dlc: Vec<u64> = apps.iter().copied().filter(|value| Some(*value) != root).collect();
+    let dlc: Vec<u64> = apps
+        .iter()
+        .copied()
+        .filter(|value| Some(*value) != root)
+        .collect();
     Parsed {
         appid: root,
         dlc,
@@ -298,16 +356,27 @@ pub fn parse_lua(text: &str, appid: Option<u64>) -> Parsed {
 
 /// Keys always land; pins only on request, because a Hubcap snapshot is one
 /// build and not necessarily the branch the user selected.
-pub fn apply_to_state(state: &mut State, parsed: &Parsed, stamp: &str, name: Option<&str>, pin: bool, create: bool) -> Value {
+pub fn apply_to_state(
+    state: &mut State,
+    parsed: &Parsed,
+    stamp: &str,
+    name: Option<&str>,
+    pin: bool,
+    create: bool,
+) -> Value {
     let Some(appid) = parsed.appid else {
         return json!({ "error": "that lua has no app id" });
     };
     let mut imported = 0;
     for depot in &parsed.depots {
-        let Some(depot_id) = depot.get("depot_id").and_then(Value::as_u64) else { continue };
+        let Some(depot_id) = depot.get("depot_id").and_then(Value::as_u64) else {
+            continue;
+        };
         let key = depot.get("key").and_then(Value::as_str).unwrap_or("");
         if key.len() == 64 {
-            state.depot_keys.insert(depot_id.to_string(), key.to_string());
+            state
+                .depot_keys
+                .insert(depot_id.to_string(), key.to_string());
             imported += 1;
         }
     }
@@ -343,7 +412,8 @@ pub fn apply_to_state(state: &mut State, parsed: &Parsed, stamp: &str, name: Opt
     let mut pinned = 0;
     if !created && pin {
         if let Some(record) = state.apps.get_mut(&appid.to_string()) {
-            let mut planned: std::collections::BTreeMap<u64, Value> = std::collections::BTreeMap::new();
+            let mut planned: std::collections::BTreeMap<u64, Value> =
+                std::collections::BTreeMap::new();
             if let Some(list) = record.get("depots").and_then(Value::as_array) {
                 for entry in list {
                     if let Some(id) = entry.get("depot_id").and_then(Value::as_u64) {
@@ -352,8 +422,16 @@ pub fn apply_to_state(state: &mut State, parsed: &Parsed, stamp: &str, name: Opt
                 }
             }
             for depot in &parsed.depots {
-                let Some(id) = depot.get("depot_id").and_then(Value::as_u64) else { continue };
-                let Some(gid) = depot.get("gid").and_then(Value::as_str).filter(|value| !value.is_empty()) else { continue };
+                let Some(id) = depot.get("depot_id").and_then(Value::as_u64) else {
+                    continue;
+                };
+                let Some(gid) = depot
+                    .get("gid")
+                    .and_then(Value::as_str)
+                    .filter(|value| !value.is_empty())
+                else {
+                    continue;
+                };
                 if let Some(entry) = planned.get_mut(&id) {
                     entry["gid"] = json!(gid);
                     if let Some(size) = depot.get("size").filter(|value| !value.is_null()) {
@@ -364,7 +442,12 @@ pub fn apply_to_state(state: &mut State, parsed: &Parsed, stamp: &str, name: Opt
             }
             if let Some(list) = record.get("depots").and_then(Value::as_array).map(|list| {
                 list.iter()
-                    .map(|entry| planned.get(&entry.get("depot_id").and_then(Value::as_u64).unwrap_or(0)).cloned().unwrap_or_else(|| entry.clone()))
+                    .map(|entry| {
+                        planned
+                            .get(&entry.get("depot_id").and_then(Value::as_u64).unwrap_or(0))
+                            .cloned()
+                            .unwrap_or_else(|| entry.clone())
+                    })
                     .collect::<Vec<_>>()
             }) {
                 record["depots"] = Value::Array(list);
@@ -376,7 +459,13 @@ pub fn apply_to_state(state: &mut State, parsed: &Parsed, stamp: &str, name: Opt
     let missing: Vec<u64> = parsed
         .depots
         .iter()
-        .filter(|depot| depot.get("key").and_then(Value::as_str).map(str::is_empty).unwrap_or(true))
+        .filter(|depot| {
+            depot
+                .get("key")
+                .and_then(Value::as_str)
+                .map(str::is_empty)
+                .unwrap_or(true)
+        })
         .filter_map(|depot| depot.get("depot_id").and_then(Value::as_u64))
         .collect();
 
@@ -411,16 +500,29 @@ addappid(650)
             .iter()
             .find(|item| item.get("depot_id").and_then(Value::as_u64) == Some(621))
             .unwrap();
-        assert_eq!(depot.get("gid").and_then(Value::as_str), Some("9044256803759256265"));
+        assert_eq!(
+            depot.get("gid").and_then(Value::as_str),
+            Some("9044256803759256265")
+        );
         assert_eq!(depot.get("size").and_then(Value::as_u64), Some(1200));
-        assert_eq!(depot.get("key").and_then(Value::as_str).map(str::len), Some(64));
+        assert_eq!(
+            depot.get("key").and_then(Value::as_str).map(str::len),
+            Some(64)
+        );
     }
 
     #[test]
     fn keys_land_without_pinning() {
         let parsed = parse_lua(LUA, Some(620));
         let mut st = crate::state::State::default();
-        let summary = apply_to_state(&mut st, &parsed, "1700000000", Some("Portal 2"), false, false);
+        let summary = apply_to_state(
+            &mut st,
+            &parsed,
+            "1700000000",
+            Some("Portal 2"),
+            false,
+            false,
+        );
         assert_eq!(summary.get("keys").and_then(Value::as_u64), Some(1));
         assert_eq!(st.depot_keys.get("621").map(String::len), Some(64));
         assert!(st.apps.is_empty(), "no plan unless asked");
@@ -430,11 +532,24 @@ addappid(650)
     fn create_writes_a_plan() {
         let parsed = parse_lua(LUA, Some(620));
         let mut st = crate::state::State::default();
-        let summary = apply_to_state(&mut st, &parsed, "1700000000", Some("Portal 2"), false, true);
-        assert_eq!(summary.get("created_plan").and_then(Value::as_bool), Some(true));
+        let summary = apply_to_state(
+            &mut st,
+            &parsed,
+            "1700000000",
+            Some("Portal 2"),
+            false,
+            true,
+        );
+        assert_eq!(
+            summary.get("created_plan").and_then(Value::as_bool),
+            Some(true)
+        );
         let record = st.apps.get("620").unwrap();
         assert_eq!(record.get("name").and_then(Value::as_str), Some("Portal 2"));
-        assert_eq!(record.get("depots").and_then(Value::as_array).map(Vec::len), Some(1));
+        assert_eq!(
+            record.get("depots").and_then(Value::as_array).map(Vec::len),
+            Some(1)
+        );
     }
 
     #[test]
