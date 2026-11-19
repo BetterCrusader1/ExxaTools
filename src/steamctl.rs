@@ -26,7 +26,9 @@ pub fn root() -> Option<PathBuf> {
             return Some(candidate.clone());
         }
     }
-    candidates.into_iter().find(|path| path.join("steam.sh").is_file() || path.join("ubuntu12_64").is_dir())
+    candidates
+        .into_iter()
+        .find(|path| path.join("steam.sh").is_file() || path.join("ubuntu12_64").is_dir())
 }
 
 pub fn pid() -> Option<i32> {
@@ -44,13 +46,20 @@ pub fn pid() -> Option<i32> {
 /// restarting the client to enable CEF debugging, so a running game is never
 /// interrupted.
 pub fn game_running() -> bool {
-    let Ok(entries) = std::fs::read_dir("/proc") else { return false };
+    let Ok(entries) = std::fs::read_dir("/proc") else {
+        return false;
+    };
     for entry in entries.flatten() {
         let name = entry.file_name();
-        let Some(pid) = name.to_str().filter(|value| value.bytes().all(|byte| byte.is_ascii_digit())) else {
+        let Some(pid) = name
+            .to_str()
+            .filter(|value| value.bytes().all(|byte| byte.is_ascii_digit()))
+        else {
             continue;
         };
-        let Ok(bytes) = std::fs::read(format!("/proc/{pid}/environ")) else { continue };
+        let Ok(bytes) = std::fs::read(format!("/proc/{pid}/environ")) else {
+            continue;
+        };
         for item in bytes.split(|byte| *byte == 0) {
             for key in [b"SteamAppId=".as_slice(), b"SteamGameId=".as_slice()] {
                 if let Some(value) = item.strip_prefix(key) {
@@ -119,7 +128,10 @@ pub fn audit_loaded() -> serde_json::Value {
     for candidate in steam_pids() {
         let maps = process_maps(candidate).map(|maps| map_state(&maps));
         let value = audit_value(candidate);
-        let state = maps.unwrap_or(MapState { shim: false, client: false });
+        let state = maps.unwrap_or(MapState {
+            shim: false,
+            client: false,
+        });
         mapped |= state.shim;
         if state.active() {
             active = true;
@@ -163,9 +175,14 @@ impl MapState {
 }
 
 pub fn map_state(maps: &str) -> MapState {
-    let mut state = MapState { shim: false, client: false };
+    let mut state = MapState {
+        shim: false,
+        client: false,
+    };
     for line in maps.lines() {
-        let Some(path) = line.split_whitespace().last() else { continue };
+        let Some(path) = line.split_whitespace().last() else {
+            continue;
+        };
         if path.ends_with("libvapor_forge.so") {
             state.shim = true;
         } else if path.ends_with("steamclient.so") {
@@ -200,7 +217,9 @@ fn steam_binary() -> Option<String> {
             }
         }
     }
-    root().map(|path| path.join("steam.sh").display().to_string()).filter(|path| PathBuf::from(path).is_file())
+    root()
+        .map(|path| path.join("steam.sh").display().to_string())
+        .filter(|path| PathBuf::from(path).is_file())
 }
 
 pub fn shutdown(timeout: std::time::Duration) -> Result<bool, String> {
@@ -223,23 +242,32 @@ pub fn shutdown(timeout: std::time::Duration) -> Result<bool, String> {
 
 /// Steam is a GUI app: when we spawn it from a bare shell there is no DISPLAY.
 pub fn apply_session_env(command: &mut Command) {
-    let has_display = std::env::var("DISPLAY").map(|value| !value.is_empty()).unwrap_or(false);
+    let has_display = std::env::var("DISPLAY")
+        .map(|value| !value.is_empty())
+        .unwrap_or(false);
     if !has_display {
         let socket = std::path::Path::new("/tmp/.X11-unix/X0");
         if socket.exists() {
             command.env("DISPLAY", ":0");
         }
     }
-    if std::env::var("XAUTHORITY").map(|value| value.is_empty()).unwrap_or(true) {
+    if std::env::var("XAUTHORITY")
+        .map(|value| value.is_empty())
+        .unwrap_or(true)
+    {
         // A session can keep its cookie in the runtime dir while ~/.Xauthority is
         // empty or stale, and Steam then fails with "Unable to open a connection
         // to X"; prefer whichever file actually has a cookie in it.
         let home_cookie = crate::paths::home().join(".Xauthority");
         let mut chosen = None;
-        if std::fs::metadata(&home_cookie).map(|meta| meta.len() > 0).unwrap_or(false) {
+        if std::fs::metadata(&home_cookie)
+            .map(|meta| meta.len() > 0)
+            .unwrap_or(false)
+        {
             chosen = Some(home_cookie);
         } else {
-            let runtime = std::env::var("XDG_RUNTIME_DIR").unwrap_or_else(|_| "/run/user/1000".into());
+            let runtime =
+                std::env::var("XDG_RUNTIME_DIR").unwrap_or_else(|_| "/run/user/1000".into());
             if let Ok(entries) = std::fs::read_dir(&runtime) {
                 let mut candidates: Vec<PathBuf> = entries
                     .flatten()
@@ -250,7 +278,11 @@ pub fn apply_session_env(command: &mut Command) {
                             .map(|name| name.starts_with("xauth_") || name == "gdm/Xauthority")
                             .unwrap_or(false)
                     })
-                    .filter(|path| std::fs::metadata(path).map(|meta| meta.len() > 0).unwrap_or(false))
+                    .filter(|path| {
+                        std::fs::metadata(path)
+                            .map(|meta| meta.len() > 0)
+                            .unwrap_or(false)
+                    })
                     .collect();
                 // The session rotates these cookies; the newest file is the live
                 // one and a stale earlier name must lose to it.
@@ -292,8 +324,9 @@ fn ensure_container_wrapper(libs: &str) {
         .split(':')
         .find(|path| path.contains("x86_64"))
         .unwrap_or(libs);
-    let wrapper_dir = root
-        .join("steamrt64/pv-runtime/steam-runtime-steamrt/pressure-vessel/libexec/steam-runtime-tools-0");
+    let wrapper_dir = root.join(
+        "steamrt64/pv-runtime/steam-runtime-steamrt/pressure-vessel/libexec/steam-runtime-tools-0",
+    );
     let launcher = wrapper_dir.join("srt-client-container");
     let original = wrapper_dir.join("srt-client-container.real");
     if !launcher.is_file() {
@@ -377,7 +410,11 @@ fn steam_command(extra_args: &[String]) -> Result<(Command, String), String> {
     }
     let existing = std::env::var("LD_AUDIT").unwrap_or_default();
     if !libs.is_empty() && !existing.contains("vapor_forge") {
-        let merged = if existing.is_empty() { libs.clone() } else { format!("{libs}:{existing}") };
+        let merged = if existing.is_empty() {
+            libs.clone()
+        } else {
+            format!("{libs}:{existing}")
+        };
         command.env("LD_AUDIT", merged);
     }
     Ok((command, libs))
@@ -387,7 +424,8 @@ fn steam_command(extra_args: &[String]) -> Result<(Command, String), String> {
 /// The copy only changes on real upgrades (compared by content), so a running
 /// server is never replaced under Steam mid-session.
 pub fn install_companion() -> Result<std::path::PathBuf, String> {
-    let exe = crate::paths::executable().map_err(|error| format!("cannot locate myself: {error}"))?;
+    let exe =
+        crate::paths::executable().map_err(|error| format!("cannot locate myself: {error}"))?;
     let target = crate::paths::companion_bin();
     let fresh = std::fs::read(&exe).map_err(|error| format!("cannot read {exe:?}: {error}"))?;
     let current = std::fs::read(&target).unwrap_or_default();
@@ -493,7 +531,10 @@ fn account_id(steam_id: &str) -> String {
 pub fn localconfig_path() -> Option<PathBuf> {
     let root = root()?;
     if let Some((account, _)) = active_account() {
-        let path = root.join("userdata").join(account).join("config/localconfig.vdf");
+        let path = root
+            .join("userdata")
+            .join(account)
+            .join("config/localconfig.vdf");
         if path.is_file() {
             return Some(path);
         }
@@ -505,7 +546,11 @@ pub fn localconfig_path() -> Option<PathBuf> {
         .map(|entry| entry.path().join("config/localconfig.vdf"))
         .filter(|path| path.is_file())
         .collect();
-    candidates.sort_by_key(|path| std::fs::metadata(path).and_then(|meta| meta.modified()).ok());
+    candidates.sort_by_key(|path| {
+        std::fs::metadata(path)
+            .and_then(|meta| meta.modified())
+            .ok()
+    });
     candidates.pop()
 }
 
@@ -547,7 +592,11 @@ pub fn app_block(text: &str, appid: u64) -> Option<(usize, usize)> {
 }
 
 /// Pure text edit, so the rule can be tested without a Steam install.
-pub fn apply_launch_option(text: &str, appid: u64, options: &str) -> Result<(String, Option<String>), String> {
+pub fn apply_launch_option(
+    text: &str,
+    appid: u64,
+    options: &str,
+) -> Result<(String, Option<String>), String> {
     let previous = {
         let tree = crate::vdf::parse(text).map_err(|error| error.to_string())?;
         crate::vdf::find_key(&tree, "apps")
@@ -555,7 +604,9 @@ pub fn apply_launch_option(text: &str, appid: u64, options: &str) -> Result<(Str
             .and_then(|app| crate::vdf::scalar(app, "LaunchOptions"))
     };
     let Some((open, close)) = app_block(text, appid) else {
-        return Err(format!("{appid} is not in this config yet: launch the game once, then set options"));
+        return Err(format!(
+            "{appid} is not in this config yet: launch the game once, then set options"
+        ));
     };
     if let Some(index) = text[open..close].find("\"LaunchOptions\"") {
         let after_key = open + index + "\"LaunchOptions\"".len();
@@ -567,10 +618,19 @@ pub fn apply_launch_option(text: &str, appid: u64, options: &str) -> Result<(Str
             return Err("malformed LaunchOptions value".into());
         };
         let value_end = value_start + quote_end;
-        return Ok((format!("{}{}{}", &text[..value_start], options, &text[value_end..]), previous));
+        return Ok((
+            format!("{}{}{}", &text[..value_start], options, &text[value_end..]),
+            previous,
+        ));
     }
-    let line_start = text[..close].rfind('\n').map(|index| index + 1).unwrap_or(0);
-    let tabs: String = text[line_start..close].chars().take_while(|ch| *ch == '\t' || *ch == ' ').collect();
+    let line_start = text[..close]
+        .rfind('\n')
+        .map(|index| index + 1)
+        .unwrap_or(0);
+    let tabs: String = text[line_start..close]
+        .chars()
+        .take_while(|ch| *ch == '\t' || *ch == ' ')
+        .collect();
     let mut out = String::with_capacity(text.len() + options.len() + 24);
     out.push_str(&text[..close]);
     if !out.ends_with('\n') {
@@ -603,7 +663,6 @@ pub fn set_launch_options(appid: u64, options: &str) -> Result<serde_json::Value
     }))
 }
 
-
 /// Steam keeps the per-game sync marker in localconfig.vdf. Reading it tells the
 /// user whether the last cloud exchange with this game finished; dropping it
 /// forces Steam to treat the next launch as a fresh sync, which is what clears
@@ -618,7 +677,8 @@ pub fn cloud_state(appid: u64) -> serde_json::Value {
     let Ok(tree) = crate::vdf::parse(&text) else {
         return serde_json::json!({ "found": false });
     };
-    let app = crate::vdf::find_key(&tree, "apps").and_then(|apps| crate::vdf::child(apps, &appid.to_string()));
+    let app = crate::vdf::find_key(&tree, "apps")
+        .and_then(|apps| crate::vdf::child(apps, &appid.to_string()));
     let cloud = app.and_then(|app| crate::vdf::child(app, "cloud"));
     match cloud {
         Some(cloud) => serde_json::json!({
@@ -639,7 +699,9 @@ pub fn clear_cloud_state(appid: u64) -> Result<serde_json::Value, String> {
     }
     let text = std::fs::read_to_string(&path).map_err(|error| error.to_string())?;
     let Some((open, close)) = app_block(&text, appid) else {
-        return Err(format!("{appid} is not in this config yet: launch the game once first"));
+        return Err(format!(
+            "{appid} is not in this config yet: launch the game once first"
+        ));
     };
     let block = &text[open..close];
     let Some(offset) = block.find("\"cloud\"") else {
@@ -666,7 +728,10 @@ pub fn clear_cloud_state(appid: u64) -> Result<serde_json::Value, String> {
         }
     }
     let end = end.ok_or("unbalanced cloud block")?;
-    let line_start = text[..open + offset].rfind('\n').map(|index| index + 1).unwrap_or(open);
+    let line_start = text[..open + offset]
+        .rfind('\n')
+        .map(|index| index + 1)
+        .unwrap_or(open);
     let mut tail = &text[end..];
     if tail.starts_with('\n') {
         tail = &tail[1..];
@@ -707,13 +772,18 @@ mod tests {
         assert_eq!(previous, None);
         assert!(updated.contains("\"LaunchOptions\"\t\t\"-onlinefix\""));
         let tree = crate::vdf::parse(&updated).unwrap();
-        let options = crate::vdf::find_key(&tree, "apps").and_then(|apps| crate::vdf::child(apps, "440")).and_then(|app| crate::vdf::scalar(app, "LaunchOptions"));
+        let options = crate::vdf::find_key(&tree, "apps")
+            .and_then(|apps| crate::vdf::child(apps, "440"))
+            .and_then(|app| crate::vdf::scalar(app, "LaunchOptions"));
         assert_eq!(options.as_deref(), Some("-onlinefix"));
     }
 
     #[test]
     fn replaces_existing() {
-        let text = CONFIG.replace("\"LastPlayed\"\t\t\"1700000000\"", "\"LaunchOptions\"\t\t\"-old\"");
+        let text = CONFIG.replace(
+            "\"LastPlayed\"\t\t\"1700000000\"",
+            "\"LaunchOptions\"\t\t\"-old\"",
+        );
         let (updated, previous) = apply_launch_option(&text, 440, "-new").unwrap();
         assert_eq!(previous.as_deref(), Some("-old"));
         assert!(updated.contains("\"-new\""));
@@ -742,18 +812,30 @@ mod tests {
         let wrapper = map_state(WRAPPER_MAPS);
         assert!(wrapper.shim, "the launcher maps the shim");
         assert!(!wrapper.client, "the launcher owns no steamclient.so");
-        assert!(!wrapper.active(), "a shim outside steamclient changes nothing");
+        assert!(
+            !wrapper.active(),
+            "a shim outside steamclient changes nothing"
+        );
 
         let client = map_state(CLIENT_MAPS);
         assert!(client.shim);
         assert!(client.client);
-        assert!(client.active(), "the shim is only effective inside steamclient");
+        assert!(
+            client.active(),
+            "the shim is only effective inside steamclient"
+        );
     }
 
     #[test]
     fn merges_without_duplicates() {
-        assert_eq!(crate::verify::merge_launch_option(Some("-a"), "-onlinefix"), "-a -onlinefix");
-        assert_eq!(crate::verify::merge_launch_option(Some("-onlinefix"), "-onlinefix"), "-onlinefix");
+        assert_eq!(
+            crate::verify::merge_launch_option(Some("-a"), "-onlinefix"),
+            "-a -onlinefix"
+        );
+        assert_eq!(
+            crate::verify::merge_launch_option(Some("-onlinefix"), "-onlinefix"),
+            "-onlinefix"
+        );
         assert_eq!(crate::verify::merge_launch_option(None, "-x"), "-x");
     }
 }
