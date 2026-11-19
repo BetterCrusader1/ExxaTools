@@ -1019,16 +1019,6 @@ fn post_route(
                 other => Err((400, format!("unknown fix {other}"))),
             }
         }
-        "/api/steamui/panel" => {
-            let open = body.get("open").and_then(Value::as_bool).unwrap_or(true);
-            let toggle = body.get("toggle").and_then(Value::as_bool).unwrap_or(false);
-            let x = body.get("x").and_then(Value::as_i64).unwrap_or(12);
-            let y = body.get("y").and_then(Value::as_i64).unwrap_or(44);
-            let screen_x = body.get("screen_x").and_then(Value::as_i64).unwrap_or(0);
-            let screen_y = body.get("screen_y").and_then(Value::as_i64).unwrap_or(0);
-            crate::steamui::panel(open, toggle, x, y, screen_x, screen_y)
-                .map_err(|error| (500, error))
-        }
         "/api/steamui" => {
             let action = body
                 .get("action")

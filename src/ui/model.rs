@@ -239,27 +239,6 @@ impl Game {
     }
 }
 
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub struct LibrarySummary {
-    pub ready: usize,
-    pub needs_setup: usize,
-    pub depots: usize,
-}
-
-impl LibrarySummary {
-    pub fn from_games(games: &[Game]) -> Self {
-        let ready = games
-            .iter()
-            .filter(|game| game.state == GameState::Ready)
-            .count();
-        Self {
-            ready,
-            needs_setup: games.len().saturating_sub(ready),
-            depots: games.iter().map(|game| game.depots.len()).sum(),
-        }
-    }
-}
-
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct DoctorItem {
     pub id: String,
@@ -432,39 +411,6 @@ mod tests {
         assert_eq!(game.origin, Origin::Search);
         assert!(!game.installed);
         assert!(game.depots.is_empty());
-    }
-
-    fn library_game(state: GameState, depots: usize) -> Game {
-        let mut game = Game::from_search(&json!({"appid": 620, "name": "Portal 2"})).expect("game");
-        game.origin = Origin::Library;
-        game.state = state;
-        game.depots = (0..depots)
-            .map(|offset| Depot {
-                id: 620 + offset as u64,
-                gid: String::new(),
-                size: None,
-                has_key: true,
-            })
-            .collect();
-        game
-    }
-
-    #[test]
-    fn an_empty_library_has_zeroed_quick_stats() {
-        assert_eq!(LibrarySummary::from_games(&[]), LibrarySummary::default());
-    }
-
-    #[test]
-    fn library_quick_stats_use_real_status_and_depot_counts() {
-        let games = vec![
-            library_game(GameState::Ready, 2),
-            library_game(GameState::Planned, 0),
-            library_game(GameState::KeysMissing, 1),
-        ];
-        let summary = LibrarySummary::from_games(&games);
-        assert_eq!(summary.ready, 1);
-        assert_eq!(summary.needs_setup, 2);
-        assert_eq!(summary.depots, 3);
     }
 
     #[test]

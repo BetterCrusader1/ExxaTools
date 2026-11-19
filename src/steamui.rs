@@ -1,8 +1,7 @@
 //! Inject our icon and menu into the Steam client's own menu bar.
 //!
-//! Clone the Help menu item, swap its contents for our mark, and hang a panel
-//! off it that talks to the local API. A MutationObserver puts it back when
-//! Steam re-renders.
+//! Clone the Help menu item, swap its contents for our mark, and let it open the
+//! dashboard. A MutationObserver puts it back when Steam re-renders.
 
 use std::path::PathBuf;
 
@@ -199,8 +198,8 @@ fn page_targets() -> Vec<Value> {
         .into_iter()
         .filter(|target| target.get("type").and_then(Value::as_str) == Some("page"))
         .filter(|target| {
-            // Skip the dashboard's own frames: injecting there would nest a panel
-            // inside the dashboard and answer its own requests.
+            // Skip the dashboard's own frames: injecting there would nest our
+            // mark inside the dashboard and answer its own requests.
             let url = target.get("url").and_then(Value::as_str).unwrap_or("");
             !url.contains("127.0.0.1:")
         })
@@ -222,132 +221,7 @@ fn evaluate_on(
     cdp::evaluate(ws, expression, timeout)
 }
 
-#[derive(Debug, Clone)]
-struct Frame {
-    ws: String,
-    x: i64,
-    y: i64,
-    w: i64,
-    h: i64,
-}
-
-fn frame_of(target: &Value) -> Option<Frame> {
-    let ws = target
-        .get("webSocketDebuggerUrl")
-        .and_then(Value::as_str)?
-        .to_string();
-    let raw = cdp::evaluate(
-        &ws,
-        "JSON.stringify({x: window.screenX, y: window.screenY, w: window.innerWidth, h: window.innerHeight})",
-        std::time::Duration::from_secs(4),
-    )
-    .ok()?;
-    let text = raw.as_str()?;
-    let parsed: Value = serde_json::from_str(text).ok()?;
-    Some(Frame {
-        ws,
-        x: parsed.get("x").and_then(Value::as_i64).unwrap_or(0),
-        y: parsed.get("y").and_then(Value::as_i64).unwrap_or(0),
-        w: parsed.get("w").and_then(Value::as_i64).unwrap_or(0),
-        h: parsed.get("h").and_then(Value::as_i64).unwrap_or(0),
-    })
-}
-
-fn frames() -> Vec<Frame> {
-    page_targets()
-        .iter()
-        .filter_map(frame_of)
-        .filter(|frame| frame.w > 50 && frame.h > 50)
-        .collect()
-}
-
-/// The window the user is looking at is the smallest one that covers the point
-/// where the panel would appear: Steam layers the store and library above the
-/// shell, and both report the point.
-fn select_host(candidates: Vec<Frame>, cx: i64, cy: i64) -> Option<Frame> {
-    candidates
-        .into_iter()
-        // Supernavs and root menus overlap the same point but are tiny popup
-        // surfaces, not usable panel hosts. Prefer the smaller real content
-        // window (store/library) over the larger shell behind it.
-        .filter(|frame| frame.w >= 480 && frame.h >= 360)
-        .filter(|frame| {
-            cx >= frame.x && cx <= frame.x + frame.w && cy >= frame.y && cy <= frame.y + frame.h
-        })
-        .min_by_key(|frame| frame.w * frame.h)
-}
-
-fn host_for(cx: i64, cy: i64) -> Option<Frame> {
-    select_host(frames(), cx, cy)
-}
-
-/// A freshly created CEF window can report (0,0) for a moment while the window
-/// manager has not placed it yet. In that case lay the panel out against the
-/// shell's origin instead of the corner of the screen.
-/// Body height for layout decisions: header, an alert row, up to four plan rows,
-/// never taller than the space under the menu icon.
-pub fn panel_height(plans: i64, alert: bool, screen_height: i64) -> i64 {
-    let mut height = 348 + plans.clamp(0, 4) * 76 + if alert { 46 } else { 0 };
-    let room = if screen_height > 0 {
-        screen_height - 80
-    } else {
-        900
-    };
-    height = height.min(room.max(240));
-    height.max(240)
-}
-
-fn panel_origin(host: &Frame, reference: Option<&Frame>) -> (i64, i64) {
-    if host.x == 0 && host.y == 0 {
-        if let Some(main) = reference.filter(|main| main.ws != host.ws && main.x + main.y > 0) {
-            return (main.x, main.y + (main.h - host.h).max(0));
-        }
-    }
-    (host.x, host.y)
-}
-
-fn ensure_panel(target: &Frame) -> Result<(), String> {
-    let script = script();
-    let build = script_hash(&script);
-    let query = format!("window.__vdBuild === {build:?}");
-    let current = cdp::evaluate(&target.ws, &query, std::time::Duration::from_secs(4))
-        .ok()
-        .and_then(|value| value.as_bool())
-        .unwrap_or(false);
-    if current {
-        return Ok(());
-    }
-    let bootstrap = format!("window.__vdNoIcon = true;\n{script}\nwindow.__vdBuild = {build:?};");
-    cdp::evaluate(&target.ws, &bootstrap, std::time::Duration::from_secs(8)).map(|_| ())
-}
-
-static PANEL_SHOWN: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
-static PANEL_HOST: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
 static PUMP: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
-
-fn status_snapshot() -> Value {
-    let st = crate::state::load().unwrap_or_default();
-    let apps: Vec<Value> = st
-        .apps
-        .values()
-        .map(|record| {
-            let appid = record.get("appid").and_then(Value::as_u64).unwrap_or(0);
-            let mut view = crate::state::app_summary(&st, record);
-            view["launch_options"] = json!(crate::steamctl::read_launch_options(appid));
-            view["art"] = json!(format!(
-                "https://cdn.cloudflare.steamstatic.com/steam/apps/{appid}/library_600x900.jpg"
-            ));
-            view
-        })
-        .collect();
-    let incidents = crate::diagnose::from_files();
-    json!({
-        "version": env!("CARGO_PKG_VERSION"),
-        "engine": crate::engine::detect(),
-        "apps": apps,
-        "diagnose": incidents.get("incidents").cloned().unwrap_or_else(|| json!([])),
-    })
-}
 
 fn open_dashboard_page(page: &str) -> Result<(), String> {
     let url = if page.is_empty() {
@@ -513,18 +387,13 @@ fn run_action(action: &str) -> String {
                 Err(error) => error,
             }
         }
-        "close" => {
-            hide_panel();
-            String::new()
-        }
         _ => String::new(),
     }
 }
 
-/// Steam's pages block loopback requests with their CSP, so the panel has no
-/// network at all: the pump reads clicks and pushes fresh state over CDP.
-/// One pump per process: it turns page clicks into Rust calls and opens the panel
-/// when the icon sets the flag, so it must run before the panel is ever shown.
+/// Steam's pages block loopback requests with their CSP, so the injected script
+/// has no network at all: the pump reads the icon's clicks and the store-page
+/// actions over CDP and turns them into Rust calls. One pump per process.
 pub fn start_pump() {
     if !PUMP.swap(true, std::sync::atomic::Ordering::Relaxed) {
         std::thread::spawn(pump);
@@ -655,8 +524,6 @@ fn handle_page_request(ws: &str, request: &Value) {
 }
 
 fn pump() {
-    let mut last_refresh = std::time::Instant::now() - std::time::Duration::from_secs(2);
-    let mut dirty = true;
     let menu_script = script();
     let expected_build = script_hash(&menu_script);
     loop {
@@ -674,24 +541,7 @@ fn pump() {
         if ws.is_empty() {
             continue;
         }
-        let preferred_host = PANEL_HOST.lock().ok().and_then(|guard| guard.clone());
-        let mut targets = page_targets();
-        // The icon lives in the shell. Read it first, then the visible panel;
-        // supernavs and background pages must not add seconds to a click.
-        targets.sort_by_key(|target| {
-            let page_ws = target
-                .get("webSocketDebuggerUrl")
-                .and_then(Value::as_str)
-                .unwrap_or("");
-            if page_ws == ws {
-                0
-            } else if preferred_host.as_deref() == Some(page_ws) {
-                1
-            } else {
-                2
-            }
-        });
-        for target in targets {
+        for target in page_targets() {
             let page_ws = target
                 .get("webSocketDebuggerUrl")
                 .and_then(Value::as_str)
@@ -704,11 +554,9 @@ fn pump() {
                 r#"(() => {
                   const batch = {
                     build: window.__vdBuild || '',
-                    panel: window.__vdPanelRequest || null,
                     page: window.__vdPageRequest || null,
                     action: window.__vdAction || ''
                   };
-                  window.__vdPanelRequest = null;
                   if (batch.page) window.__vdPageRequest = null;
                   if (batch.action) window.__vdAction = '';
                   return JSON.stringify(batch);
@@ -727,40 +575,11 @@ fn pump() {
                 // pump itself instead of leaving the icon absent until the
                 // slower filesystem watcher notices.
                 let bootstrap = format!(
-                    "window.__vdNoIcon = {};\n{}\nwindow.__vdBuild = {:?};\nwindow.__vdPanelOpen = false;\nvar oldPanel = document.getElementById({:?}); if (oldPanel) oldPanel.classList.remove('open');\nwindow.__vdInject();",
-                    page_ws != ws, menu_script, expected_build, PANEL_ID
+                    "window.__vdNoIcon = {};\n{}\nwindow.__vdBuild = {expected_build:?};\nwindow.__vdInject();",
+                    page_ws != ws, menu_script
                 );
                 let _ = cdp::evaluate(page_ws, &bootstrap, std::time::Duration::from_secs(4));
-                dirty = true;
                 continue;
-            }
-            let panel_request = batch.get("panel").cloned().unwrap_or(Value::Null);
-            if panel_request.is_object() {
-                if panel_request
-                    .get("close")
-                    .and_then(Value::as_bool)
-                    .unwrap_or(false)
-                {
-                    hide_panel();
-                } else {
-                    let x = panel_request.get("x").and_then(Value::as_i64).unwrap_or(0);
-                    let y = panel_request.get("y").and_then(Value::as_i64).unwrap_or(0);
-                    let screen_x = panel_request
-                        .get("screen_x")
-                        .and_then(Value::as_i64)
-                        .unwrap_or(0);
-                    let screen_y = panel_request
-                        .get("screen_y")
-                        .and_then(Value::as_i64)
-                        .unwrap_or(0);
-                    let toggle = panel_request
-                        .get("toggle")
-                        .and_then(Value::as_bool)
-                        .unwrap_or(false);
-                    if let Err(error) = panel(true, toggle, x, y, screen_x, screen_y) {
-                        eprintln!("steamui: panel placement failed: {error}");
-                    }
-                }
             }
             let request = batch.get("page").cloned().unwrap_or(Value::Null);
             if request.is_object() {
@@ -768,154 +587,12 @@ fn pump() {
             }
             let action = batch.get("action").and_then(Value::as_str).unwrap_or("");
             if !action.is_empty() {
-                dirty = true;
-                let message = run_action(action);
-                if matches!(action, "dashboard" | "discover" | "system" | "settings") {
-                    hide_panel();
-                }
-                let say = format!("window.__vdSay && window.__vdSay({message:?})");
-                let _ = cdp::evaluate(page_ws, &say, std::time::Duration::from_millis(800));
+                // The action does its work in Rust; its message is for a toast the
+                // page no longer has.
+                let _ = run_action(action);
             }
         }
-        let panel_ws = PANEL_HOST
-            .lock()
-            .ok()
-            .and_then(|guard| guard.clone())
-            .unwrap_or_else(|| ws.to_string());
-        let open = cdp::evaluate(
-            &panel_ws,
-            "Boolean(window.__vdPanelOpen)",
-            std::time::Duration::from_millis(800),
-        )
-        .ok()
-        .and_then(|value| value.as_bool())
-        .unwrap_or(false);
-        if !open {
-            // A navigation or a closed CEF target invalidates the old host. The
-            // next icon click must open, not toggle a ghost closed.
-            PANEL_SHOWN.store(false, std::sync::atomic::Ordering::Relaxed);
-            if let Ok(mut guard) = PANEL_HOST.lock() {
-                *guard = None;
-            }
-            continue;
-        }
-        if dirty || last_refresh.elapsed() >= std::time::Duration::from_secs(2) {
-            let state = status_snapshot();
-            let expression = format!("window.__vdUpdate({state})");
-            let _ = cdp::evaluate(&panel_ws, &expression, std::time::Duration::from_secs(2));
-            dirty = false;
-            last_refresh = std::time::Instant::now();
-        }
     }
-}
-
-fn close_other_panels(except: Option<&str>) {
-    for target in page_targets() {
-        let ws = target
-            .get("webSocketDebuggerUrl")
-            .and_then(Value::as_str)
-            .unwrap_or("");
-        if ws.is_empty() || except == Some(ws) {
-            continue;
-        }
-        let _ = cdp::evaluate(
-            ws,
-            "window.__vdPanel && window.__vdPanel({ open: false })",
-            std::time::Duration::from_millis(800),
-        );
-    }
-}
-
-fn hide_panel() {
-    use std::sync::atomic::Ordering;
-    close_other_panels(None);
-    PANEL_SHOWN.store(false, Ordering::Relaxed);
-    if let Ok(mut guard) = PANEL_HOST.lock() {
-        *guard = None;
-    }
-}
-
-/// The panel lives inside Steam: it is injected into whichever window sits under
-/// the menu, so it scrolls with that window and cannot float over other apps.
-pub fn panel(
-    open: bool,
-    toggle: bool,
-    x: i64,
-    y: i64,
-    screen_x: i64,
-    screen_y: i64,
-) -> Result<Value, String> {
-    use std::sync::atomic::Ordering;
-
-    if !open {
-        hide_panel();
-        return Ok(json!({ "open": false }));
-    }
-    if !steamctl::is_running() {
-        return Err("Steam is not running".into());
-    }
-
-    let width = 360i64;
-    let plans = crate::state::load()
-        .map(|state| state.apps.len())
-        .unwrap_or(0) as i64;
-    let alerts = crate::diagnose::from_files()
-        .get("incidents")
-        .and_then(Value::as_array)
-        .map(|list| !list.is_empty())
-        .unwrap_or(false);
-    let height = panel_height(plans, alerts, screen_y.max(0));
-    let icon_abs = screen_x + x;
-    let mut left = icon_abs - width + 24;
-    let top = screen_y + y + 10;
-    let host =
-        host_for(left + width / 2, top + height / 2).ok_or("no Steam window covers that spot")?;
-    if toggle {
-        let host_open = cdp::evaluate(
-            &host.ws,
-            "Boolean(window.__vdPanelOpen)",
-            std::time::Duration::from_millis(800),
-        )
-        .ok()
-        .and_then(|value| value.as_bool())
-        .unwrap_or(false);
-        if host_open {
-            hide_panel();
-            return Ok(json!({ "open": false }));
-        }
-    }
-
-    ensure_panel(&host)?;
-    let reference = frames().into_iter().max_by_key(|frame| frame.w * frame.h);
-    let (origin_x, origin_y) = panel_origin(&host, reference.as_ref());
-    if left < origin_x + 8 {
-        left = icon_abs - 16;
-    }
-    let local_x = (left - origin_x).clamp(8, (host.w - width - 8).max(8));
-    let local_y = (top - origin_y).max(8);
-    let state = status_snapshot();
-    let expression =
-        format!("window.__vdPanel({{ open: true, x: {local_x}, y: {local_y}, state: {state} }})");
-    cdp::evaluate(&host.ws, &expression, std::time::Duration::from_secs(4))?;
-    // A click left in the page from a previous panel must not fire against the
-    // one we just opened (a stale "close" used to shut it instantly).
-    let _ = cdp::evaluate(
-        &host.ws,
-        "window.__vdAction = ''",
-        std::time::Duration::from_secs(2),
-    );
-    PANEL_SHOWN.store(true, Ordering::Relaxed);
-    if let Ok(mut guard) = PANEL_HOST.lock() {
-        *guard = Some(host.ws.clone());
-    }
-
-    close_other_panels(Some(&host.ws));
-
-    start_pump();
-
-    Ok(
-        json!({ "open": true, "host": [host.x, host.y, host.w, host.h], "left": local_x, "top": local_y }),
-    )
 }
 
 pub fn debug_ready() -> bool {
@@ -1110,8 +787,8 @@ pub fn inject() -> Result<Value, String> {
                 .map(str::to_string)
         })
         .unwrap_or_default();
-    // Every page window gets the current script: the panel lives in the content
-    // window, which is not the shell that carries the menu bar.
+    // Every page window gets the current script: the store pages carry the inline
+    // actions, and they are not the shell that carries the menu bar.
     let mut text = String::new();
     let mut reached = 0;
     for target in page_targets() {
@@ -1123,7 +800,7 @@ pub fn inject() -> Result<Value, String> {
             continue;
         }
         // Only the window that owns the menu bar gets the icon; every other page
-        // window stays panel-only, or the icon would appear more than once.
+        // window runs icon-less, or the icon would appear more than once.
         let body = if ws == main_ws {
             format!("window.__vdNoIcon = false;\n{plain}")
         } else {
@@ -1495,103 +1172,6 @@ mod tests {
         let entry = "Exec=/usr/bin/other %U\n";
         let out = super::rewrite_steam_entry(entry, std::path::Path::new("/opt/exxa"));
         assert!(out.contains("Exec=/usr/bin/other %U"));
-    }
-}
-
-#[cfg(test)]
-mod host_tests {
-    use super::{select_host, Frame};
-
-    fn frame(name: &str, w: i64, h: i64) -> Frame {
-        Frame {
-            ws: name.into(),
-            x: 600,
-            y: 400,
-            w,
-            h,
-        }
-    }
-
-    #[test]
-    fn content_window_wins_over_a_supernav() {
-        let host = select_host(
-            vec![
-                frame("store-supernav", 145, 231),
-                frame("store-content", 1278, 657),
-                frame("shell", 1280, 800),
-            ],
-            700,
-            600,
-        )
-        .unwrap();
-        assert_eq!(host.ws, "store-content");
-    }
-
-    #[test]
-    fn tiny_popups_are_not_panel_hosts() {
-        assert!(select_host(vec![frame("root-menu", 300, 500)], 700, 600).is_none());
-    }
-}
-
-#[cfg(test)]
-mod origin_tests {
-    use super::{panel_origin, Frame};
-
-    fn frame(x: i64, y: i64, w: i64, h: i64, ws: &str) -> Frame {
-        Frame {
-            ws: ws.to_string(),
-            x,
-            y,
-            w,
-            h,
-        }
-    }
-
-    #[test]
-    fn placed_window_uses_its_own_origin() {
-        let host = frame(462, 448, 1278, 657, "host");
-        let main = frame(461, 356, 1280, 800, "main");
-        assert_eq!(panel_origin(&host, Some(&main)), (462, 448));
-    }
-
-    #[test]
-    fn origin_falls_back_to_the_shell() {
-        let host = frame(0, 0, 1278, 657, "host");
-        let main = frame(461, 356, 1280, 800, "main");
-        assert_eq!(panel_origin(&host, Some(&main)), (461, 356 + (800 - 657)));
-    }
-
-    #[test]
-    fn no_reference_keeps_zero() {
-        let host = frame(0, 0, 1278, 657, "host");
-        assert_eq!(panel_origin(&host, None), (0, 0));
-    }
-}
-
-#[cfg(test)]
-mod height_tests {
-    use super::panel_height;
-
-    #[test]
-    fn height_grows_with_plans() {
-        assert_eq!(panel_height(0, false, 0), 348);
-        assert_eq!(panel_height(2, false, 0), 500);
-    }
-
-    #[test]
-    fn alert_adds_a_row() {
-        assert_eq!(panel_height(0, true, 0), 394);
-    }
-
-    #[test]
-    fn plans_are_capped_at_four() {
-        assert_eq!(panel_height(9, false, 0), 652);
-    }
-
-    #[test]
-    fn short_screens_clamp() {
-        assert_eq!(panel_height(4, true, 400), 320);
-        assert_eq!(panel_height(0, false, 200), 240);
     }
 }
 
