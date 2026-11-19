@@ -689,7 +689,6 @@ pub fn remove() -> Value {
               if (panel) panel.remove();
               if (style) style.remove();
               if (iconStyle) iconStyle.remove();
-              window.__vdOpen = false;
               return true;
             }})()"#
         );

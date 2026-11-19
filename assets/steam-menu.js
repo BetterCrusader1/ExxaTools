@@ -41,7 +41,6 @@ window.__vdInject = () => {
 
   // The icon next to Help opens the full ExxaTools app.
   const open_app = () => {
-    window.__vdPanelRequest = { close: true };
     window.__vdAction = "dashboard";
   };
 
@@ -53,9 +52,6 @@ window.__vdInject = () => {
     if (event.ctrlKey && event.shiftKey && (event.key === "E" || event.key === "e")) {
       event.preventDefault();
       open_app();
-    }
-    if (event.key === "Escape") {
-      window.__vdPanelRequest = { close: true };
     }
   });
 
@@ -94,8 +90,6 @@ window.__vdAppPage = () => {
   const legacyStyle = document.getElementById("vd-app-style");
   if (legacyStyle) legacyStyle.remove();
   if (window.__vdAppPoll) { clearInterval(window.__vdAppPoll); window.__vdAppPoll = null; }
-  window.__vdAppDismissed = null;
-  window.__vdAppWidgetId = null;
 
   const escapeHtml = (value) => String(value == null ? "" : value)
     .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
