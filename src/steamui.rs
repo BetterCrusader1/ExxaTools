@@ -581,9 +581,8 @@ fn pump() {
                 let _ = cdp::evaluate(page_ws, &bootstrap, std::time::Duration::from_secs(4));
                 continue;
             }
-            let request = batch.get("page").cloned().unwrap_or(Value::Null);
-            if request.is_object() {
-                handle_page_request(page_ws, &request);
+            if let Some(request) = batch.get("page").filter(|value| value.is_object()) {
+                handle_page_request(page_ws, request);
             }
             let action = batch.get("action").and_then(Value::as_str).unwrap_or("");
             if !action.is_empty() {

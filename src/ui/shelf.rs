@@ -120,15 +120,6 @@ impl Shelf {
             self.list.select_row(None::<&gtk::ListBoxRow>);
         }
     }
-
-    pub fn selected_appid(&self) -> Option<u64> {
-        let row = self.list.selected_row()?;
-        let index = row.index();
-        if index < 0 {
-            return None;
-        }
-        self.appids.borrow().get(index as usize).copied()
-    }
 }
 
 fn empty_shelf() -> GtkBox {

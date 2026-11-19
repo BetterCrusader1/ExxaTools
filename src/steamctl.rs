@@ -179,15 +179,6 @@ fn process_maps(pid: i32) -> Option<String> {
     std::fs::read_to_string(format!("/proc/{pid}/maps")).ok()
 }
 
-/// True when some live Steam process maps both the shim and `steamclient.so`.
-pub fn engine_active() -> bool {
-    process_maps_of_steam().into_iter().any(|maps| map_state(&maps).active())
-}
-
-fn process_maps_of_steam() -> Vec<String> {
-    steam_pids().into_iter().filter_map(process_maps).collect()
-}
-
 /// Only the audit shim goes in LD_AUDIT; the Proton helper is injected elsewhere.
 pub fn audit_libs() -> String {
     let mut libs: Vec<String> = Vec::new();

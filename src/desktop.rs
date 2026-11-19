@@ -8,33 +8,6 @@ use serde_json::{json, Value};
 
 use crate::paths;
 
-fn port_answers(port: u16) -> bool {
-    std::net::TcpStream::connect(("127.0.0.1", port)).is_ok()
-}
-
-/// Open the dashboard, starting the server first if nothing answers.
-pub fn launch_app() -> Value {
-    let port = 8765u16;
-    let url = format!("http://127.0.0.1:{port}/");
-    if port_answers(port) {
-        let _ = open_window(&url);
-        return json!({ "started": false, "opened": url, "running": true });
-    }
-    let exe = paths::executable().unwrap_or_default();
-    let spawned = Command::new(&exe)
-        .args(["serve", "--port", &port.to_string()])
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .spawn()
-        .is_ok();
-    if !spawned {
-        return json!({ "started": false, "opened": Value::Null, "error": "cannot start the server" });
-    }
-    std::thread::sleep(std::time::Duration::from_millis(900));
-    let opened = open_window(&url).is_ok();
-    json!({ "started": true, "opened": if opened { json!(url) } else { Value::Null }, "running": true })
-}
-
 pub fn install_desktop_entry() -> Result<Value, String> {
     let legacy = paths::data_home().join("applications/vapordepot.desktop");
     if legacy.exists() {
