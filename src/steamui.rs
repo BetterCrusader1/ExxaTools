@@ -18,9 +18,6 @@ const MAIN_TARGET_PREFIX: &str = "about:blank?createflags=18";
 pub const ROOT_ID: &str = "vd-menu-root";
 const PANEL_ID: &str = "vd-menu-panel";
 const ICON_ID: &str = "vd-menu-icon";
-fn api_base() -> String {
-    format!("http://127.0.0.1:{}", crate::server::port())
-}
 const MENU_SCRIPT: &str = include_str!("../assets/steam-menu.js");
 
 const GLYPHS: &[(&str, &str)] = &[
@@ -183,9 +180,7 @@ fn script() -> String {
     .unwrap_or_else(|_| "{}".into());
     MENU_SCRIPT
         .replace("__GLYPHS__", &glyphs)
-        .replace("__API__", &api_base())
         .replace("__ROOT__", ROOT_ID)
-        .replace("__PANEL__", PANEL_ID)
         .replace("__ICON__", ICON_ID)
         .replace(
             "ICON_ICON",
