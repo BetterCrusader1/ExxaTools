@@ -427,7 +427,7 @@ pub fn build(ctx: &Ctx) -> SettingsPage {
     save.set_tooltip_text(Some("Save and apply every section"));
 
     let title = gtk::Label::new(Some("Settings"));
-    title.add_css_class("page-title");
+    title.add_css_class("title-1");
     title.set_halign(gtk::Align::Start);
     let subtitle = gtk::Label::new(Some("Store region, download sources and manifest mirrors"));
     subtitle.add_css_class("dim-label");

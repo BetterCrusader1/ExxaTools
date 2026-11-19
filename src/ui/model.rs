@@ -202,7 +202,7 @@ impl Game {
             return self.branch.clone();
         }
         format!(
-            "{} · {} {}",
+            "{} branch, {} {}",
             self.branch,
             self.depots.len(),
             if self.depots.len() == 1 {
@@ -214,7 +214,7 @@ impl Game {
     }
 
     pub fn meta(&self) -> String {
-        format!("{} · {} · {}", self.appid, self.branch, self.depot_word())
+        format!("{} branch, {}", self.branch, self.depot_word())
     }
 
     pub fn depot_word(&self) -> String {

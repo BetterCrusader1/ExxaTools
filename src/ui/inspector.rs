@@ -265,6 +265,7 @@ fn hero(game: &Game, actions: &GtkBox) -> gtk::Widget {
     }
 
     let title = gtk::Label::new(Some(&game.name));
+    title.add_css_class("title-1");
     title.add_css_class("hero-title");
     title.set_halign(gtk::Align::Start);
     title.set_xalign(0.0);
@@ -303,11 +304,6 @@ fn hero(game: &Game, actions: &GtkBox) -> gtk::Widget {
 
 fn depots_section(ctx: &Ctx, game: &Game) -> gtk::Widget {
     let loaded = game.depots.iter().filter(|depot| depot.has_key).count();
-    let title = gtk::Label::new(Some("Depots"));
-    title.add_css_class("section-title");
-    title.set_halign(gtk::Align::Start);
-    title.set_margin_top(20);
-
     let note = gtk::Label::new(Some(&format!(
         "{loaded} of {} keys loaded. Select an ID to copy; missing manifests are supplied at launch.",
         game.depots.len()
@@ -378,11 +374,15 @@ fn depots_section(ctx: &Ctx, game: &Game) -> gtk::Widget {
         }
     }
 
-    let section = GtkBox::new(Orientation::Vertical, 0);
-    section.append(&title);
-    section.append(&note);
-    section.append(&table);
-    section.upcast()
+    let content = GtkBox::new(Orientation::Vertical, 0);
+    content.set_margin_top(6);
+    content.append(&note);
+    content.append(&table);
+
+    let expander = gtk::Expander::new(Some("Depots and manifests"));
+    expander.set_margin_top(18);
+    expander.set_child(Some(&content));
+    expander.upcast()
 }
 
 fn depot_header(text: &str, align: gtk::Align) -> gtk::Label {
@@ -459,7 +459,7 @@ fn plan_group(game: &Game) -> adw::PreferencesGroup {
     };
     let expander = adw::ExpanderRow::builder()
         .title("Plan details")
-        .subtitle(format!("{} · {}", source, game.branch))
+        .subtitle(format!("{source}, {} branch", game.branch))
         .build();
     expander.set_cursor_from_name(Some("pointer"));
     expander.add_row(&plan_row("Source", &source));

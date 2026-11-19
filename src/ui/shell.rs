@@ -384,11 +384,11 @@ fn build(app: &adw::Application, initial: Page) -> Ctx {
                             .count();
                         let needs = games.len().saturating_sub(ready);
                         let summary = if games.is_empty() {
-                            "Nothing here yet".to_string()
+                            "Add your first game from Discover".to_string()
                         } else if needs == 0 {
-                            format!("{} ready", ready)
+                            format!("{ready} games ready to play")
                         } else {
-                            format!("{} ready · {} need setup", ready, needs)
+                            format!("{ready} ready to play, {needs} need setup")
                         };
                         shelf.set_title("Library", &summary);
                         let still_there =
@@ -517,7 +517,7 @@ fn page_from_url(url: &str) -> Page {
 
 fn build_nav() -> NavRail {
     let brand = gtk::Label::new(Some("ExxaTools"));
-    brand.add_css_class("brand-name");
+    brand.add_css_class("title-3");
     brand.set_halign(gtk::Align::Start);
     brand.set_valign(gtk::Align::Center);
     let mark = gtk::Picture::for_filename(crate::paths::web_dir().join("logo-48.png"));
@@ -525,23 +525,20 @@ fn build_nav() -> NavRail {
     mark.set_valign(gtk::Align::Center);
     mark.set_can_shrink(true);
 
-    let brand_text = GtkBox::new(Orientation::Vertical, 0);
-    brand_text.set_valign(gtk::Align::Center);
-    brand_text.append(&brand);
     let brand_row = GtkBox::new(Orientation::Horizontal, 11);
     brand_row.set_margin_top(20);
     brand_row.set_margin_bottom(20);
     brand_row.set_margin_start(16);
     brand_row.set_margin_end(12);
     brand_row.append(&mark);
-    brand_row.append(&brand_text);
+    brand_row.append(&brand);
 
     let list = gtk::ListBox::new();
     list.add_css_class("navigation-sidebar");
     list.set_selection_mode(gtk::SelectionMode::Single);
 
     for (icon, label) in [
-        ("view-list-symbolic", "Library"),
+        ("applications-games-symbolic", "Library"),
         ("system-search-symbolic", "Discover"),
         ("applications-utilities-symbolic", "System"),
         ("emblem-system-symbolic", "Settings"),
@@ -568,26 +565,6 @@ fn build_nav() -> NavRail {
         list.append(&row);
     }
 
-    let engine = gtk::Label::new(Some("Vapor Forge engine"));
-    engine.add_css_class("footer-label");
-    engine.add_css_class("footer-engine");
-    engine.set_halign(gtk::Align::Start);
-
-    let version = gtk::Label::new(Some(&format!("ExxaTools v{}", env!("CARGO_PKG_VERSION"))));
-    version.add_css_class("footer-label");
-    version.add_css_class("footer-version");
-    version.add_css_class("mono");
-    version.set_halign(gtk::Align::Start);
-
-    let footer = GtkBox::new(Orientation::Vertical, 2);
-    footer.add_css_class("engine-footer");
-    footer.set_margin_top(12);
-    footer.set_margin_bottom(16);
-    footer.set_margin_start(16);
-    footer.set_margin_end(16);
-    footer.append(&engine);
-    footer.append(&version);
-
     let spacer = GtkBox::new(Orientation::Vertical, 0);
     spacer.set_vexpand(true);
 
@@ -597,7 +574,6 @@ fn build_nav() -> NavRail {
     root.append(&brand_row);
     root.append(&list);
     root.append(&spacer);
-    root.append(&footer);
 
     NavRail {
         root: root.upcast(),
@@ -606,89 +582,34 @@ fn build_nav() -> NavRail {
 }
 
 const STYLE: &str = r#"
-window {
-    background-color: @window_bg_color;
-}
-
 .nav-rail {
     background-color: @sidebar_bg_color;
-    border-right: 1px solid alpha(@borders, 0.65);
+    border-right: 1px solid @borders;
 }
-
-.brand-name {
-    font-size: 19px;
-    font-weight: 800;
-}
-
-.brand-sub {
-    font-size: 11px;
-    color: @insensitive_fg_color;
-}
-
 .nav-row {
-    border-radius: 8px;
-    margin-left: 8px;
-    margin-right: 8px;
+    border-radius: 6px;
+    margin-left: 6px;
+    margin-right: 6px;
 }
-
-.nav-label {
-    font-size: 13px;
-    font-weight: 500;
+.nav-row:selected {
+    background-color: alpha(@accent_bg_color, 0.10);
+    box-shadow: inset 3px 0 0 @accent_bg_color;
 }
-
-.nav-icon {
-    color: @insensitive_fg_color;
-}
-
 .nav-row:selected .nav-icon,
-.nav-row:selected .nav-label {
-    color: @accent_color;
-}
-
-.footer-label {
-    font-size: 11px;
-    color: @insensitive_fg_color;
-}
+.nav-row:selected .nav-label { color: @accent_color; }
 
 .shelf {
     background-color: @window_bg_color;
-    border-right: 1px solid alpha(@borders, 0.65);
+    border-right: 1px solid @borders;
 }
-
-.shelf-title {
-    font-size: 18px;
-    font-weight: 700;
-}
-
-.count-pill {
-    background-color: alpha(@accent_bg_color, 0.16);
-    color: @accent_color;
-    border-radius: 999px;
-    padding: 1px 7px;
-    font-size: 11px;
-    font-weight: 700;
-}
-
-.shelf-list {
-    background-color: transparent;
-}
-
+.shelf-list { background-color: transparent; }
 .game-row {
-    border-radius: 8px;
-    margin-bottom: 1px;
+    border-radius: 6px;
+    margin-bottom: 2px;
 }
-
 .game-row:selected {
-    background-color: alpha(@accent_bg_color, 0.16);
-}
-
-.game-name {
-    font-size: 13px;
-    font-weight: 600;
-}
-
-.game-meta {
-    font-size: 11px;
+    background-color: alpha(@accent_bg_color, 0.12);
+    box-shadow: inset 3px 0 0 @accent_bg_color;
 }
 
 .status-dot {
@@ -697,165 +618,39 @@ window {
     border-radius: 50%;
     background-color: @insensitive_fg_color;
 }
-
-.dot-ready {
-    background-color: @success_color;
-}
-
-.dot-planned {
-    background-color: @warning_color;
-}
-
-.dot-warning {
-    background-color: @error_color;
-}
-
-.dot-disabled {
-    background-color: @insensitive_fg_color;
-}
+.dot-ready { background-color: @success_color; }
+.dot-planned { background-color: @warning_color; }
+.dot-warning { background-color: @error_color; }
+.dot-disabled { background-color: @insensitive_fg_color; }
 
 .monogram {
-    background-color: alpha(@accent_bg_color, 0.13);
+    background-color: @card_bg_color;
+    border: 1px solid @borders;
     border-radius: 6px;
 }
-
 .monogram-letter {
-    font-size: 14px;
-    font-weight: 800;
-    color: @accent_color;
+    font-weight: 700;
+    color: @window_fg_color;
     margin-left: 10px;
 }
+.shelf-cover { border-radius: 6px; }
 
-.shelf-cover {
-    border-radius: 6px;
-}
-
-.hero {
-    border-radius: 12px;
-}
-
-.section-title {
-    font-size: 15px;
-    font-weight: 700;
-}
-
-.section-note {
-    font-size: 11px;
-}
-
-.depot-table {
-    background-color: @card_bg_color;
-    border: 1px solid alpha(@borders, 0.65);
-    border-radius: 10px;
-    padding: 3px 0;
-}
-
-.depot-table separator {
-    background-color: alpha(@borders, 0.45);
-    min-height: 1px;
-}
-
-.depot-row {
-    border-radius: 6px;
-}
-
-.depot-missing .depot-key {
-    color: @warning_color;
-    font-weight: 700;
-}
-
+.hero { border-radius: 12px; }
 .hero-fallback {
-    background-color: alpha(@accent_bg_color, 0.14);
+    background-color: @card_bg_color;
+    border: 1px solid @borders;
     border-radius: 12px;
 }
-
 .hero-letter {
     font-size: 64px;
-    font-weight: 800;
-    color: alpha(@accent_color, 0.7);
-}
-
-.inspector-title {
-    font-size: 28px;
-    font-weight: 800;
-}
-
-.mono {
-    font-family: "Noto Sans Mono";
-    font-size: 11px;
-}
-
-.status-pill {
-    border-radius: 999px;
-    padding: 2px 9px;
-    font-size: 11px;
     font-weight: 700;
-}
-
-.pill-ready {
-    background-color: alpha(@success_color, 0.16);
-    color: @success_color;
-}
-
-.pill-planned {
-    background-color: alpha(@warning_color, 0.16);
-    color: @warning_color;
-}
-
-.pill-warning {
-    background-color: alpha(@error_color, 0.16);
-    color: @error_color;
-}
-
-.pill-disabled {
-    background-color: alpha(@insensitive_fg_color, 0.16);
     color: @insensitive_fg_color;
 }
 
-.pill-neutral {
-    background-color: alpha(@accent_bg_color, 0.14);
-    color: @accent_color;
-}
-
-.page-title {
-    font-size: 26px;
-    font-weight: 800;
-}
-
-.summary-card {
-    background-color: @card_bg_color;
-    border: 1px solid alpha(@borders, 0.65);
-    border-radius: 12px;
-    padding: 14px;
-}
-
-.summary-title {
-    font-size: 15px;
-    font-weight: 700;
-}
-
-.discover-card {
-    background-color: transparent;
-    padding: 0;
-    border-radius: 10px;
-}
-
-.discover-card:hover {
-    background-color: alpha(@accent_bg_color, 0.07);
-}
-
-.discover-cover {
-    border-radius: 8px;
-}
-
-.discover-title {
-    font-size: 12px;
-    font-weight: 600;
-    margin-left: 4px;
-}
-
+.depot-table { padding: 3px 0; }
+.depot-table separator { min-height: 1px; }
 .library-paned > separator {
-    background-color: alpha(@borders, 0.65);
+    background-color: @borders;
     min-width: 1px;
 }
 "#;

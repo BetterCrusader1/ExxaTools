@@ -1,4 +1,4 @@
-//! The middle pane: a compact shelf of games, never a wall of identical cards.
+//! The middle pane: a quiet shelf of games, with artwork doing the visual work.
 
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -6,7 +6,7 @@ use std::rc::Rc;
 use gtk::prelude::*;
 use gtk::{Box as GtkBox, Orientation};
 
-use crate::ui::model::{Game, LibrarySummary};
+use crate::ui::model::Game;
 
 #[derive(Clone)]
 pub struct Shelf {
@@ -14,11 +14,6 @@ pub struct Shelf {
     pub list: gtk::ListBox,
     title: gtk::Label,
     subtitle: gtk::Label,
-    count: gtk::Label,
-    summary: GtkBox,
-    ready: gtk::Label,
-    needs_setup: gtk::Label,
-    depots: gtk::Label,
     scroll: gtk::ScrolledWindow,
     empty: GtkBox,
     pub appids: Rc<RefCell<Vec<u64>>>,
@@ -26,20 +21,15 @@ pub struct Shelf {
 
 pub fn build() -> Shelf {
     let title = gtk::Label::new(Some("Library"));
-    title.add_css_class("shelf-title");
+    title.add_css_class("title-3");
     title.set_halign(gtk::Align::Start);
     title.set_hexpand(true);
-
-    let count = gtk::Label::new(Some("0"));
-    count.add_css_class("count-pill");
-    count.set_valign(gtk::Align::Center);
 
     let heading = GtkBox::new(Orientation::Horizontal, 8);
     heading.set_margin_start(16);
     heading.set_margin_end(16);
-    heading.set_margin_top(16);
+    heading.set_margin_top(18);
     heading.append(&title);
-    heading.append(&count);
 
     let subtitle = gtk::Label::new(Some("No games yet"));
     subtitle.add_css_class("dim-label");
@@ -48,10 +38,7 @@ pub fn build() -> Shelf {
     subtitle.set_margin_start(16);
     subtitle.set_margin_end(16);
     subtitle.set_margin_top(2);
-    subtitle.set_margin_bottom(10);
-
-    let (summary, ready, needs_setup, depots) = summary_card();
-    summary.set_visible(false);
+    subtitle.set_margin_bottom(12);
 
     let list = gtk::ListBox::new();
     list.add_css_class("shelf-list");
@@ -74,7 +61,6 @@ pub fn build() -> Shelf {
     root.set_width_request(310);
     root.append(&heading);
     root.append(&subtitle);
-    root.append(&summary);
     root.append(&scroll);
     root.append(&empty);
 
@@ -83,11 +69,6 @@ pub fn build() -> Shelf {
         list,
         title,
         subtitle,
-        count,
-        summary,
-        ready,
-        needs_setup,
-        depots,
         scroll,
         empty,
         appids: Rc::new(RefCell::new(Vec::new())),
@@ -105,26 +86,18 @@ impl Shelf {
         }
         drop(appids);
 
-        let summary = LibrarySummary::from_games(games);
-        self.ready.set_text(&summary.ready.to_string());
-        self.needs_setup.set_text(&summary.needs_setup.to_string());
-        self.depots.set_text(&summary.depots.to_string());
-
-        let count = games.len();
-        self.count.set_text(&count.to_string());
-        self.subtitle.set_text(match count {
-            0 => "Nothing here yet",
-            _ => "Sorted by name",
+        self.subtitle.set_text(if games.is_empty() {
+            "Nothing here yet"
+        } else {
+            "Sorted by name"
         });
-        self.scroll.set_visible(count > 0);
-        self.empty.set_visible(count == 0);
-        self.update_summary_visibility();
+        self.scroll.set_visible(!games.is_empty());
+        self.empty.set_visible(games.is_empty());
     }
 
     pub fn set_title(&self, title: &str, subtitle: &str) {
         self.title.set_text(title);
         self.subtitle.set_text(subtitle);
-        self.update_summary_visibility();
     }
 
     pub fn select_appid(&self, appid: u64) {
@@ -156,52 +129,6 @@ impl Shelf {
         }
         self.appids.borrow().get(index as usize).copied()
     }
-
-    fn update_summary_visibility(&self) {
-        self.summary
-            .set_visible(self.title.text() == "Library" && !self.appids.borrow().is_empty());
-    }
-}
-
-fn summary_card() -> (GtkBox, gtk::Label, gtk::Label, gtk::Label) {
-    let title = gtk::Label::new(Some("Library status"));
-    title.add_css_class("summary-title");
-    title.set_halign(gtk::Align::Start);
-
-    let (ready_stat, ready) = stat("Ready");
-    let (setup_stat, needs_setup) = stat("Needs setup");
-    let (depot_stat, depots) = stat("Depots");
-    let stats = GtkBox::new(Orientation::Horizontal, 8);
-    stats.append(&ready_stat);
-    stats.append(&setup_stat);
-    stats.append(&depot_stat);
-
-    let card = GtkBox::new(Orientation::Vertical, 8);
-    card.add_css_class("summary-card");
-    card.set_margin_start(12);
-    card.set_margin_end(12);
-    card.set_margin_bottom(12);
-    card.append(&title);
-    card.append(&stats);
-    (card, ready, needs_setup, depots)
-}
-
-fn stat(caption: &str) -> (GtkBox, gtk::Label) {
-    let value = gtk::Label::new(Some("0"));
-    value.add_css_class("section-title");
-    value.set_halign(gtk::Align::Start);
-
-    let caption = gtk::Label::new(Some(caption));
-    caption.add_css_class("caption");
-    caption.add_css_class("dim-label");
-    caption.set_halign(gtk::Align::Start);
-    caption.set_ellipsize(gtk::pango::EllipsizeMode::End);
-
-    let stat = GtkBox::new(Orientation::Vertical, 1);
-    stat.set_hexpand(true);
-    stat.append(&value);
-    stat.append(&caption);
-    (stat, value)
 }
 
 fn empty_shelf() -> GtkBox {
@@ -209,10 +136,10 @@ fn empty_shelf() -> GtkBox {
     icon.set_pixel_size(32);
     icon.add_css_class("dim-label");
 
-    let title = gtk::Label::new(Some("Nothing on this shelf"));
-    title.add_css_class("section-title");
+    let title = gtk::Label::new(Some("Your library is empty"));
+    title.add_css_class("heading");
 
-    let detail = gtk::Label::new(Some("Add a game from Discover or try another search."));
+    let detail = gtk::Label::new(Some("Add a game from Discover or search Steam above."));
     detail.add_css_class("dim-label");
     detail.add_css_class("caption");
     detail.set_wrap(true);
@@ -236,7 +163,7 @@ fn row(game: &Game) -> gtk::ListBoxRow {
     let row = gtk::ListBoxRow::new();
     row.add_css_class("game-row");
     row.set_cursor_from_name(Some("pointer"));
-    row.set_tooltip_text(Some(&format!("{} · {}", game.name, game.state.label())));
+    row.set_tooltip_text(Some(&format!("{} — {}", game.name, game.state.label())));
 
     let cover = match &game.cover {
         Some(path) => thumb(path, 64, 30),
@@ -253,7 +180,7 @@ fn row(game: &Game) -> gtk::ListBoxRow {
 
     let meta = gtk::Label::new(Some(&game.subtitle()));
     meta.add_css_class("dim-label");
-    meta.add_css_class("game-meta");
+    meta.add_css_class("caption");
     meta.set_halign(gtk::Align::Start);
     meta.set_ellipsize(gtk::pango::EllipsizeMode::End);
     meta.set_xalign(0.0);
@@ -271,8 +198,8 @@ fn row(game: &Game) -> gtk::ListBoxRow {
     dot.set_tooltip_text(Some(game.state.label()));
 
     let content = GtkBox::new(Orientation::Horizontal, 10);
-    content.set_margin_top(5);
-    content.set_margin_bottom(5);
+    content.set_margin_top(6);
+    content.set_margin_bottom(6);
     content.set_margin_start(8);
     content.set_margin_end(10);
     content.append(&cover);

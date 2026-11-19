@@ -29,7 +29,7 @@ struct SecondaryButton {
 
 pub fn build(ctx: &Ctx) -> SystemPage {
     let title = gtk::Label::new(Some("System"));
-    title.add_css_class("page-title");
+    title.add_css_class("title-1");
     title.set_halign(gtk::Align::Start);
     let subtitle = gtk::Label::new(Some("Runtime checks and integration status"));
     subtitle.add_css_class("dim-label");
@@ -59,15 +59,6 @@ pub fn build(ctx: &Ctx) -> SystemPage {
         });
     });
 
-    let restart = secondary_button("Restart Steam", "system-reboot-symbolic");
-    restart
-        .root
-        .set_tooltip_text(Some("Close Steam and start it with ExxaTools wired"));
-    let commands = ctx.commands.clone();
-    restart
-        .root
-        .connect_clicked(move |_| commands.send(Command::RestartSteam));
-
     let header = GtkBox::new(Orientation::Horizontal, 8);
     header.set_margin_top(22);
     header.set_margin_bottom(8);
@@ -75,7 +66,6 @@ pub fn build(ctx: &Ctx) -> SystemPage {
     header.set_margin_end(24);
     header.append(&headings);
     header.append(&copy.root);
-    header.append(&restart.root);
 
     let summary_icon = gtk::Image::from_icon_name("emblem-ok-symbolic");
     summary_icon.set_pixel_size(28);
@@ -89,7 +79,7 @@ pub fn build(ctx: &Ctx) -> SystemPage {
     summary_visual.append(&summary_icon);
     summary_visual.append(&summary_spinner);
     let summary_title = gtk::Label::new(Some("Checking the setup"));
-    summary_title.add_css_class("summary-title");
+    summary_title.add_css_class("heading");
     summary_title.set_halign(gtk::Align::Start);
     let summary_detail = gtk::Label::new(Some("Reading engine, Steam and plan state."));
     summary_detail.add_css_class("dim-label");
@@ -100,7 +90,6 @@ pub fn build(ctx: &Ctx) -> SystemPage {
     summary_text.append(&summary_detail);
 
     let summary = GtkBox::new(Orientation::Horizontal, 14);
-    summary.add_css_class("summary-card");
     summary.set_margin_start(24);
     summary.set_margin_end(24);
     summary.set_margin_top(8);
@@ -160,7 +149,7 @@ impl SystemPage {
             .map(|item| format!(" ({})", item.group()))
             .unwrap_or_default();
         self.summary_detail.set_text(&format!(
-            "{} checks · {} {}{} · {} {}",
+            "{} checks, {} {}{}, {} {}",
             report.items.len(),
             report.warnings,
             if report.warnings == 1 {

@@ -55,7 +55,7 @@ pub fn build(ctx: &Ctx) -> DiscoverPage {
     install_css();
 
     let title = gtk::Label::new(Some("Discover"));
-    title.add_css_class("page-title");
+    title.add_css_class("title-1");
     title.set_halign(gtk::Align::Start);
 
     let subtitle = gtk::Label::new(Some("Popular on Steam right now"));
@@ -76,8 +76,8 @@ pub fn build(ctx: &Ctx) -> DiscoverPage {
     header.set_margin_end(24);
     header.append(&headings);
 
-    let filter_bar = GtkBox::new(Orientation::Horizontal, 4);
-    filter_bar.add_css_class("discover-filter-bar");
+    let filter_bar = GtkBox::new(Orientation::Horizontal, 0);
+    filter_bar.add_css_class("linked");
     filter_bar.set_halign(gtk::Align::Start);
     filter_bar.set_margin_top(4);
     filter_bar.set_margin_start(24);
@@ -249,8 +249,6 @@ impl DiscoverPage {
 
 fn filter_button(label: &str) -> gtk::ToggleButton {
     let button = gtk::ToggleButton::with_label(label);
-    button.add_css_class("flat");
-    button.add_css_class("discover-filter");
     button.set_cursor_from_name(Some("pointer"));
     button
 }
@@ -394,12 +392,13 @@ fn card(ctx: &Ctx, state: &Rc<DiscoverState>, game: &Game, in_library: bool) -> 
     title.set_tooltip_text(Some(&game.name));
 
     let action = gtk::Button::new();
+    action.add_css_class("flat");
     action.add_css_class("discover-add");
     action.set_halign(gtk::Align::Start);
     if in_library {
         show_in_library(&action);
     } else {
-        action.set_child(Some(&action_content("list-add-symbolic", "Add to library")));
+        action.set_child(Some(&action_content("list-add-symbolic", "Add")));
         action.set_cursor_from_name(Some("pointer"));
         action.set_tooltip_text(Some(&format!("Add {} to your library", game.name)));
 
@@ -440,7 +439,7 @@ fn show_in_library(action: &gtk::Button) {
     action.remove_css_class("suggested-action");
     action.add_css_class("flat");
     action.add_css_class("discover-added");
-    action.set_child(Some(&action_content("emblem-ok-symbolic", "In Library")));
+    action.set_child(Some(&action_content("emblem-ok-symbolic", "Added")));
     action.set_sensitive(false);
     action.set_cursor_from_name(None);
     action.set_tooltip_text(Some("Already in your library"));
@@ -494,100 +493,23 @@ fn install_css() {
 }
 
 const STYLE: &str = r#"
-.discover-filter-bar {
-    background-color: @card_bg_color;
-    border: 1px solid @borders;
-    border-radius: 10px;
-    padding: 4px;
-}
-.discover-filter {
-    border-radius: 7px;
-    min-height: 32px;
-    padding: 4px 12px;
-    font-size: 12px;
-    font-weight: 600;
-}
-.discover-filter:checked {
-    background-color: alpha(@accent_bg_color, 0.16);
-    color: @accent_color;
-}
 .discover-card {
-    background-color: @card_bg_color;
-    border: 1px solid @borders;
-    border-radius: 12px;
-    box-shadow: none;
-    transition: border-color 160ms ease-out;
-}
-.discover-card:hover {
-    background-color: @card_bg_color;
-    border-color: alpha(@accent_color, 0.42);
-}
-.discover-card:focus-within {
-    border-color: alpha(@accent_color, 0.68);
+    background-color: transparent;
+    padding: 0;
 }
 .discover-cover-frame {
-    background-color: @window_bg_color;
-    border: 1px solid @borders;
+    background-color: @card_bg_color;
     border-radius: 8px;
-    margin: 8px 8px 0;
-    transition: border-color 160ms ease-out;
-}
-.discover-card:hover .discover-cover-frame {
-    border-color: alpha(@accent_color, 0.36);
-}
-.discover-card:focus-within .discover-cover-frame {
-    border-color: alpha(@accent_color, 0.55);
 }
 .discover-cover,
-.discover-cover-frame .monogram {
-    border-radius: 7px;
-}
-.discover-title {
-    font-size: 13px;
-    font-weight: 600;
-    margin: 10px 12px 0;
-}
+.discover-cover-frame .monogram { border-radius: 8px; }
+.discover-title { margin: 10px 4px 0; }
 .discover-card-footer {
-    background-color: alpha(@window_bg_color, 0.32);
-    border-top: 1px solid @borders;
-    border-radius: 0 0 11px 11px;
-    margin-top: 12px;
-    padding: 8px 10px 10px;
-}
-.discover-add {
-    background-color: transparent;
-    border: 1px solid alpha(@accent_color, 0.34);
-    border-radius: 6px;
-    box-shadow: none;
-    color: @accent_color;
-    font-size: 12px;
-    font-weight: 600;
-    min-height: 30px;
-    padding: 3px 10px;
-    transition: background-color 160ms ease-out, border-color 160ms ease-out,
-        color 160ms ease-out;
-}
-.discover-add:hover {
-    background-color: alpha(@accent_bg_color, 0.10);
-    border-color: alpha(@accent_color, 0.68);
-    color: @accent_color;
-}
-.discover-add:focus-visible {
-    background-color: alpha(@accent_bg_color, 0.12);
-    border-color: @accent_color;
-    outline: 2px solid @accent_color;
-    outline-offset: 2px;
-}
-.discover-add:active {
-    background-color: alpha(@accent_bg_color, 0.20);
-    border-color: @accent_bg_color;
-    color: @accent_color;
-    transition-duration: 120ms;
+    margin-top: 6px;
+    padding: 0 4px;
 }
 .discover-added,
 .discover-added:disabled {
-    background-color: alpha(@success_color, 0.06);
-    border-color: alpha(@success_color, 0.32);
     color: @success_color;
     opacity: 1;
 }
