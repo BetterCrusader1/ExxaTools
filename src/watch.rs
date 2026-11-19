@@ -12,8 +12,7 @@ use serde_json::{json, Value};
 use crate::appmanifest;
 use crate::steamctl;
 
-fn needs_fix(appid: u64) -> Option<String> {
-    let data = appmanifest::read(appid).ok().flatten()?;
+fn update_reason(data: &appmanifest::Manifest, managed: bool) -> Option<String> {
     if data.state_flags & 4 == 0 {
         return Some(format!("StateFlags {}", data.state_flags));
     }
@@ -22,10 +21,23 @@ fn needs_fix(appid: u64) -> Option<String> {
             return Some(format!("{} bytes pending", total - done));
         }
     }
+    // Steam's own Proton/runtime components should keep automatic updates. The
+    // stop-loop policy only applies to games the user added to ExxaTools.
+    if !managed {
+        return None;
+    }
     match data.auto_update.as_deref() {
         None | Some("") | Some("0") => Some("automatic updates enabled".into()),
         _ => None,
     }
+}
+
+fn needs_fix(appid: u64) -> Option<String> {
+    let data = appmanifest::read(appid).ok().flatten()?;
+    let managed = crate::state::load()
+        .map(|state| state.apps.contains_key(&appid.to_string()))
+        .unwrap_or(false);
+    update_reason(&data, managed)
 }
 
 fn appid_from(path: &Path) -> Option<u64> {
@@ -137,4 +149,47 @@ pub fn run() -> Result<(), String> {
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::PathBuf;
+
+    fn manifest(state_flags: u64, auto_update: Option<&str>) -> appmanifest::Manifest {
+        appmanifest::Manifest {
+            path: PathBuf::from("appmanifest_4183110.acf"),
+            library: PathBuf::from("steamapps"),
+            appid: 4183110,
+            name: Some("Steam Linux Runtime".into()),
+            state_flags,
+            state: Vec::new(),
+            bytes_to_download: None,
+            bytes_downloaded: None,
+            size_on_disk: None,
+            last_updated: None,
+            buildid: None,
+            auto_update: auto_update.map(str::to_string),
+            scheduled_auto_update: None,
+            allow_other_downloads: None,
+            depots: Vec::new(),
+            mtime: 0,
+        }
+    }
+
+    #[test]
+    fn automatic_updates_only_flag_managed_games() {
+        let data = manifest(4, Some("0"));
+        assert!(update_reason(&data, false).is_none());
+        assert_eq!(
+            update_reason(&data, true).as_deref(),
+            Some("automatic updates enabled")
+        );
+
+        let unfinished = manifest(2, Some("0"));
+        assert_eq!(
+            update_reason(&unfinished, false).as_deref(),
+            Some("StateFlags 2")
+        );
+    }
 }

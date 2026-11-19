@@ -29,12 +29,19 @@ enum DiscoverFilter {
 struct DiscoverState {
     games: RefCell<Vec<Game>>,
     library: RefCell<BTreeSet<u64>>,
+    library_games: RefCell<Vec<Game>>,
     filter: Cell<DiscoverFilter>,
 }
 
 impl DiscoverState {
     fn reconcile_library(&self, library: &BTreeMap<u64, Option<u64>>) {
         self.library.replace(library.keys().copied().collect());
+    }
+
+    fn set_library(&self, games: &[Game]) {
+        self.library
+            .replace(games.iter().map(|game| game.appid).collect());
+        self.library_games.replace(games.to_vec());
     }
 }
 
@@ -218,6 +225,13 @@ impl DiscoverPage {
         self.render();
     }
 
+    pub fn set_library(&self, games: &[Game]) {
+        self.state.set_library(games);
+        if self.state.filter.get() == DiscoverFilter::InLibrary {
+            self.render();
+        }
+    }
+
     /// Re-read the worker-persisted library after RefreshLibrary and update the
     /// existing Discover cards without another Discover network request.
     pub fn reconcile_library(&self) {
@@ -266,11 +280,13 @@ fn render(
     }
 
     let filter = state.filter.get();
-    let total = state.games.borrow().len();
+    let total =
+        games_for_filter(&state.games.borrow(), &state.library_games.borrow(), filter).len();
     let visible = {
-        let games = state.games.borrow();
+        let popular = state.games.borrow();
+        let library = state.library_games.borrow();
         let added = state.library.borrow();
-        visible_games(&games, filter, &added)
+        visible_games(games_for_filter(&popular, &library, filter), filter, &added)
             .into_iter()
             .cloned()
             .collect::<Vec<_>>()
@@ -279,22 +295,23 @@ fn render(
     match filter {
         DiscoverFilter::Popular => subtitle.set_text("Popular on Steam right now"),
         DiscoverFilter::InLibrary => subtitle.set_text(&format!(
-            "{} of {total} loaded titles in your library",
-            visible.len()
+            "{} {} in your library",
+            visible.len(),
+            if visible.len() == 1 { "game" } else { "games" }
         )),
         DiscoverFilter::RecentlyUpdated => {
             subtitle.set_text("Loaded titles, newest manifest updates first")
         }
     }
 
-    if total == 0 {
+    if total == 0 && filter != DiscoverFilter::InLibrary {
         stack.set_visible_child_name("error");
         return;
     }
     if visible.is_empty() {
         empty.set_description(Some(match filter {
             DiscoverFilter::InLibrary => {
-                "None of the currently loaded popular titles are in your library yet."
+                "Your library is empty. Add a game from Popular or search Steam above."
             }
             _ => "No loaded games match this view.",
         }));
@@ -307,6 +324,20 @@ fn render(
         flow.append(&card(ctx, state, &game, in_library));
     }
     stack.set_visible_child_name("flow");
+}
+
+/// In Library is a view of the actual library, not only the popular titles
+/// that Steam happened to return for Discover.
+fn games_for_filter<'a>(
+    popular: &'a [Game],
+    library: &'a [Game],
+    filter: DiscoverFilter,
+) -> &'a [Game] {
+    if filter == DiscoverFilter::InLibrary {
+        library
+    } else {
+        popular
+    }
 }
 
 /// Select only from games already delivered by the worker. Popular preserves
@@ -528,6 +559,32 @@ mod tests {
 
     fn appids(games: Vec<&Game>) -> Vec<u64> {
         games.into_iter().map(|game| game.appid).collect()
+    }
+
+    #[test]
+    fn in_library_reads_the_whole_library_instead_of_the_popular_overlap() {
+        let popular = vec![game(30, "Popular only", None)];
+        let library = vec![
+            game(108600, "Project Zomboid", None),
+            game(2605790, "Deep Rock Galactic: Rogue Core", None),
+        ];
+
+        assert_eq!(
+            appids(
+                games_for_filter(&popular, &library, DiscoverFilter::InLibrary)
+                    .iter()
+                    .collect()
+            ),
+            vec![108600, 2605790]
+        );
+        assert_eq!(
+            appids(
+                games_for_filter(&popular, &library, DiscoverFilter::Popular)
+                    .iter()
+                    .collect()
+            ),
+            vec![30]
+        );
     }
 
     #[test]

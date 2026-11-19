@@ -377,6 +377,7 @@ fn build(app: &adw::Application, initial: Page) -> Ctx {
                         let selected = view.borrow().selected;
                         view.borrow_mut().games = games.clone();
                         view.borrow_mut().search = false;
+                        discover.set_library(&games);
                         shelf.set_games(&games);
                         let ready = games
                             .iter()
