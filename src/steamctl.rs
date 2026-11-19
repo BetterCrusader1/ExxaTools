@@ -455,10 +455,8 @@ pub fn install_companion() -> Result<std::path::PathBuf, String> {
 
 pub fn start(extra_args: &[String]) -> Result<serde_json::Value, String> {
     let (mut command, libs) = steam_command(extra_args)?;
-    command
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .spawn()
+    command.stdout(Stdio::null()).stderr(Stdio::null());
+    crate::desktop::spawn_reaped(&mut command)
         .map_err(|error| format!("cannot start Steam: {error}"))?;
     Ok(serde_json::json!({ "started": true, "ld_audit": libs, "args": extra_args }))
 }
@@ -478,12 +476,13 @@ pub fn ensure_server(port: u16) -> Result<bool, String> {
         return Ok(false);
     }
     let exe = crate::paths::executable().map_err(|error| error.to_string())?;
-    Command::new(exe)
-        .args(["serve", "--port", &port.to_string()])
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .spawn()
-        .map_err(|error| format!("cannot start ExxaTools: {error}"))?;
+    crate::desktop::spawn_reaped(
+        Command::new(exe)
+            .args(["serve", "--port", &port.to_string()])
+            .stdout(Stdio::null())
+            .stderr(Stdio::null()),
+    )
+    .map_err(|error| format!("cannot start ExxaTools: {error}"))?;
     for _ in 0..50 {
         std::thread::sleep(std::time::Duration::from_millis(100));
         if std::net::TcpStream::connect(("127.0.0.1", port)).is_ok() {

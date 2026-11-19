@@ -346,11 +346,12 @@ fn main() {
                 arg_value(rest, "--url").unwrap_or_else(|| format!("http://127.0.0.1:{port}/"));
             if std::net::TcpStream::connect(("127.0.0.1", port.parse().unwrap_or(8765))).is_err() {
                 let exe = paths::executable().unwrap_or_default();
-                let _ = std::process::Command::new(exe)
-                    .args(["serve", "--port", &port])
-                    .stdout(std::process::Stdio::null())
-                    .stderr(std::process::Stdio::null())
-                    .spawn();
+                let _ = crate::desktop::spawn_reaped(
+                    std::process::Command::new(exe)
+                        .args(["serve", "--port", &port])
+                        .stdout(std::process::Stdio::null())
+                        .stderr(std::process::Stdio::null()),
+                );
                 std::thread::sleep(std::time::Duration::from_millis(800));
             }
             if let Err(error) = window::run(&url) {

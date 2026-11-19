@@ -280,10 +280,9 @@ fn handle_page_request(ws: &str, request: &Value) {
             (message, false, planned, false, false, false)
         }
         "launch" => {
-            let message = match std::process::Command::new("steam")
-                .arg(format!("steam://rungameid/{appid}"))
-                .spawn()
-            {
+            let message = match crate::desktop::spawn_reaped(
+                std::process::Command::new("steam").arg(format!("steam://rungameid/{appid}")),
+            ) {
                 Ok(_) => format!("Launching {name}"),
                 Err(error) => format!("Steam did not open: {error}"),
             };

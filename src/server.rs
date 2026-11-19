@@ -1226,9 +1226,7 @@ fn post_route(
             if target.is_empty() {
                 return Err((400, "target is required".into()));
             }
-            std::process::Command::new("xdg-open")
-                .arg(target)
-                .spawn()
+            crate::desktop::spawn_reaped(std::process::Command::new("xdg-open").arg(target))
                 .map_err(|error| (500, format!("cannot open: {error}")))?;
             Ok(json!({ "opened": target }))
         }

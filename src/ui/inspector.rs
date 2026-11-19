@@ -130,9 +130,10 @@ impl Inspector {
             let appid = game.appid;
             let popover = popover.clone();
             store.connect_clicked(move |_| {
-                let _ = std::process::Command::new("xdg-open")
-                    .arg(format!("https://store.steampowered.com/app/{appid}/"))
-                    .spawn();
+                let _ = crate::desktop::spawn_reaped(
+                    std::process::Command::new("xdg-open")
+                        .arg(format!("https://store.steampowered.com/app/{appid}/")),
+                );
                 popover.popdown();
             });
         }

@@ -155,10 +155,9 @@ fn run(command: Command, events: Sender<Event>) {
             }
         }
         Command::Launch(appid) => {
-            if let Err(error) = std::process::Command::new("steam")
-                .arg(format!("steam://rungameid/{appid}"))
-                .spawn()
-            {
+            if let Err(error) = crate::desktop::spawn_reaped(
+                std::process::Command::new("steam").arg(format!("steam://rungameid/{appid}")),
+            ) {
                 toast(&events, format!("Steam did not open: {error}"), true);
             }
         }

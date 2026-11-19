@@ -73,6 +73,16 @@ pub fn remove_autostart() -> Value {
 
 /// Opens the dashboard as a real window. The server keeps running on its own, so
 /// closing the window leaves the Steam integration alive.
+/// Spawns a child and reaps it on a background thread, so a closed window or a
+/// short-lived helper never lingers as a zombie under the long-running server.
+pub fn spawn_reaped(command: &mut Command) -> std::io::Result<()> {
+    let mut child = command.spawn()?;
+    std::thread::spawn(move || {
+        let _ = child.wait();
+    });
+    Ok(())
+}
+
 pub fn open_window(url: &str) -> Result<(), String> {
     let exe = paths::executable()?;
     let mut command = Command::new(exe);
@@ -80,8 +90,6 @@ pub fn open_window(url: &str) -> Result<(), String> {
     command
         .args(["window", "--url", url])
         .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .spawn()
-        .map(|_| ())
-        .map_err(|error| format!("cannot open a window: {error}"))
+        .stderr(Stdio::null());
+    spawn_reaped(&mut command).map_err(|error| format!("cannot open a window: {error}"))
 }
