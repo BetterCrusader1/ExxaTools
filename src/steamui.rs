@@ -232,162 +232,11 @@ fn open_dashboard_page(page: &str) -> Result<(), String> {
     crate::desktop::open_window(&url)
 }
 
-fn run_action(action: &str) -> String {
-    if let Some(rest) = action.strip_prefix("install:") {
-        let Ok(appid) = rest.parse::<u64>() else {
-            return "bad app id".into();
-        };
-        return match crate::plans::write_script(appid) {
-            Ok(true) => format!("plan {appid} installed"),
-            Ok(false) => format!("no saved plan for {appid}"),
-            Err(error) => error,
-        };
-    }
-    if let Some(rest) = action.strip_prefix("rebuild:") {
-        let Ok(appid) = rest.parse::<u64>() else {
-            return "bad app id".into();
-        };
-        return match crate::plans::refresh_plan(appid) {
-            Ok(report) => format!(
-                "plan {appid} rebuilt ({} depot set(s))",
-                report.get("updated").and_then(Value::as_u64).unwrap_or(0)
-            ),
-            Err(error) => error,
-        };
-    }
-    if let Some(rest) = action.strip_prefix("sync:") {
-        let Ok(appid) = rest.parse::<u64>() else {
-            return "bad app id".into();
-        };
-        return match crate::plans::refresh_plan(appid) {
-            Ok(report) => format!(
-                "plan {appid} synced ({} manifest update(s))",
-                report.get("updated").and_then(Value::as_u64).unwrap_or(0)
-            ),
-            Err(error) => error,
-        };
-    }
-    if let Some(rest) = action.strip_prefix("play:") {
-        let Ok(appid) = rest.parse::<u64>() else {
-            return "bad app id".into();
-        };
-        return match std::process::Command::new("steam")
-            .arg(format!("steam://rungameid/{appid}"))
-            .spawn()
-        {
-            Ok(_) => format!("launching {appid}"),
-            Err(error) => format!("Steam did not open: {error}"),
-        };
-    }
-    if let Some(rest) = action.strip_prefix("fix:") {
-        let Ok(appid) = rest.parse::<u64>() else {
-            return "bad app id".into();
-        };
-        return match crate::appmanifest::patch_with_restart(appid, &crate::appmanifest::Mode::Fix) {
-            Ok(_) => format!("update flags repaired for {appid}; Steam restarted"),
-            Err(error) => error,
-        };
-    }
-    if let Some(rest) = action.strip_prefix("launch:") {
-        let Ok(appid) = rest.parse::<u64>() else {
-            return "bad app id".into();
-        };
-        let current = crate::steamctl::read_launch_options(appid).unwrap_or_default();
-        let has = current.split_whitespace().any(|part| part == "-onlinefix");
-        let next = if has {
-            current
-                .split_whitespace()
-                .filter(|part| *part != "-onlinefix")
-                .collect::<Vec<_>>()
-                .join(" ")
-        } else {
-            crate::verify::merge_launch_option(Some(&current), "-onlinefix")
-        };
-        return match crate::steamctl::set_launch_options(appid, &next) {
-            Ok(_) => format!("-onlinefix {}", if has { "removed" } else { "added" }),
-            Err(error) => error,
-        };
-    }
-    match action {
-        "disk" => match crate::storage::report().get("lowest").cloned() {
-            Some(lowest) => format!(
-                "Lowest free space: {} ({})",
-                lowest
-                    .get("free_human")
-                    .and_then(Value::as_str)
-                    .unwrap_or("?"),
-                lowest.get("path").and_then(Value::as_str).unwrap_or("")
-            ),
-            None => "Could not read free space".into(),
-        },
-        "engine" => match crate::engine::install(None) {
-            Ok(report) => format!(
-                "engine {} installed",
-                report.get("version").and_then(Value::as_str).unwrap_or("")
-            ),
-            Err(error) => error,
-        },
-        "keys" => {
-            let st = crate::state::load().unwrap_or_default();
-            let mut refreshed = 0;
-            for record in st.apps.values() {
-                let appid = record.get("appid").and_then(Value::as_u64).unwrap_or(0);
-                if crate::vfsys::script_path(appid).exists()
-                    && crate::plans::write_script(appid).unwrap_or(false)
-                {
-                    refreshed += 1;
-                }
-            }
-            match refreshed {
-                0 => "no scripts needed a refresh".into(),
-                1 => "refreshed 1 script".into(),
-                count => format!("refreshed {count} scripts"),
-            }
-        }
-        "open" | "dashboard" => match open_dashboard_page("") {
-            Ok(()) => "dashboard opened".into(),
-            Err(error) => error,
-        },
-        "discover" => match open_dashboard_page("discover") {
-            Ok(()) => "Discover opened".into(),
-            Err(error) => error,
-        },
-        "system" => match open_dashboard_page("system") {
-            Ok(()) => "system checks opened".into(),
-            Err(error) => error,
-        },
-        "settings" => match open_dashboard_page("settings") {
-            Ok(()) => "settings opened".into(),
-            Err(error) => error,
-        },
-        "sync_all" => match crate::plans::refresh_manifests() {
-            Ok(report) => format!(
-                "{} manifest(s) synced",
-                report.get("updated").and_then(Value::as_u64).unwrap_or(0)
-            ),
-            Err(error) => error,
-        },
-        "restart" => match crate::steamctl::restart(&[]) {
-            Ok(_) => "Steam is restarting".into(),
-            Err(error) => error,
-        },
-        "provider" => {
-            let st = crate::state::load().unwrap_or_default();
-            let order: Vec<Value> = st
-                .settings
-                .manifest_providers
-                .iter()
-                .map(|name| json!(name))
-                .collect();
-            match crate::lua::render_provider(&order) {
-                Ok(text) => match crate::vfsys::write_provider(&text) {
-                    Ok(_) => "provider script written".into(),
-                    Err(error) => error,
-                },
-                Err(error) => error,
-            }
-        }
-        _ => String::new(),
+fn run_action(action: &str) {
+    // The only live trigger is the Help-menu icon, which opens the full app.
+    // The retired panel's install/play/sync/fix/restart arms are gone with it.
+    if matches!(action, "open" | "dashboard") {
+        let _ = open_dashboard_page("");
     }
 }
 
@@ -586,9 +435,7 @@ fn pump() {
             }
             let action = batch.get("action").and_then(Value::as_str).unwrap_or("");
             if !action.is_empty() {
-                // The action does its work in Rust; its message is for a toast the
-                // page no longer has.
-                let _ = run_action(action);
+                run_action(action);
             }
         }
     }
