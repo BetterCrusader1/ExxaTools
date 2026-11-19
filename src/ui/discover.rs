@@ -208,7 +208,7 @@ impl DiscoverPage {
     }
 
     pub fn show_error(&self, message: &str) {
-        self.filter_bar.set_sensitive(false);
+        self.update_filter_sensitivity();
         self.error.set_description(Some(message));
         self.stack.set_visible_child_name("error");
     }
@@ -220,16 +220,22 @@ impl DiscoverPage {
             merge_library_metadata(&mut games, &library);
         }
         self.state.games.replace(games);
-        self.filter_bar
-            .set_sensitive(!self.state.games.borrow().is_empty());
+        self.update_filter_sensitivity();
         self.render();
     }
 
     pub fn set_library(&self, games: &[Game]) {
         self.state.set_library(games);
+        self.update_filter_sensitivity();
         if self.state.filter.get() == DiscoverFilter::InLibrary {
             self.render();
         }
+    }
+
+    fn update_filter_sensitivity(&self) {
+        let has_games = !self.state.games.borrow().is_empty()
+            || !self.state.library_games.borrow().is_empty();
+        self.filter_bar.set_sensitive(has_games);
     }
 
     /// Re-read the worker-persisted library after RefreshLibrary and update the

@@ -253,15 +253,17 @@ pub fn report(appid: u64, plan: Option<&Value>) -> Value {
             problems.push(format!("{} bytes still marked pending", total - done));
         }
     }
-    match data.auto_update.as_deref() {
-        None | Some("") | Some("0") => {
-            problems.push("automatic updates enabled: Steam may re-download on its own schedule".into())
+    if plan.is_some() {
+        match data.auto_update.as_deref() {
+            None | Some("") | Some("0") => {
+                problems.push("automatic updates enabled: Steam may re-download on its own schedule".into())
+            }
+            _ => {}
         }
-        _ => {}
-    }
-    if let Some(value) = data.scheduled_auto_update.as_deref() {
-        if value != "0" && !value.is_empty() {
-            problems.push("scheduled auto update enabled".into());
+        if let Some(value) = data.scheduled_auto_update.as_deref() {
+            if value != "0" && !value.is_empty() {
+                problems.push("scheduled auto update enabled".into());
+            }
         }
     }
 
