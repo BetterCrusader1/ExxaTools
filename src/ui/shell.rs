@@ -41,6 +41,19 @@ impl Page {
     }
 }
 
+/// Search and library loads run on parallel worker threads, so an answer can
+/// land after a newer request. Only the latest search may fill the shelf, and
+/// only while the search box still holds a term.
+fn accept_search(latest: u64, searching: bool, id: u64) -> bool {
+    searching && id == latest
+}
+
+/// A library reload (startup, Add, Sync, watcher) must not replace visible
+/// search results; it only refreshes the shelf when no search is active.
+fn library_fills_shelf(searching: bool) -> bool {
+    !searching
+}
+
 type NavigateHook = Box<dyn Fn(Page)>;
 type SelectHook = Box<dyn Fn(Option<u64>)>;
 
@@ -231,6 +244,7 @@ fn build(app: &adw::Application, initial: Page) -> Ctx {
         search: false,
     }));
     let syncing = Rc::new(Cell::new(false));
+    let search_seq = Rc::new(Cell::new(0u64));
 
     {
         let ctx = ctx.clone();
@@ -327,24 +341,30 @@ fn build(app: &adw::Application, initial: Page) -> Ctx {
         let ctx = ctx.clone();
         let shelf = shelf.clone();
         let worker = worker.clone();
+        let view = view.clone();
+        let search_seq = search_seq.clone();
         search.connect_activate(move |entry| {
             let term = entry.text().trim().to_string();
             if term.is_empty() {
+                view.borrow_mut().search = false;
                 worker.send(Command::LoadLibrary);
                 return;
             }
+            let id = search_seq.get() + 1;
+            search_seq.set(id);
+            view.borrow_mut().search = true;
             ctx.navigate(Page::Library);
             shelf.set_title("Search results", "Searching Steam…");
-            worker.send(Command::Search(term));
+            worker.send(Command::Search { id, term });
         });
     }
     {
         let worker = worker.clone();
         let shelf = shelf.clone();
-        let discover_loaded = Rc::new(Cell::new(false));
-        let _ = &discover_loaded;
+        let view = view.clone();
         search.connect_search_changed(move |entry| {
-            if entry.text().trim().is_empty() {
+            if entry.text().trim().is_empty() && view.borrow().search {
+                view.borrow_mut().search = false;
                 shelf.set_title("Library", "Reloading…");
                 worker.send(Command::LoadLibrary);
             }
@@ -370,14 +390,17 @@ fn build(app: &adw::Application, initial: Page) -> Ctx {
         let discover = discover.clone();
         let system = system.clone();
         let ctx = ctx.clone();
+        let search_seq = search_seq.clone();
         gtk::glib::timeout_add_local(std::time::Duration::from_millis(80), move || {
             while let Ok(event) = events.try_recv() {
                 match event {
                     Event::Library(games) => {
+                        discover.set_library(&games);
+                        if !library_fills_shelf(view.borrow().search) {
+                            continue;
+                        }
                         let selected = view.borrow().selected;
                         view.borrow_mut().games = games.clone();
-                        view.borrow_mut().search = false;
-                        discover.set_library(&games);
                         shelf.set_games(&games);
                         let ready = games
                             .iter()
@@ -405,9 +428,11 @@ fn build(app: &adw::Application, initial: Page) -> Ctx {
                             inspector.show_empty(Some(&ctx));
                         }
                     }
-                    Event::Search(games) => {
+                    Event::Search { id, games } => {
+                        if !accept_search(search_seq.get(), view.borrow().search, id) {
+                            continue;
+                        }
                         view.borrow_mut().games = games.clone();
-                        view.borrow_mut().search = true;
                         shelf.set_games(&games);
                         shelf.set_title(
                             "Search results",
@@ -655,3 +680,21 @@ const STYLE: &str = r#"
     min-width: 1px;
 }
 "#;
+
+#[cfg(test)]
+mod search_race_tests {
+    use super::{accept_search, library_fills_shelf};
+
+    #[test]
+    fn only_the_latest_active_search_fills_the_shelf() {
+        assert!(accept_search(3, true, 3));
+        assert!(!accept_search(3, true, 2));
+        assert!(!accept_search(3, false, 3));
+    }
+
+    #[test]
+    fn library_reload_does_not_replace_search_results() {
+        assert!(!library_fills_shelf(true));
+        assert!(library_fills_shelf(false));
+    }
+}

@@ -19,7 +19,7 @@ pub struct SettingsDraft {
 #[derive(Clone, Debug)]
 pub enum Command {
     LoadLibrary,
-    Search(String),
+    Search { id: u64, term: String },
     LoadDiscover,
     LoadDoctor,
     Add { appid: u64, name: String },
@@ -38,7 +38,10 @@ pub enum Command {
 #[derive(Debug)]
 pub enum Event {
     Library(Vec<Game>),
-    Search(Vec<Game>),
+    Search {
+        id: u64,
+        games: Vec<Game>,
+    },
     Discover(Vec<Game>),
     Doctor(DoctorReport),
     Toast {
@@ -90,10 +93,18 @@ fn run(command: Command, events: Sender<Event>) {
             decorate(&mut games);
             let _ = events.send(Event::Library(games));
         }
-        Command::Search(term) => {
-            let mut games = search(&term);
-            decorate(&mut games);
-            let _ = events.send(Event::Search(games));
+        Command::Search { id, term } => {
+            let games = match search(&term) {
+                Ok(mut games) => {
+                    decorate(&mut games);
+                    games
+                }
+                Err(error) => {
+                    toast(&events, format!("Steam search failed: {error}"), true);
+                    Vec::new()
+                }
+            };
+            let _ = events.send(Event::Search { id, games });
         }
         Command::LoadDiscover => {
             let country = crate::state::load()
@@ -266,10 +277,10 @@ fn library() -> Vec<Game> {
     games
 }
 
-fn search(term: &str) -> Vec<Game> {
+fn search(term: &str) -> Result<Vec<Game>, String> {
     let term = term.trim();
     if term.is_empty() {
-        return Vec::new();
+        return Ok(Vec::new());
     }
     let country = crate::state::load()
         .map(|state| state.settings.country)
@@ -284,15 +295,14 @@ fn search(term: &str) -> Vec<Game> {
                 "appid": appid,
                 "name": name,
             })) {
-                return vec![game];
+                return Ok(vec![game]);
             }
         }
     }
-    crate::steam::search(term, &country)
-        .unwrap_or_default()
+    Ok(crate::steam::search(term, &country)?
         .iter()
         .filter_map(Game::from_search)
-        .collect()
+        .collect())
 }
 
 fn decorate(games: &mut [Game]) {
