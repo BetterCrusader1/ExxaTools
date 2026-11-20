@@ -390,13 +390,46 @@ fn ensure_container_wrapper(libs: &str) {
     eprintln!("steam: container wrapper installed ({target_size} bytes)");
 }
 
+/// Steam reads this marker on every start, including its own self-restarts and
+/// updates, and then opens the CEF debugging port. A launch flag alone is lost
+/// the moment Steam restarts itself or is started from anywhere else.
+pub const DEBUG_MARKER: &str = ".cef-enable-remote-debugging";
+
+pub fn ensure_debug_marker() -> Result<PathBuf, String> {
+    let root = root().ok_or("Steam directory not found")?;
+    let marker = root.join(DEBUG_MARKER);
+    if !marker.is_file() {
+        std::fs::write(&marker, b"")
+            .map_err(|error| format!("cannot write {}: {error}", marker.display()))?;
+    }
+    Ok(marker)
+}
+
+/// Every start goes through here, so the debugging flag is never dropped by a
+/// caller that only asked for a plain restart.
+fn launch_args(extra_args: &[String]) -> Vec<String> {
+    let flag = crate::steamui::FLAG;
+    let mut args: Vec<String> = Vec::with_capacity(extra_args.len() + 1);
+    args.push(flag.to_string());
+    args.extend(
+        extra_args
+            .iter()
+            .filter(|arg| arg.as_str() != flag)
+            .cloned(),
+    );
+    args
+}
+
 fn steam_command(extra_args: &[String]) -> Result<(Command, String), String> {
     let binary = steam_binary().ok_or("steam executable not found in PATH")?;
     let libs = audit_libs();
     ensure_container_wrapper(&libs);
     let _ = install_companion();
+    if let Err(error) = ensure_debug_marker() {
+        eprintln!("steam: {error}");
+    }
     let mut command = Command::new(binary);
-    for arg in extra_args {
+    for arg in launch_args(extra_args) {
         command.arg(arg);
     }
     apply_session_env(&mut command);
@@ -836,5 +869,27 @@ mod tests {
             "-onlinefix"
         );
         assert_eq!(crate::verify::merge_launch_option(None, "-x"), "-x");
+    }
+}
+
+#[cfg(test)]
+mod launch_tests {
+    use super::launch_args;
+
+    #[test]
+    fn plain_restart_still_opens_the_debugging_port() {
+        assert_eq!(launch_args(&[]), vec!["-cef-enable-debugging".to_string()]);
+    }
+
+    #[test]
+    fn flag_is_not_duplicated_and_urls_are_kept() {
+        let args = launch_args(&["-cef-enable-debugging".into(), "steam://open/games".into()]);
+        assert_eq!(
+            args,
+            vec![
+                "-cef-enable-debugging".to_string(),
+                "steam://open/games".to_string()
+            ]
+        );
     }
 }

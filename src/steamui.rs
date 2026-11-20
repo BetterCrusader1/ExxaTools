@@ -734,13 +734,10 @@ const DESKTOP_MARK: &str = "X-Vapor-Forge-Override=true";
 const WRAPPER_MARK: &str = "X-Exxa-Steam-Wrapper=true";
 const BACKUP_SUFFIX: &str = "exxatools.bak";
 
+/// The Steam launcher runs the installed companion, so starting Steam never
+/// depends on the source tree or a cargo build.
 fn wrapper_exe() -> std::path::PathBuf {
-    let launcher = paths::project_dir().join("exxa");
-    if launcher.is_file() {
-        launcher
-    } else {
-        paths::executable().unwrap_or_else(|_| std::path::PathBuf::from("exxa"))
-    }
+    crate::steamctl::install_companion().unwrap_or_else(|_| crate::paths::companion_bin())
 }
 
 fn launcher_backup(path: &std::path::Path) -> std::path::PathBuf {
@@ -932,8 +929,10 @@ pub fn ensure_started() {
             }
             if !debug_ready() {
                 // A Steam started without the debugging flag cannot be reached; the
-                // launcher entry is repaired so the next start works.
+                // launcher entry and Steam's own marker are repaired so the next
+                // start works, however Steam gets started.
                 let _ = enable_debug_if_possible();
+                let _ = steamctl::ensure_debug_marker();
                 std::thread::sleep(std::time::Duration::from_secs(10));
                 continue;
             }

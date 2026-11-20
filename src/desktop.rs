@@ -49,12 +49,9 @@ pub fn install_autostart() -> Result<Value, String> {
     if let Some(parent) = target.parent() {
         std::fs::create_dir_all(parent).map_err(|error| error.to_string())?;
     }
-    let launcher = paths::project_dir().join("exxa");
-    let exe = if launcher.is_file() {
-        launcher
-    } else {
-        paths::executable()?
-    };
+    // The installed companion, not the source-tree script: login must not wait
+    // on (or fail at) a cargo build.
+    let exe = crate::steamctl::install_companion()?;
     let content = format!(
         "[Desktop Entry]\nType=Application\nName=ExxaTools\nComment=Steam depots and manifests on Vapor Forge\nExec={} serve --port 8765\nIcon={}\nTerminal=false\nX-GNOME-Autostart-enabled=true\n",
         exe.display(),
