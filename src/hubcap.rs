@@ -53,7 +53,7 @@ fn request(path: &str, key: &str, params: &[(String, String)]) -> Result<Vec<u8>
         Ok(response) => response,
         Err(ureq::Error::StatusCode(code)) => {
             return Err(HubcapError(match code {
-                401 => "Hubcap rejected the API key".to_string(),
+                401 => "Hubcap rejected the API key — free keys expire after 7 days; get a new one at hubcapmanifest.com and save it in Settings".to_string(),
                 429 => "Hubcap daily limit reached".to_string(),
                 other => format!("Hubcap returned HTTP {other}"),
             }));

@@ -246,6 +246,21 @@ pub fn start_pump() {
 
 /// Answers the inline store-page actions: a probe reports whether the app is in
 /// the library, Add fetches a plan, Restart applies it, Sync refreshes manifests.
+/// Navigation actions (opening Settings or the dashboard) must not hide the
+/// library affordances: Add/Sync stay exactly as the library state dictates.
+fn page_affordances(planned: bool, setup_needed: bool) -> (bool, bool, bool) {
+    (!planned, planned, setup_needed)
+}
+
+/// Failures the user fixes in Settings (missing/expired key, no source, rate
+/// limit) should surface the Setup source action next to the error.
+fn error_needs_setup(error: &str) -> bool {
+    error.contains("plan source")
+        || error.contains("API key")
+        || error.contains("daily limit")
+        || error.contains("ryuu")
+}
+
 fn handle_page_request(ws: &str, request: &Value) {
     let appid = request.get("appid").and_then(Value::as_u64).unwrap_or(0);
     if appid == 0 {
@@ -261,8 +276,14 @@ fn handle_page_request(ws: &str, request: &Value) {
                 .map(str::to_string)
         })
         .unwrap_or_else(|| format!("App {appid}"));
-    let planned = crate::state::load()
+    let state = crate::state::load().ok();
+    let planned = state
+        .as_ref()
         .map(|state| state.apps.contains_key(&appid.to_string()))
+        .unwrap_or(false);
+    let setup_needed = state
+        .as_ref()
+        .map(|state| crate::plans::sources(&state.settings).is_empty())
         .unwrap_or(false);
     let (status, can_add, can_sync, can_setup, can_restart, error) = match want {
         "dashboard" => {
@@ -270,14 +291,14 @@ fn handle_page_request(ws: &str, request: &Value) {
                 Ok(()) => "Dashboard opened".to_string(),
                 Err(error) => error,
             };
-            (message, false, planned, false, false, false)
+            (message, !planned, planned, setup_needed, false, false)
         }
         "settings" => {
             let message = match open_dashboard_page("settings") {
                 Ok(()) => "Settings opened".to_string(),
                 Err(error) => error,
             };
-            (message, false, planned, false, false, false)
+            (message, !planned, planned, setup_needed, false, false)
         }
         "launch" => {
             let message = match crate::desktop::spawn_reaped(
@@ -286,7 +307,7 @@ fn handle_page_request(ws: &str, request: &Value) {
                 Ok(_) => format!("Launching {name}"),
                 Err(error) => format!("Steam did not open: {error}"),
             };
-            (message, false, planned, false, false, false)
+            (message, !planned, planned, setup_needed, false, false)
         }
         "restart" => match crate::steamctl::restart(&[]) {
             Ok(_) => (
@@ -322,7 +343,7 @@ fn handle_page_request(ws: &str, request: &Value) {
                 false,
             ),
             Err(error) => {
-                let setup = error.contains("plan source");
+                let setup = setup_needed || error_needs_setup(&error);
                 (error, true, planned, setup, false, true)
             }
         },
@@ -337,18 +358,21 @@ fn handle_page_request(ws: &str, request: &Value) {
             ),
             Err(error) => (error, false, true, false, false, true),
         },
-        _ => (
-            if planned {
-                "In your library. Sync to pick up the newest manifests.".to_string()
-            } else {
-                "Not in your library yet.".to_string()
-            },
-            !planned,
-            planned,
-            false,
-            false,
-            false,
-        ),
+        _ => {
+            let (can_add, can_sync, can_setup) = page_affordances(planned, setup_needed);
+            (
+                if planned {
+                    "In your library. Sync to pick up the newest manifests.".to_string()
+                } else {
+                    "Not in your library yet.".to_string()
+                },
+                can_add,
+                can_sync,
+                can_setup,
+                false,
+                false,
+            )
+        }
     };
     let payload = json!({
         "appid": appid,
@@ -1032,5 +1056,39 @@ mod store_tests {
         assert!(MENU_SCRIPT.contains("\"Motiva Sans\""));
         assert!(MENU_SCRIPT.contains("#8b5cf6"));
         assert!(MENU_SCRIPT.contains("#a78bfa"));
+    }
+}
+
+#[cfg(test)]
+mod page_tests {
+    use super::{error_needs_setup, page_affordances};
+
+    #[test]
+    fn navigation_keeps_add_for_games_outside_the_library() {
+        assert_eq!(page_affordances(false, false), (true, false, false));
+        assert_eq!(page_affordances(false, true), (true, false, true));
+    }
+
+    #[test]
+    fn planned_games_keep_sync_instead_of_add() {
+        assert_eq!(page_affordances(true, false), (false, true, false));
+        assert_eq!(page_affordances(true, true), (false, true, true));
+    }
+
+    #[test]
+    fn key_and_source_failures_offer_setup() {
+        assert!(error_needs_setup(
+            "no plan source configured: add a Hubcap or Ryuu key in Settings"
+        ));
+        assert!(error_needs_setup("Hubcap rejected the API key"));
+        assert!(error_needs_setup("no Hubcap API key set"));
+        assert!(error_needs_setup("Hubcap daily limit reached"));
+        assert!(error_needs_setup(
+            "ryuu answered with an HTML page (login or challenge)"
+        ));
+        assert!(!error_needs_setup(
+            "app 5196330 is not in the Hubcap database"
+        ));
+        assert!(!error_needs_setup("cannot reach Hubcap: timeout"));
     }
 }
