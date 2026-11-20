@@ -50,7 +50,7 @@ fn main() {
                 "exxa log [lines]",
                 "exxa discover [limit]",
                 "exxa provider [--write]",
-                "exxa serve [--port 8765] [--window]",
+                "exxa serve [--port 47865] [--window]",
                 "exxa steam [steam args...]",
                 "exxa steamui status|inject|remove|install|uninstall|enable",
                 "exxa shortcut [install|remove]",
@@ -299,7 +299,7 @@ fn main() {
             if !args.iter().any(|value| value == steamui::FLAG) {
                 args.insert(0, steamui::FLAG.to_string());
             }
-            if let Err(error) = steamctl::ensure_server(8765) {
+            if let Err(error) = steamctl::ensure_server(crate::server::DEFAULT_PORT) {
                 fail(error);
             }
             // A Steam that was already running without the CEF flag ignores the
@@ -323,7 +323,7 @@ fn main() {
         "serve" => {
             let port = arg_value(rest, "--port")
                 .and_then(|value| value.parse().ok())
-                .unwrap_or(8765);
+                .unwrap_or(crate::server::DEFAULT_PORT);
             // A serve started by the Steam-side shim has no controlling
             // terminal and a different cwd; keep the private companion copy
             // fresh so the next Steam launch execs this same build.
@@ -341,10 +341,11 @@ fn main() {
             }
         }
         "window" => {
-            let port = arg_value(rest, "--port").unwrap_or_else(|| "8765".into());
+            let port = arg_value(rest, "--port")
+                .unwrap_or_else(|| crate::server::DEFAULT_PORT.to_string());
             let url =
                 arg_value(rest, "--url").unwrap_or_else(|| format!("http://127.0.0.1:{port}/"));
-            if std::net::TcpStream::connect(("127.0.0.1", port.parse().unwrap_or(8765))).is_err() {
+            if !crate::server::is_ours(port.parse().unwrap_or(crate::server::DEFAULT_PORT)) {
                 let exe = paths::executable().unwrap_or_default();
                 let _ = crate::desktop::spawn_reaped(
                     std::process::Command::new(exe)

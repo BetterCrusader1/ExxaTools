@@ -505,8 +505,13 @@ pub fn launch(extra_args: &[String]) -> Result<(), String> {
 /// Start the local server unless something already answers on the port. Returns
 /// true when this call started it.
 pub fn ensure_server(port: u16) -> Result<bool, String> {
-    if std::net::TcpStream::connect(("127.0.0.1", port)).is_ok() {
+    if crate::server::is_ours(port) {
         return Ok(false);
+    }
+    if std::net::TcpStream::connect(("127.0.0.1", port)).is_ok() {
+        return Err(format!(
+            "another program already listens on 127.0.0.1:{port}; ExxaTools cannot start there"
+        ));
     }
     let exe = crate::paths::executable().map_err(|error| error.to_string())?;
     crate::desktop::spawn_reaped(
@@ -518,7 +523,7 @@ pub fn ensure_server(port: u16) -> Result<bool, String> {
     .map_err(|error| format!("cannot start ExxaTools: {error}"))?;
     for _ in 0..50 {
         std::thread::sleep(std::time::Duration::from_millis(100));
-        if std::net::TcpStream::connect(("127.0.0.1", port)).is_ok() {
+        if crate::server::is_ours(port) {
             return Ok(true);
         }
     }

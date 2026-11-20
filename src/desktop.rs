@@ -53,8 +53,9 @@ pub fn install_autostart() -> Result<Value, String> {
     // on (or fail at) a cargo build.
     let exe = crate::steamctl::install_companion()?;
     let content = format!(
-        "[Desktop Entry]\nType=Application\nName=ExxaTools\nComment=Steam depots and manifests on Vapor Forge\nExec={} serve --port 8765\nIcon={}\nTerminal=false\nX-GNOME-Autostart-enabled=true\n",
+        "[Desktop Entry]\nType=Application\nName=ExxaTools\nComment=Steam depots and manifests on Vapor Forge\nExec={} serve --port {}\nIcon={}\nTerminal=false\nX-GNOME-Autostart-enabled=true\n",
         exe.display(),
+        crate::server::DEFAULT_PORT,
         paths::web_dir().join("logo.png").display()
     );
     std::fs::write(&target, content)

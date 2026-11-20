@@ -16,7 +16,7 @@ Forge working on current Steam builds lives in
 
 Starting Steam starts ExxaTools — no scripts, no autostart, no background
 loop. A wrapper around Steam's container launcher raises the API server on
-`127.0.0.1:8765` and loads the shim into the client.
+`127.0.0.1:47865` and loads the shim into the client.
 
 ```sh
 steam          # the server comes up by itself
@@ -79,7 +79,7 @@ setmanifestid(731, "7643209663222864337")  -- pinned manifest
 
 | Symptom | Fix |
 | --- | --- |
-| No server on 8765 after a Steam update | `./exxa steam` once — it reinstalls the container wrapper |
+| No server on 47865 after a Steam update | `./exxa steam` once — it reinstalls the container wrapper |
 | Game sticks in "update required" | `./exxa fix <appid>` |
 | Download stalls on content servers | mirrors are rate limited — wait or add your own in Settings |
 | Shim missing from the client | `exxa doctor` names the broken link in the chain |

@@ -24,8 +24,28 @@ pub struct Config {
 static PORT: std::sync::OnceLock<u16> = std::sync::OnceLock::new();
 
 /// The port the API is actually listening on, so injected scripts agree.
+/// A port no common dev server picks: 8765 is a popular default, and a foreign
+/// service there made every ExxaTools start think its server was already up.
+pub const DEFAULT_PORT: u16 = 47865;
+
 pub fn port() -> u16 {
-    *PORT.get().unwrap_or(&8765)
+    *PORT.get().unwrap_or(&DEFAULT_PORT)
+}
+
+/// Our `/api/session` answers `{token: <64 hex>, version}`; anything else on the
+/// port is another program.
+pub fn looks_like_session(value: &Value) -> bool {
+    let token = value.get("token").and_then(Value::as_str).unwrap_or("");
+    token.len() == 64
+        && token.chars().all(|ch| ch.is_ascii_hexdigit())
+        && value.get("version").and_then(Value::as_str).is_some()
+}
+
+/// True only when ExxaTools itself answers on the port, not merely something.
+pub fn is_ours(port: u16) -> bool {
+    crate::http::get_json(&format!("http://127.0.0.1:{port}/api/session"))
+        .map(|value| looks_like_session(&value))
+        .unwrap_or(false)
 }
 
 fn mime_for(path: &Path) -> &'static str {
@@ -1461,7 +1481,7 @@ fn handle(mut stream: TcpStream) {
         origin.as_deref(),
         supplied.as_deref(),
         token(),
-        PORT.get().copied().unwrap_or(8765),
+        PORT.get().copied().unwrap_or(DEFAULT_PORT),
     ) {
         respond_json(&mut stream, status, &json!({ "error": message }));
         return;
@@ -1551,5 +1571,30 @@ mod tests {
         assert_eq!(decode("tom%27s%20game"), "tom's game");
         assert_eq!(decode("plain"), "plain");
         assert_eq!(decode("bad%zz"), "bad%zz");
+    }
+}
+
+#[cfg(test)]
+mod identity_tests {
+    use super::looks_like_session;
+    use serde_json::json;
+
+    #[test]
+    fn our_session_is_recognised() {
+        let token = "a".repeat(64);
+        assert!(looks_like_session(
+            &json!({"token": token, "version": "0.3.0"})
+        ));
+    }
+
+    #[test]
+    fn a_foreign_server_on_the_port_is_not_ours() {
+        assert!(!looks_like_session(&json!({"detail": "Not Found"})));
+        assert!(!looks_like_session(
+            &json!({"token": "short", "version": "1"})
+        ));
+        assert!(!looks_like_session(
+            &json!({"token": "g".repeat(64), "version": "1"})
+        ));
     }
 }
