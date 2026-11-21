@@ -15,7 +15,7 @@ use crate::ui::worker::Command;
 const HERO_HEIGHT: i32 = 340;
 /// Steam library heroes are up to 3840 px wide; the full-bleed hero rarely
 /// shows more than this logical width, so decoding more only wastes memory.
-const HERO_DECODE_WIDTH: i32 = 1600;
+const HERO_DECODE_WIDTH: i32 = 1280;
 /// The title logo fits inside this logical box, keeping its aspect.
 const LOGO_MAX_WIDTH: i32 = 380;
 const LOGO_MAX_HEIGHT: i32 = 120;

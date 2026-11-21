@@ -529,7 +529,6 @@ impl Art {
         let picture = gtk::Picture::new();
         picture.set_content_fit(gtk::ContentFit::Cover);
         picture.set_can_shrink(true);
-        picture.set_hexpand(true);
 
         let letter = gtk::Label::new(None);
         letter.add_css_class("art-letter");

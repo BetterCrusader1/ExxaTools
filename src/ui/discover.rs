@@ -15,7 +15,7 @@ use crate::ui::worker::Command;
 
 const FEATURED_COUNT: usize = 5;
 const FEATURED_HEIGHT: i32 = 320;
-const FEATURED_DECODE_WIDTH: i32 = 1600;
+const FEATURED_DECODE_WIDTH: i32 = 1280;
 /// Long enough to read a title and reach the Add button.
 const FEATURED_INTERVAL: std::time::Duration = std::time::Duration::from_secs(7);
 

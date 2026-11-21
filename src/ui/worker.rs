@@ -68,10 +68,14 @@ impl Worker {
     pub fn start() -> (Self, Receiver<Event>) {
         let (command_tx, command_rx) = channel::<Command>();
         let (event_tx, event_rx) = channel::<Event>();
+        heap::limit_arenas();
         std::thread::spawn(move || {
             while let Ok(command) = command_rx.recv() {
                 let events = event_tx.clone();
-                std::thread::spawn(move || run(command, events));
+                std::thread::spawn(move || {
+                    run(command, events);
+                    heap::trim();
+                });
             }
         });
         (
@@ -85,6 +89,39 @@ impl Worker {
     pub fn send(&self, command: Command) {
         let _ = self.commands.send(command);
     }
+}
+
+/// glibc gives each thread its own malloc arena and keeps freed memory in
+/// it. Every command runs on a fresh thread and downloads art in parallel,
+/// so without a cap the freed HTTP and JSON buffers stayed resident.
+#[cfg(all(target_os = "linux", target_env = "gnu"))]
+mod heap {
+    extern "C" {
+        fn mallopt(param: i32, value: i32) -> i32;
+        fn malloc_trim(pad: usize) -> i32;
+    }
+
+    const M_ARENA_MAX: i32 = -8;
+
+    pub fn limit_arenas() {
+        // SAFETY: plain glibc tunables; no pointers cross the boundary.
+        unsafe {
+            mallopt(M_ARENA_MAX, 2);
+        }
+    }
+
+    pub fn trim() {
+        // SAFETY: returns free heap pages to the OS; never touches live data.
+        unsafe {
+            malloc_trim(0);
+        }
+    }
+}
+
+#[cfg(not(all(target_os = "linux", target_env = "gnu")))]
+mod heap {
+    pub fn limit_arenas() {}
+    pub fn trim() {}
 }
 
 fn run(command: Command, events: Sender<Event>) {

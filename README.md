@@ -31,12 +31,13 @@ restart; each library game has Install, Sync, Launch and Fix update buttons.
 ## The dashboard
 
 - **Library** — shelf, per-game inspector, depot table, plan details
-- **Discover** — store grid, games only
+- **Discover** — featured banner and poster grid, games only
 - **System** — the Doctor's checks, each with its fix
 - **Settings** — sources, keys, request-code mirrors
 
-Two Nacre themes — graphite violet and light pearl — switched live from the
-title bar.
+Midnight dark and paper light themes, switched live from the title bar. The
+selected game's blurred art and accent color tint the Library; Discover leads
+with a featured banner and Steam's portrait posters.
 
 ## Daily commands
 
