@@ -54,6 +54,7 @@ pub enum Event {
     Hero {
         appid: u64,
         path: Option<std::path::PathBuf>,
+        logo: Option<std::path::PathBuf>,
     },
     Theme(String),
 }
@@ -241,7 +242,8 @@ fn run(command: Command, events: Sender<Event>) {
         },
         Command::LoadHero(appid) => {
             let path = covers::ensure_hero(appid);
-            let _ = events.send(Event::Hero { appid, path });
+            let logo = covers::ensure_asset(appid, covers::Asset::Logo);
+            let _ = events.send(Event::Hero { appid, path, logo });
         }
         Command::SetTheme(value) => {
             let result = crate::state::update(|state| {

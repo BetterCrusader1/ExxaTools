@@ -90,6 +90,7 @@ pub struct Game {
     pub cover: Option<std::path::PathBuf>,
     pub cover_url: Option<String>,
     pub hero: Option<std::path::PathBuf>,
+    pub logo: Option<std::path::PathBuf>,
 }
 
 impl Game {
@@ -161,6 +162,7 @@ impl Game {
             cover: None,
             cover_url: None,
             hero: None,
+            logo: None,
         })
     }
 
@@ -188,6 +190,7 @@ impl Game {
                 .filter(|url| url.starts_with("https://"))
                 .map(str::to_string),
             hero: None,
+            logo: None,
         })
     }
 

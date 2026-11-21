@@ -484,7 +484,7 @@ fn build(app: &adw::Application, initial: Page) -> Ctx {
                         ctx.toast_text("Diagnostics copied to the clipboard");
                     }
                     Event::SettingsReload => settings.reload(),
-                    Event::Hero { appid, path } => {
+                    Event::Hero { appid, path, logo } => {
                         if view.borrow().selected == Some(appid) {
                             if let Some(game) = view
                                 .borrow_mut()
@@ -493,6 +493,7 @@ fn build(app: &adw::Application, initial: Page) -> Ctx {
                                 .find(|game| game.appid == appid)
                             {
                                 game.hero = path;
+                                game.logo = logo;
                             }
                             let game = view
                                 .borrow()

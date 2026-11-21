@@ -68,23 +68,136 @@ fn download(appid: u64, url: &str) -> Option<PathBuf> {
     Some(path)
 }
 
-/// The wide Steam library art used behind the inspector's title.
-pub fn ensure_hero(appid: u64) -> Option<PathBuf> {
+/// Steam library art kept next to the header covers. Each kind has a fixed
+/// path on the public CDN; a title that lacks one gets a short-lived marker so
+/// Discover does not re-request sixty missing files on every load.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Asset {
+    /// Wide, logo-free key art behind the inspector and the window backdrop.
+    Hero,
+    /// The 600x900 portrait poster.
+    Capsule,
+    /// Transparent title logo drawn over the hero.
+    Logo,
+}
+
+/// A missing asset is retried after this long; Steam adds library art to
+/// older titles from time to time.
+const MISSING_TTL: std::time::Duration = std::time::Duration::from_secs(7 * 24 * 60 * 60);
+
+impl Asset {
+    fn file(self, appid: u64) -> String {
+        match self {
+            Self::Hero => format!("{appid}-hero.jpg"),
+            Self::Capsule => format!("{appid}-capsule.jpg"),
+            Self::Logo => format!("{appid}-logo.png"),
+        }
+    }
+
+    fn remote(self) -> &'static str {
+        match self {
+            Self::Hero => "library_hero.jpg",
+            Self::Capsule => "library_600x900.jpg",
+            Self::Logo => "logo.png",
+        }
+    }
+
+    /// Anything smaller is an error page or a placeholder, not art.
+    fn min_len(self) -> usize {
+        match self {
+            Self::Hero | Self::Capsule => 2048,
+            Self::Logo => 512,
+        }
+    }
+}
+
+fn missing_is_fresh(age: std::time::Duration) -> bool {
+    age < MISSING_TTL
+}
+
+/// Returns the local file for `asset`, downloading it once. Only a definite
+/// "not there" answer (HTTP 403/404) is remembered; network errors are not.
+pub fn ensure_asset(appid: u64, asset: Asset) -> Option<PathBuf> {
     if appid == 0 {
         return None;
     }
-    let path = cover_dir().join(format!("{appid}-hero.jpg"));
+    let dir = cover_dir();
+    let name = asset.file(appid);
+    let path = dir.join(&name);
     if path.is_file() {
         return Some(path);
     }
-    std::fs::create_dir_all(cover_dir()).ok()?;
-    let url = format!("https://cdn.akamai.steamstatic.com/steam/apps/{appid}/library_hero.jpg");
-    let body = crate::http::get_with(&url, None, Some(std::time::Duration::from_secs(7))).ok()?;
-    if body.len() < 2048 {
+    let marker = dir.join(format!("{name}.missing"));
+    let marked = std::fs::metadata(&marker)
+        .and_then(|meta| meta.modified())
+        .ok()
+        .and_then(|modified| modified.elapsed().ok())
+        .is_some_and(missing_is_fresh);
+    if marked {
         return None;
     }
-    let temp = cover_dir().join(format!("{appid}-hero.jpg.tmp"));
+    std::fs::create_dir_all(&dir).ok()?;
+    let url = format!(
+        "https://cdn.akamai.steamstatic.com/steam/apps/{appid}/{}",
+        asset.remote()
+    );
+    let body = match crate::http::get_with(&url, None, Some(std::time::Duration::from_secs(7))) {
+        Ok(body) if body.len() >= asset.min_len() => body,
+        Ok(_) => {
+            let _ = std::fs::write(&marker, b"");
+            return None;
+        }
+        Err(error) => {
+            if matches!(error.status, Some(403 | 404)) {
+                let _ = std::fs::write(&marker, b"");
+            }
+            return None;
+        }
+    };
+    let temp = dir.join(format!("{name}.tmp"));
     std::fs::write(&temp, body).ok()?;
     std::fs::rename(&temp, &path).ok()?;
+    let _ = std::fs::remove_file(&marker);
     Some(path)
+}
+
+/// The wide Steam library art used behind the inspector's title.
+pub fn ensure_hero(appid: u64) -> Option<PathBuf> {
+    ensure_asset(appid, Asset::Hero)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::Duration;
+
+    #[test]
+    fn asset_files_never_collide_with_the_header_cover() {
+        let header = format!("{}.jpg", 620);
+        let files = [Asset::Hero, Asset::Capsule, Asset::Logo].map(|asset| asset.file(620));
+        assert!(!files.contains(&header));
+        assert_eq!(files, ["620-hero.jpg", "620-capsule.jpg", "620-logo.png"]);
+    }
+
+    #[test]
+    fn existing_hero_cache_keeps_its_name() {
+        assert_eq!(Asset::Hero.file(108600), "108600-hero.jpg");
+        assert_eq!(Asset::Hero.remote(), "library_hero.jpg");
+    }
+
+    #[test]
+    fn a_missing_marker_expires_after_a_week() {
+        assert!(missing_is_fresh(Duration::from_secs(60)));
+        assert!(missing_is_fresh(Duration::from_secs(6 * 24 * 60 * 60)));
+        assert!(!missing_is_fresh(Duration::from_secs(8 * 24 * 60 * 60)));
+    }
+
+    #[test]
+    #[ignore = "network: hits the Steam CDN"]
+    fn steam_serves_portrait_and_logo_art() {
+        for appid in [620, 108600, 2605790] {
+            assert!(ensure_asset(appid, Asset::Capsule).is_some(), "capsule {appid}");
+            assert!(ensure_asset(appid, Asset::Logo).is_some(), "logo {appid}");
+        }
+    }
 }
