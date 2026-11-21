@@ -7,9 +7,15 @@ use std::time::Duration;
 use adw::prelude::*;
 use gtk::{Box as GtkBox, Orientation};
 
+use crate::ui::art::Art;
 use crate::ui::model::{Game, GameState, Origin};
 use crate::ui::shell::Ctx;
 use crate::ui::worker::Command;
+
+const HERO_HEIGHT: i32 = 260;
+/// Steam library heroes are up to 3840 px wide; the inspector never shows more
+/// than this logical width, so decoding the full image only wastes memory.
+const HERO_DECODE_WIDTH: i32 = 1280;
 
 pub struct Inspector {
     pub root: gtk::Widget,
@@ -223,29 +229,10 @@ fn action_button(label: &str) -> gtk::Button {
 }
 
 fn hero(game: &Game, actions: &GtkBox) -> gtk::Widget {
-    let art = game.hero.as_ref().or(game.cover.as_ref());
-    let base: gtk::Widget = match art {
-        Some(path) => {
-            let picture = gtk::Picture::for_filename(path);
-            picture.set_content_fit(gtk::ContentFit::Cover);
-            picture.set_size_request(-1, 260);
-            picture.set_hexpand(true);
-            picture.add_css_class("hero");
-            picture.upcast()
-        }
-        None => {
-            let letter = gtk::Label::new(Some(&game.initial()));
-            letter.add_css_class("hero-letter");
-            letter.set_halign(gtk::Align::Center);
-            letter.set_valign(gtk::Align::Center);
-            let fallback = gtk::Overlay::new();
-            fallback.add_css_class("hero-fallback");
-            fallback.set_size_request(-1, 260);
-            fallback.set_hexpand(true);
-            fallback.set_child(Some(&letter));
-            fallback.upcast()
-        }
-    };
+    let art = game.hero.as_deref().or(game.cover.as_deref());
+    let base = Art::new(-1, HERO_HEIGHT, "hero");
+    base.set(art, &game.initial(), Some(HERO_DECODE_WIDTH));
+    base.root.set_hexpand(true);
 
     let scrim = GtkBox::new(Orientation::Vertical, 0);
     scrim.add_css_class("hero-scrim");
@@ -295,12 +282,22 @@ fn hero(game: &Game, actions: &GtkBox) -> gtk::Widget {
 
     let overlay = gtk::Overlay::new();
     overlay.add_css_class("hero-wrap");
-    overlay.set_size_request(-1, 260);
+    overlay.set_size_request(-1, HERO_HEIGHT);
     overlay.set_hexpand(true);
-    overlay.set_child(Some(&base));
+    overlay.set_child(Some(&base.root));
     overlay.add_overlay(&scrim);
     overlay.add_overlay(&content);
-    overlay.upcast()
+
+    // Wide windows would otherwise grow the hero to the art's natural aspect
+    // height; the vertical clamp holds the cinematic band at a fixed height.
+    let clamp = adw::Clamp::builder()
+        .orientation(Orientation::Vertical)
+        .maximum_size(HERO_HEIGHT)
+        .tightening_threshold(HERO_HEIGHT)
+        .child(&overlay)
+        .build();
+    clamp.set_hexpand(true);
+    clamp.upcast()
 }
 
 fn depots_section(ctx: &Ctx, game: &Game) -> gtk::Widget {

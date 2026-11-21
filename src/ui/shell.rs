@@ -109,7 +109,7 @@ pub fn run(url: &str) -> Result<(), String> {
     app.connect_startup(|_| {
         if let Some(display) = gtk::gdk::Display::default() {
             let provider = gtk::CssProvider::new();
-            provider.load_from_data(STYLE);
+            provider.load_from_data(&format!("{STYLE}{}", crate::ui::art::STYLE));
             gtk::style_context_add_provider_for_display(
                 &display,
                 &provider,
@@ -628,17 +628,21 @@ const STYLE: &str = r#"
     background-color: @sidebar_bg_color;
     border-right: 1px solid @borders;
 }
+.nav-rail list { background: none; }
 .nav-row {
-    border-radius: 6px;
-    margin-left: 6px;
-    margin-right: 6px;
+    border-radius: 10px;
+    margin: 1px 10px;
+    transition: background-color 140ms ease-out;
 }
-.nav-row:selected {
-    background-color: alpha(@accent_bg_color, 0.10);
-    box-shadow: inset 3px 0 0 @accent_bg_color;
+.nav-row:hover { background-color: @surface_raise; }
+.nav-row:selected,
+.nav-row:selected:hover {
+    background-color: @surface_hover;
 }
-.nav-row:selected .nav-icon,
-.nav-row:selected .nav-label { color: @accent_color; }
+.nav-icon { color: alpha(@window_fg_color, 0.6); }
+.nav-label { font-weight: 600; color: alpha(@window_fg_color, 0.78); }
+.nav-row:selected .nav-icon { color: @accent_color; }
+.nav-row:selected .nav-label { color: @window_fg_color; }
 
 .shelf {
     background-color: @window_bg_color;
@@ -646,13 +650,14 @@ const STYLE: &str = r#"
 }
 .shelf-list { background-color: transparent; }
 .game-row {
-    border-radius: 6px;
+    border-radius: 12px;
     margin-bottom: 2px;
+    transition: background-color 140ms ease-out;
 }
-.game-row:selected {
-    background-color: alpha(@accent_bg_color, 0.12);
-    box-shadow: inset 3px 0 0 @accent_bg_color;
-}
+.game-row:hover { background-color: @surface_raise; }
+.game-row:selected,
+.game-row:selected:hover { background-color: @surface_hover; }
+.game-name { font-weight: 600; }
 
 .status-dot {
     min-width: 7px;
@@ -665,29 +670,11 @@ const STYLE: &str = r#"
 .dot-warning { background-color: @error_color; }
 .dot-disabled { background-color: @insensitive_fg_color; }
 
-.monogram {
-    background-color: @card_bg_color;
-    border: 1px solid @borders;
-    border-radius: 6px;
-}
-.monogram-letter {
-    font-weight: 700;
-    color: @window_fg_color;
-    margin-left: 10px;
-}
-.shelf-cover { border-radius: 6px; }
+.shelf-cover { border-radius: 7px; }
+.shelf-cover .art-letter { font-size: 13px; }
 
-.hero { border-radius: 12px; }
-.hero-fallback {
-    background-color: @card_bg_color;
-    border: 1px solid @borders;
-    border-radius: 12px;
-}
-.hero-letter {
-    font-size: 64px;
-    font-weight: 700;
-    color: @insensitive_fg_color;
-}
+.hero { border-radius: 16px; }
+.hero .art-letter { font-size: 64px; }
 
 .depot-table { padding: 3px 0; }
 .depot-table separator { min-height: 1px; }

@@ -1,0 +1,364 @@
+//! Cover and hero art decoded off the main thread into GPU textures. A
+//! byte-bounded LRU keeps scrolling from decoding twice or growing without
+//! limit; every widget asks for exactly the pixels it shows at its scale.
+
+use std::cell::{Cell, RefCell};
+use std::collections::HashMap;
+use std::hash::Hash;
+use std::path::{Path, PathBuf};
+use std::rc::Rc;
+
+use gtk::prelude::*;
+use gtk::{gdk, glib};
+
+/// Decoded art kept resident. Discover at 2x is ~20 MB for 60 covers, so this
+/// holds a full page plus the library and a few heroes before evicting.
+const BUDGET_BYTES: usize = 48 * 1024 * 1024;
+
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+struct Key {
+    path: PathBuf,
+    width: i32,
+    height: i32,
+}
+
+/// Least-recently-used map whose capacity is a byte cost, not an entry count.
+struct Lru<K, V> {
+    entries: HashMap<K, (V, usize, u64)>,
+    bytes: usize,
+    budget: usize,
+    tick: u64,
+}
+
+impl<K: Clone + Eq + Hash, V: Clone> Lru<K, V> {
+    fn new(budget: usize) -> Self {
+        Self {
+            entries: HashMap::new(),
+            bytes: 0,
+            budget,
+            tick: 0,
+        }
+    }
+
+    fn get(&mut self, key: &K) -> Option<V> {
+        self.tick += 1;
+        let tick = self.tick;
+        self.entries.get_mut(key).map(|entry| {
+            entry.2 = tick;
+            entry.0.clone()
+        })
+    }
+
+    fn insert(&mut self, key: K, value: V, cost: usize) {
+        self.tick += 1;
+        if let Some((_, old, _)) = self.entries.insert(key, (value, cost, self.tick)) {
+            self.bytes -= old;
+        }
+        self.bytes += cost;
+        while self.bytes > self.budget && self.entries.len() > 1 {
+            let Some(oldest) = self
+                .entries
+                .iter()
+                .min_by_key(|(_, entry)| entry.2)
+                .map(|(key, _)| key.clone())
+            else {
+                break;
+            };
+            if let Some((_, cost, _)) = self.entries.remove(&oldest) {
+                self.bytes -= cost;
+            }
+        }
+    }
+}
+
+type Waiter = Box<dyn FnOnce(Option<gdk::Texture>)>;
+
+struct Store {
+    cache: Lru<Key, gdk::Texture>,
+    pending: HashMap<Key, Vec<Waiter>>,
+}
+
+thread_local! {
+    static STORE: RefCell<Store> = RefCell::new(Store {
+        cache: Lru::new(BUDGET_BYTES),
+        pending: HashMap::new(),
+    });
+}
+
+/// Raw pixels produced on the worker thread; `glib::Bytes` is `Send`, a
+/// `Pixbuf` is not, so the texture itself is built back on the main thread.
+struct Decoded {
+    bytes: glib::Bytes,
+    width: i32,
+    height: i32,
+    stride: usize,
+    alpha: bool,
+}
+
+/// `height < 0` keeps the source aspect ratio at the requested width.
+fn decode(key: &Key) -> Option<Decoded> {
+    let preserve = key.height < 0;
+    let pixbuf =
+        gtk::gdk_pixbuf::Pixbuf::from_file_at_scale(&key.path, key.width, key.height, preserve)
+            .ok()?;
+    Some(Decoded {
+        bytes: pixbuf.read_pixel_bytes(),
+        width: pixbuf.width(),
+        height: pixbuf.height(),
+        stride: pixbuf.rowstride() as usize,
+        alpha: pixbuf.has_alpha(),
+    })
+}
+
+fn texture(decoded: Decoded) -> gdk::Texture {
+    let format = if decoded.alpha {
+        gdk::MemoryFormat::R8g8b8a8
+    } else {
+        gdk::MemoryFormat::R8g8b8
+    };
+    gdk::MemoryTexture::new(
+        decoded.width,
+        decoded.height,
+        format,
+        &decoded.bytes,
+        decoded.stride,
+    )
+    .upcast()
+}
+
+/// Calls `done` synchronously on a cache hit, otherwise once the shared decode
+/// finishes. Concurrent requests for the same art share one decode.
+fn load(key: Key, done: Waiter) {
+    let hit = STORE.with(|store| store.borrow_mut().cache.get(&key));
+    if let Some(texture) = hit {
+        done(Some(texture));
+        return;
+    }
+    let first = STORE.with(|store| {
+        let mut store = store.borrow_mut();
+        let waiters = store.pending.entry(key.clone()).or_default();
+        waiters.push(done);
+        waiters.len() == 1
+    });
+    if !first {
+        return;
+    }
+    DECODER.with(|decoder| decoder.send(key).ok());
+}
+
+/// Decoding runs on one long-lived thread instead of the shared GIO pool:
+/// every pool thread grows its own malloc arena, which kept several MB of
+/// freed JPEG buffers resident for the life of the window.
+fn spawn_decoder() -> std::sync::mpsc::Sender<Key> {
+    let (tx, rx) = std::sync::mpsc::channel::<Key>();
+    std::thread::Builder::new()
+        .name("exxa-art".into())
+        .spawn(move || {
+            for key in rx {
+                let decoded = decode(&key);
+                glib::idle_add_once(move || finish(key, decoded));
+            }
+        })
+        .expect("spawn art decoder");
+    tx
+}
+
+thread_local! {
+    static DECODER: std::sync::mpsc::Sender<Key> = spawn_decoder();
+}
+
+fn finish(key: Key, decoded: Option<Decoded>) {
+    let texture = decoded.map(|decoded| {
+        let cost = decoded.stride * decoded.height as usize;
+        let texture = texture(decoded);
+        STORE.with(|store| {
+            store
+                .borrow_mut()
+                .cache
+                .insert(key.clone(), texture.clone(), cost)
+        });
+        texture
+    });
+    let waiters = STORE.with(|store| store.borrow_mut().pending.remove(&key));
+    for waiter in waiters.unwrap_or_default() {
+        waiter(texture.clone());
+    }
+}
+
+/// A picture slot with a skeleton while loading, a short fade when art
+/// arrives and a monogram when there is none. Rebinding to another game
+/// cancels the stale result, so recycled grid cells never flash wrong art.
+#[derive(Clone)]
+pub struct Art {
+    pub root: gtk::Overlay,
+    picture: gtk::Picture,
+    letter: gtk::Label,
+    width: i32,
+    height: i32,
+    generation: Rc<Cell<u64>>,
+}
+
+impl Art {
+    /// `height < 0` lets the picture size itself and keeps the source aspect.
+    pub fn new(width: i32, height: i32, class: &str) -> Self {
+        let picture = gtk::Picture::new();
+        picture.set_content_fit(gtk::ContentFit::Cover);
+        picture.set_can_shrink(true);
+        picture.set_hexpand(true);
+
+        let letter = gtk::Label::new(None);
+        letter.add_css_class("art-letter");
+        letter.set_halign(gtk::Align::Center);
+        letter.set_valign(gtk::Align::Center);
+        letter.set_visible(false);
+        letter.set_can_target(false);
+
+        let root = gtk::Overlay::new();
+        root.add_css_class("art");
+        root.add_css_class(class);
+        root.set_overflow(gtk::Overflow::Hidden);
+        root.set_size_request(if width > 0 { width } else { -1 }, height.max(-1));
+        root.set_child(Some(&picture));
+        root.add_overlay(&letter);
+
+        Self {
+            root,
+            picture,
+            letter,
+            width,
+            height,
+            generation: Rc::new(Cell::new(0)),
+        }
+    }
+
+    /// `decode_width` is the logical width to decode at when the slot itself
+    /// stretches (the hero); fixed slots decode at their own size.
+    pub fn set(&self, path: Option<&Path>, initial: &str, decode_width: Option<i32>) {
+        let generation = self.generation.get().wrapping_add(1);
+        self.generation.set(generation);
+        self.picture.set_paintable(None::<&gdk::Paintable>);
+        self.root.remove_css_class("ready");
+        self.root.remove_css_class("instant");
+        self.root.remove_css_class("missing");
+        self.letter.set_text(initial);
+        self.letter.set_visible(false);
+
+        let Some(path) = path else {
+            self.show_missing();
+            return;
+        };
+        let scale = scale_for(self.root.upcast_ref());
+        let width = decode_width.unwrap_or(self.width).max(1) * scale;
+        let height = if decode_width.is_some() || self.height < 0 {
+            -1
+        } else {
+            self.height * scale
+        };
+        let key = Key {
+            path: path.to_path_buf(),
+            width,
+            height,
+        };
+
+        let this = self.clone();
+        let sync = Rc::new(Cell::new(true));
+        let in_call = sync.clone();
+        load(
+            key,
+            Box::new(move |texture| {
+                if this.generation.get() != generation {
+                    return;
+                }
+                match texture {
+                    Some(texture) => {
+                        this.picture.set_paintable(Some(&texture));
+                        if in_call.get() {
+                            this.root.add_css_class("instant");
+                        }
+                        this.root.add_css_class("ready");
+                    }
+                    None => this.show_missing(),
+                }
+            }),
+        );
+        sync.set(false);
+    }
+
+    fn show_missing(&self) {
+        self.root.add_css_class("missing");
+        self.letter.set_visible(true);
+    }
+}
+
+/// Widgets built before they are attached report scale 1, which would decode
+/// blurry art on HiDPI; fall back to the densest monitor in that case.
+fn scale_for(widget: &gtk::Widget) -> i32 {
+    if widget.root().is_some() {
+        return widget.scale_factor().max(1);
+    }
+    let Some(display) = gdk::Display::default() else {
+        return 1;
+    };
+    let monitors = display.monitors();
+    (0..monitors.n_items())
+        .filter_map(|index| monitors.item(index).and_downcast::<gdk::Monitor>())
+        .map(|monitor| monitor.scale_factor())
+        .max()
+        .unwrap_or(1)
+        .max(1)
+}
+
+pub const STYLE: &str = r#"
+.art { background-color: alpha(@window_fg_color, 0.06); }
+.art > picture { opacity: 0; }
+.art.ready > picture {
+    opacity: 1;
+    transition: opacity 220ms ease-out;
+}
+.art.ready.instant > picture { transition: none; }
+.art.missing {
+    background-color: @card_bg_color;
+    box-shadow: inset 0 0 0 1px @borders;
+}
+.art-letter {
+    font-weight: 700;
+    color: @insensitive_fg_color;
+}
+"#;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn eviction_drops_the_least_recently_used_entry_first() {
+        let mut lru = Lru::new(10);
+        lru.insert("a", 1, 4);
+        lru.insert("b", 2, 4);
+        assert_eq!(lru.get(&"a"), Some(1));
+        lru.insert("c", 3, 4);
+        assert_eq!(lru.get(&"b"), None, "b was the least recently used");
+        assert_eq!(lru.get(&"a"), Some(1));
+        assert_eq!(lru.get(&"c"), Some(3));
+        assert_eq!(lru.bytes, 8);
+    }
+
+    #[test]
+    fn replacing_a_key_does_not_double_count_its_cost() {
+        let mut lru = Lru::new(100);
+        lru.insert("a", 1, 30);
+        lru.insert("a", 2, 50);
+        assert_eq!(lru.bytes, 50);
+        assert_eq!(lru.get(&"a"), Some(2));
+    }
+
+    #[test]
+    fn a_single_oversized_entry_is_kept_rather_than_thrashed() {
+        let mut lru = Lru::new(10);
+        lru.insert("big", 1, 64);
+        assert_eq!(lru.get(&"big"), Some(1));
+        lru.insert("next", 2, 4);
+        assert_eq!(lru.get(&"big"), None);
+        assert_eq!(lru.get(&"next"), Some(2));
+    }
+}

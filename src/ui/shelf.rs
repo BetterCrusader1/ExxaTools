@@ -6,6 +6,7 @@ use std::rc::Rc;
 use gtk::prelude::*;
 use gtk::{Box as GtkBox, Orientation};
 
+use crate::ui::art::Art;
 use crate::ui::model::Game;
 
 #[derive(Clone)]
@@ -156,11 +157,9 @@ fn row(game: &Game) -> gtk::ListBoxRow {
     row.set_cursor_from_name(Some("pointer"));
     row.set_tooltip_text(Some(&format!("{} — {}", game.name, game.state.label())));
 
-    let cover = match &game.cover {
-        Some(path) => thumb(path, 64, 30),
-        None => monogram(game, 64, 30),
-    };
-    cover.set_valign(gtk::Align::Center);
+    let cover = Art::new(64, 30, "shelf-cover");
+    cover.set(game.cover.as_deref(), &game.initial(), None);
+    cover.root.set_valign(gtk::Align::Center);
 
     let name = gtk::Label::new(Some(&game.name));
     name.add_css_class("game-name");
@@ -193,46 +192,15 @@ fn row(game: &Game) -> gtk::ListBoxRow {
     content.set_margin_bottom(6);
     content.set_margin_start(8);
     content.set_margin_end(10);
-    content.append(&cover);
+    content.append(&cover.root);
     content.append(&text);
     content.append(&dot);
     row.set_child(Some(&content));
     row
 }
 
-pub fn monogram(game: &Game, width: i32, height: i32) -> gtk::Widget {
-    let letter = gtk::Label::new(Some(&game.initial()));
-    letter.add_css_class("monogram-letter");
-    let box_ = GtkBox::new(Orientation::Vertical, 0);
-    box_.add_css_class("monogram");
-    box_.set_size_request(width, height);
-    box_.set_halign(gtk::Align::Start);
-    box_.set_valign(gtk::Align::Center);
-    box_.append(&letter);
-    box_.upcast()
-}
-
 fn clear(list: &gtk::ListBox) {
     while let Some(child) = list.first_child() {
         list.remove(&child);
-    }
-}
-
-fn thumb(path: &std::path::Path, width: i32, height: i32) -> gtk::Widget {
-    match gtk::gdk_pixbuf::Pixbuf::from_file_at_scale(path, width, height, false) {
-        Ok(pixbuf) => {
-            let image = gtk::Image::from_pixbuf(Some(&pixbuf));
-            image.add_css_class("shelf-cover");
-            image.upcast()
-        }
-        Err(_) => {
-            let letter = gtk::Label::new(Some("?"));
-            letter.add_css_class("monogram-letter");
-            let box_ = GtkBox::new(Orientation::Vertical, 0);
-            box_.add_css_class("monogram");
-            box_.set_size_request(width, height);
-            box_.append(&letter);
-            box_.upcast()
-        }
     }
 }

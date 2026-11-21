@@ -1,5 +1,6 @@
 //! Native dashboard: a depot desk built from small, testable modules.
 
+pub mod art;
 pub mod covers;
 pub mod discover;
 pub mod inspector;

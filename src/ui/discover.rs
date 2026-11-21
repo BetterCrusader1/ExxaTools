@@ -6,16 +6,25 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::rc::Rc;
 
 use adw::prelude::*;
-use gtk::{Box as GtkBox, Orientation};
+use gtk::{gio, glib, Box as GtkBox, Orientation};
 
+use crate::ui::art::Art;
 use crate::ui::model::{parse_updated, Game};
-use crate::ui::shelf::monogram;
 use crate::ui::shell::Ctx;
 use crate::ui::worker::Command;
 
 const CARD_WIDTH: i32 = 232;
 const COVER_WIDTH: i32 = 212;
 const COVER_HEIGHT: i32 = 100;
+/// Cells stretch past the minimum card width, so art decodes a little wider
+/// than the cover's minimum to stay sharp in a three-column window.
+const COVER_DECODE_WIDTH: i32 = 256;
+
+/// One Discover cell: the game plus its library membership at render time.
+struct Card {
+    game: Game,
+    in_library: bool,
+}
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 enum DiscoverFilter {
@@ -49,14 +58,13 @@ impl DiscoverState {
 pub struct DiscoverPage {
     pub root: gtk::Widget,
     stack: gtk::Stack,
-    flow: gtk::FlowBox,
+    cards: gio::ListStore,
     error: adw::StatusPage,
     loading: adw::StatusPage,
     empty: adw::StatusPage,
     subtitle: gtk::Label,
     filter_bar: GtkBox,
     state: Rc<DiscoverState>,
-    ctx: Ctx,
 }
 
 pub fn build(ctx: &Ctx) -> DiscoverPage {
@@ -85,9 +93,9 @@ pub fn build(ctx: &Ctx) -> DiscoverPage {
     header.append(&headings);
 
     let filter_bar = GtkBox::new(Orientation::Horizontal, 0);
-    filter_bar.add_css_class("linked");
+    filter_bar.add_css_class("segmented");
     filter_bar.set_halign(gtk::Align::Start);
-    filter_bar.set_margin_top(4);
+    filter_bar.set_margin_top(6);
     filter_bar.set_margin_start(24);
     filter_bar.set_margin_end(24);
     filter_bar.set_sensitive(false);
@@ -102,22 +110,20 @@ pub fn build(ctx: &Ctx) -> DiscoverPage {
     filter_bar.append(&in_library);
     filter_bar.append(&recently_updated);
 
-    let flow = gtk::FlowBox::new();
-    flow.set_selection_mode(gtk::SelectionMode::None);
-    flow.set_homogeneous(true);
-    flow.set_min_children_per_line(1);
-    flow.set_max_children_per_line(4);
-    flow.set_column_spacing(16);
-    flow.set_row_spacing(18);
-    flow.set_valign(gtk::Align::Start);
-    flow.set_margin_top(16);
-    flow.set_margin_bottom(28);
-    flow.set_margin_start(24);
-    flow.set_margin_end(24);
+    let state = Rc::new(DiscoverState::default());
+    let cards = gio::ListStore::new::<glib::BoxedAnyObject>();
+    let grid = gtk::GridView::new(
+        Some(gtk::NoSelection::new(Some(cards.clone()))),
+        Some(card_factory(ctx, &state)),
+    );
+    grid.add_css_class("discover-grid");
+    grid.set_min_columns(1);
+    grid.set_max_columns(4);
+    grid.set_valign(gtk::Align::Start);
 
     let flow_scroll = gtk::ScrolledWindow::new();
     flow_scroll.set_policy(gtk::PolicyType::Never, gtk::PolicyType::Automatic);
-    flow_scroll.set_child(Some(&flow));
+    flow_scroll.set_child(Some(&grid));
     flow_scroll.set_vexpand(true);
 
     let loading_spinner = gtk::Spinner::new();
@@ -165,15 +171,13 @@ pub fn build(ctx: &Ctx) -> DiscoverPage {
     root.append(&filter_bar);
     root.append(&stack);
 
-    let state = Rc::new(DiscoverState::default());
     for (button, filter) in [
         (popular, DiscoverFilter::Popular),
         (in_library, DiscoverFilter::InLibrary),
         (recently_updated, DiscoverFilter::RecentlyUpdated),
     ] {
         let state = state.clone();
-        let ctx = ctx.clone();
-        let flow = flow.clone();
+        let cards = cards.clone();
         let stack = stack.clone();
         let empty = empty.clone();
         let subtitle = subtitle.clone();
@@ -182,21 +186,20 @@ pub fn build(ctx: &Ctx) -> DiscoverPage {
                 return;
             }
             state.filter.set(filter);
-            render(&ctx, &state, &flow, &stack, &empty, &subtitle);
+            render(&state, &cards, &stack, &empty, &subtitle);
         });
     }
 
     DiscoverPage {
         root: root.upcast(),
         stack,
-        flow,
+        cards,
         error,
         loading,
         empty,
         subtitle,
         filter_bar,
         state,
-        ctx: ctx.clone(),
     }
 }
 
@@ -273,9 +276,8 @@ impl DiscoverPage {
 
     fn render(&self) {
         render(
-            &self.ctx,
             &self.state,
-            &self.flow,
+            &self.cards,
             &self.stack,
             &self.empty,
             &self.subtitle,
@@ -290,17 +292,12 @@ fn filter_button(label: &str) -> gtk::ToggleButton {
 }
 
 fn render(
-    ctx: &Ctx,
     state: &Rc<DiscoverState>,
-    flow: &gtk::FlowBox,
+    cards: &gio::ListStore,
     stack: &gtk::Stack,
     empty: &adw::StatusPage,
     subtitle: &gtk::Label,
 ) {
-    while let Some(child) = flow.first_child() {
-        flow.remove(&child);
-    }
-
     let filter = state.filter.get();
     let total =
         games_for_filter(&state.games.borrow(), &state.library_games.borrow(), filter).len();
@@ -340,6 +337,7 @@ fn render(
     }
 
     if total == 0 && filter != DiscoverFilter::InLibrary && !searching {
+        cards.remove_all();
         stack.set_visible_child_name("error");
         return;
     }
@@ -354,14 +352,20 @@ fn render(
                 _ => "No loaded games match this view.",
             }
         }));
+        cards.remove_all();
         stack.set_visible_child_name("empty");
         return;
     }
 
-    for game in visible {
-        let in_library = state.library.borrow().contains(&game.appid);
-        flow.append(&card(ctx, state, &game, in_library));
-    }
+    let library = state.library.borrow();
+    let items = visible
+        .into_iter()
+        .map(|game| {
+            let in_library = library.contains(&game.appid);
+            glib::BoxedAnyObject::new(Card { game, in_library })
+        })
+        .collect::<Vec<_>>();
+    cards.splice(0, cards.n_items(), &items);
     stack.set_visible_child_name("flow");
 }
 
@@ -424,92 +428,94 @@ fn merge_library_metadata(games: &mut [Game], library: &BTreeMap<u64, Option<u64
     }
 }
 
-fn card(ctx: &Ctx, state: &Rc<DiscoverState>, game: &Game, in_library: bool) -> gtk::FlowBoxChild {
-    let card = GtkBox::new(Orientation::Vertical, 0);
-    card.add_css_class("discover-card");
-    card.set_size_request(CARD_WIDTH, -1);
-    card.set_valign(gtk::Align::Start);
+/// Cells are recycled while scrolling, so per-game state lives in the cell's
+/// closures and is rewritten whenever the list item is bound to a new game.
+fn card_factory(ctx: &Ctx, state: &Rc<DiscoverState>) -> gtk::SignalListItemFactory {
+    let factory = gtk::SignalListItemFactory::new();
+    let ctx = ctx.clone();
+    let state = state.clone();
+    factory.connect_setup(move |_, item| {
+        let Some(item) = item.downcast_ref::<gtk::ListItem>() else {
+            return;
+        };
+        item.set_activatable(false);
 
-    let cover = match &game.cover {
-        Some(path) => match gtk::gdk_pixbuf::Pixbuf::from_file_at_scale(
-            path,
-            COVER_WIDTH,
-            COVER_HEIGHT,
-            false,
-        ) {
-            Ok(pixbuf) => {
-                let picture = gtk::Picture::for_pixbuf(&pixbuf);
-                picture.set_content_fit(gtk::ContentFit::Cover);
-                picture.set_size_request(COVER_WIDTH, COVER_HEIGHT);
-                picture.set_can_shrink(true);
-                picture.upcast::<gtk::Widget>()
+        let art = Art::new(COVER_WIDTH, COVER_HEIGHT, "discover-cover");
+
+        let title = gtk::Label::new(None);
+        title.add_css_class("discover-title");
+        title.set_halign(gtk::Align::Start);
+        title.set_xalign(0.0);
+        title.set_ellipsize(gtk::pango::EllipsizeMode::End);
+        title.set_max_width_chars(24);
+
+        let action = gtk::Button::new();
+        action.add_css_class("circular");
+        action.add_css_class("discover-add");
+        action.set_halign(gtk::Align::End);
+        action.set_valign(gtk::Align::End);
+        action.set_margin_end(10);
+        action.set_margin_bottom(10);
+
+        let current: Rc<RefCell<Option<(u64, String)>>> = Rc::default();
+        {
+            let ctx = ctx.clone();
+            let state = state.clone();
+            let current = current.clone();
+            action.connect_clicked(move |_| {
+                if let Some((appid, name)) = current.borrow().clone() {
+                    confirm_add(&ctx, state.clone(), appid, &name);
+                }
+            });
+        }
+
+        let frame = gtk::Overlay::new();
+        frame.add_css_class("discover-frame");
+        frame.set_child(Some(&art.root));
+        frame.add_overlay(&action);
+
+        let card = GtkBox::new(Orientation::Vertical, 0);
+        card.add_css_class("discover-card");
+        card.set_size_request(CARD_WIDTH, -1);
+        card.set_valign(gtk::Align::Start);
+        card.append(&frame);
+        card.append(&title);
+        item.set_child(Some(&card));
+
+        item.connect_item_notify(move |item| {
+            let Some(object) = item.item().and_downcast::<glib::BoxedAnyObject>() else {
+                current.replace(None);
+                art.set(None, "", None);
+                return;
+            };
+            let card = object.borrow::<Card>();
+            let game = &card.game;
+            art.set(game.cover.as_deref(), &game.initial(), Some(COVER_DECODE_WIDTH));
+            title.set_text(&game.name);
+            title.set_tooltip_text(Some(&game.name));
+            if card.in_library {
+                current.replace(None);
+                show_in_library(&action);
+            } else {
+                current.replace(Some((game.appid, game.name.clone())));
+                show_add(&action, &game.name);
             }
-            Err(_) => monogram(game, COVER_WIDTH, COVER_HEIGHT),
-        },
-        None => monogram(game, COVER_WIDTH, COVER_HEIGHT),
-    };
-    cover.add_css_class("discover-cover");
-    let cover_frame = GtkBox::new(Orientation::Vertical, 0);
-    cover_frame.add_css_class("discover-cover-frame");
-    cover_frame.append(&cover);
-
-    let title = gtk::Label::new(Some(&game.name));
-    title.add_css_class("discover-title");
-    title.set_halign(gtk::Align::Start);
-    title.set_xalign(0.0);
-    title.set_ellipsize(gtk::pango::EllipsizeMode::End);
-    title.set_max_width_chars(24);
-    title.set_tooltip_text(Some(&game.name));
-
-    let action = gtk::Button::new();
-    action.add_css_class("flat");
-    action.add_css_class("discover-add");
-    action.set_halign(gtk::Align::Start);
-    if in_library {
-        show_in_library(&action);
-    } else {
-        action.set_child(Some(&action_content("list-add-symbolic", "Add")));
-        action.set_cursor_from_name(Some("pointer"));
-        action.set_tooltip_text(Some(&format!("Add {} to your library", game.name)));
-
-        let ctx = ctx.clone();
-        let state = state.clone();
-        let appid = game.appid;
-        let name = game.name.clone();
-        action.connect_clicked(move |_| {
-            confirm_add(&ctx, state.clone(), appid, &name);
         });
-    }
-
-    let footer = GtkBox::new(Orientation::Horizontal, 0);
-    footer.add_css_class("discover-card-footer");
-    footer.append(&action);
-
-    card.append(&cover_frame);
-    card.append(&title);
-    card.append(&footer);
-
-    let child = gtk::FlowBoxChild::new();
-    child.set_child(Some(&card));
-    child
+    });
+    factory
 }
 
-fn action_content(icon: &str, label: &str) -> GtkBox {
-    let image = gtk::Image::from_icon_name(icon);
-    image.set_pixel_size(16);
-    let label = gtk::Label::new(Some(label));
-    let content = GtkBox::new(Orientation::Horizontal, 8);
-    content.set_halign(gtk::Align::Center);
-    content.append(&image);
-    content.append(&label);
-    content
+fn show_add(action: &gtk::Button, name: &str) {
+    action.remove_css_class("discover-added");
+    action.set_icon_name("list-add-symbolic");
+    action.set_sensitive(true);
+    action.set_cursor_from_name(Some("pointer"));
+    action.set_tooltip_text(Some(&format!("Add {name} to your library")));
 }
 
 fn show_in_library(action: &gtk::Button) {
-    action.remove_css_class("suggested-action");
-    action.add_css_class("flat");
     action.add_css_class("discover-added");
-    action.set_child(Some(&action_content("emblem-ok-symbolic", "Added")));
+    action.set_icon_name("object-select-symbolic");
     action.set_sensitive(false);
     action.set_cursor_from_name(None);
     action.set_tooltip_text(Some("Already in your library"));
@@ -563,25 +569,50 @@ fn install_css() {
 }
 
 const STYLE: &str = r#"
-.discover-card {
+gridview.discover-grid {
     background-color: transparent;
+    padding: 12px 16px 28px;
+}
+gridview.discover-grid > child {
+    padding: 10px;
+    border-radius: 16px;
+    background-color: transparent;
+}
+.discover-card { background-color: transparent; padding: 0; }
+.discover-cover {
+    border-radius: 12px;
+    box-shadow: 0 10px 24px -14px rgba(0, 0, 0, 0.7), inset 0 0 0 1px @borders;
+    transition: box-shadow 200ms ease-out;
+}
+.discover-cover > picture { transition: transform 260ms ease-out, opacity 220ms ease-out; }
+.discover-card:hover .discover-cover {
+    box-shadow: 0 16px 32px -14px rgba(0, 0, 0, 0.85), inset 0 0 0 1px alpha(@window_fg_color, 0.18);
+}
+.discover-card:hover .discover-cover > picture { transform: scale(1.05); }
+.discover-cover .art-letter { font-size: 28px; }
+.discover-title { margin: 10px 4px 0; font-weight: 600; }
+
+button.discover-add {
+    min-width: 34px;
+    min-height: 34px;
     padding: 0;
+    background-color: rgba(10, 10, 14, 0.62);
+    color: #FFFFFF;
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.18);
+    transition: background-color 160ms ease-out, box-shadow 160ms ease-out;
 }
-.discover-cover-frame {
-    background-color: @card_bg_color;
-    border-radius: 8px;
+.discover-card:hover button.discover-add:not(.discover-added),
+button.discover-add:focus-visible {
+    background-color: @accent_bg_color;
+    color: @accent_fg_color;
+    box-shadow: 0 6px 16px -4px alpha(@accent_bg_color, 0.8);
 }
-.discover-cover,
-.discover-cover-frame .monogram { border-radius: 8px; }
-.discover-title { margin: 10px 4px 0; }
-.discover-card-footer {
-    margin-top: 6px;
-    padding: 0 4px;
-}
-.discover-added,
-.discover-added:disabled {
-    color: @success_color;
+button.discover-add.discover-added,
+button.discover-add.discover-added:disabled {
+    background-color: @success_color;
+    color: #FFFFFF;
     opacity: 1;
+    box-shadow: none;
 }
 "#;
 
