@@ -13,6 +13,12 @@ use crate::ui::model::{parse_updated, Game};
 use crate::ui::shell::Ctx;
 use crate::ui::worker::Command;
 
+const FEATURED_COUNT: usize = 5;
+const FEATURED_HEIGHT: i32 = 320;
+const FEATURED_DECODE_WIDTH: i32 = 1600;
+/// Long enough to read a title and reach the Add button.
+const FEATURED_INTERVAL: std::time::Duration = std::time::Duration::from_secs(7);
+
 /// Steam's library_600x900 portrait at a 2:3 logical size.
 const POSTER_WIDTH: i32 = 180;
 const POSTER_HEIGHT: i32 = 270;
@@ -62,6 +68,7 @@ pub struct DiscoverPage {
     subtitle: gtk::Label,
     filter_bar: GtkBox,
     state: Rc<DiscoverState>,
+    featured: Rc<Featured>,
 }
 
 pub fn build(ctx: &Ctx) -> DiscoverPage {
@@ -118,9 +125,17 @@ pub fn build(ctx: &Ctx) -> DiscoverPage {
     grid.set_max_columns(12);
     grid.set_valign(gtk::Align::Start);
 
+    let featured = build_featured(ctx, &state);
+
+    // The banner scrolls away with the grid. Thirty posters are cheap enough
+    // that giving up the grid's own viewport recycling is not noticeable.
+    let flow = GtkBox::new(Orientation::Vertical, 0);
+    flow.append(&featured.root);
+    flow.append(&grid);
+
     let flow_scroll = gtk::ScrolledWindow::new();
     flow_scroll.set_policy(gtk::PolicyType::Never, gtk::PolicyType::Automatic);
-    flow_scroll.set_child(Some(&grid));
+    flow_scroll.set_child(Some(&flow));
     flow_scroll.set_vexpand(true);
 
     let loading_spinner = gtk::Spinner::new();
@@ -175,6 +190,7 @@ pub fn build(ctx: &Ctx) -> DiscoverPage {
     ] {
         let state = state.clone();
         let cards = cards.clone();
+        let featured = featured.clone();
         let stack = stack.clone();
         let empty = empty.clone();
         let subtitle = subtitle.clone();
@@ -183,7 +199,7 @@ pub fn build(ctx: &Ctx) -> DiscoverPage {
                 return;
             }
             state.filter.set(filter);
-            render(&state, &cards, &stack, &empty, &subtitle);
+            render(&state, &cards, &featured, &stack, &empty, &subtitle);
         });
     }
 
@@ -197,6 +213,7 @@ pub fn build(ctx: &Ctx) -> DiscoverPage {
         subtitle,
         filter_bar,
         state,
+        featured,
     }
 }
 
@@ -275,6 +292,7 @@ impl DiscoverPage {
         render(
             &self.state,
             &self.cards,
+            &self.featured,
             &self.stack,
             &self.empty,
             &self.subtitle,
@@ -291,6 +309,7 @@ fn filter_button(label: &str) -> gtk::ToggleButton {
 fn render(
     state: &Rc<DiscoverState>,
     cards: &gio::ListStore,
+    featured: &Featured,
     stack: &gtk::Stack,
     empty: &adw::StatusPage,
     subtitle: &gtk::Label,
@@ -355,6 +374,17 @@ fn render(
     }
 
     let library = state.library.borrow();
+    if searching || filter != DiscoverFilter::Popular {
+        featured.set_games(&[], &library);
+    } else {
+        let picks = visible
+            .iter()
+            .filter(|game| game.hero.is_some())
+            .take(FEATURED_COUNT)
+            .cloned()
+            .collect::<Vec<_>>();
+        featured.set_games(&picks, &library);
+    }
     let items = visible
         .into_iter()
         .map(|game| {
@@ -537,6 +567,158 @@ fn card_factory(ctx: &Ctx, state: &Rc<DiscoverState>) -> gtk::SignalListItemFact
     factory
 }
 
+/// Discover's banner: a few popular titles with their hero art and logo,
+/// advancing on its own unless the pointer or focus is on it.
+struct Featured {
+    root: GtkBox,
+    carousel: adw::Carousel,
+    shown: RefCell<Vec<(u64, bool)>>,
+    ctx: Ctx,
+    state: Rc<DiscoverState>,
+}
+
+fn build_featured(ctx: &Ctx, state: &Rc<DiscoverState>) -> Rc<Featured> {
+    let carousel = adw::Carousel::new();
+    carousel.add_css_class("featured");
+    carousel.set_hexpand(true);
+    carousel.set_spacing(16);
+    carousel.set_allow_scroll_wheel(false);
+
+    let dots = adw::CarouselIndicatorLines::new();
+    dots.set_carousel(Some(&carousel));
+    dots.set_halign(gtk::Align::Center);
+
+    let root = GtkBox::new(Orientation::Vertical, 6);
+    root.set_margin_top(14);
+    root.set_margin_start(24);
+    root.set_margin_end(24);
+    root.append(&carousel);
+    root.append(&dots);
+    root.set_visible(false);
+
+    let paused = Rc::new(Cell::new(false));
+    let motion = gtk::EventControllerMotion::new();
+    {
+        let paused = paused.clone();
+        motion.connect_enter(move |_, _, _| paused.set(true));
+    }
+    {
+        let paused = paused.clone();
+        motion.connect_leave(move |_| paused.set(false));
+    }
+    root.add_controller(motion);
+    let focus = gtk::EventControllerFocus::new();
+    {
+        let paused = paused.clone();
+        focus.connect_enter(move |_| paused.set(true));
+    }
+    {
+        let paused = paused.clone();
+        focus.connect_leave(move |_| paused.set(false));
+    }
+    root.add_controller(focus);
+
+    let weak = carousel.downgrade();
+    glib::timeout_add_local(FEATURED_INTERVAL, move || {
+        let Some(carousel) = weak.upgrade() else {
+            return glib::ControlFlow::Break;
+        };
+        let animations = gtk::Settings::default()
+            .map(|settings| settings.is_gtk_enable_animations())
+            .unwrap_or(true);
+        let pages = carousel.n_pages();
+        if animations && !paused.get() && carousel.is_mapped() && pages > 1 {
+            let next = (carousel.position().round() as u32 + 1) % pages;
+            carousel.scroll_to(&carousel.nth_page(next), true);
+        }
+        glib::ControlFlow::Continue
+    });
+
+    Rc::new(Featured {
+        root,
+        carousel,
+        shown: RefCell::new(Vec::new()),
+        ctx: ctx.clone(),
+        state: state.clone(),
+    })
+}
+
+impl Featured {
+    /// Rebuilds only when the titles or their library membership changed,
+    /// so a re-render does not jump the banner back to its first page.
+    fn set_games(&self, games: &[Game], library: &BTreeSet<u64>) {
+        let wanted = games
+            .iter()
+            .map(|game| (game.appid, library.contains(&game.appid)))
+            .collect::<Vec<_>>();
+        if *self.shown.borrow() == wanted {
+            return;
+        }
+        while self.carousel.n_pages() > 0 {
+            self.carousel.remove(&self.carousel.nth_page(0));
+        }
+        for (game, (_, in_library)) in games.iter().zip(&wanted) {
+            self.carousel
+                .append(&featured_page(&self.ctx, &self.state, game, *in_library));
+        }
+        self.root.set_visible(!games.is_empty());
+        self.shown.replace(wanted);
+    }
+}
+
+fn featured_page(ctx: &Ctx, state: &Rc<DiscoverState>, game: &Game, in_library: bool) -> gtk::Widget {
+    let art = Art::new(-1, FEATURED_HEIGHT, "featured-art");
+    art.set(game.hero.as_deref(), &game.initial(), Some(FEATURED_DECODE_WIDTH));
+    art.root.set_hexpand(true);
+
+    let scrim = GtkBox::new(Orientation::Vertical, 0);
+    scrim.add_css_class("hero-scrim");
+    scrim.set_can_target(false);
+
+    let action = if in_library {
+        let added = gtk::Button::with_label("In your library");
+        added.add_css_class("flat");
+        added.set_sensitive(false);
+        added
+    } else {
+        let add = gtk::Button::with_label("Add to library");
+        add.add_css_class("suggested-action");
+        add.set_cursor_from_name(Some("pointer"));
+        let ctx = ctx.clone();
+        let state = state.clone();
+        let appid = game.appid;
+        let name = game.name.clone();
+        add.connect_clicked(move |_| confirm_add(&ctx, state.clone(), appid, &name));
+        add
+    };
+    action.set_halign(gtk::Align::Start);
+    action.set_margin_top(14);
+
+    let content = GtkBox::new(Orientation::Vertical, 0);
+    content.add_css_class("hero-panel");
+    content.set_valign(gtk::Align::End);
+    content.set_halign(gtk::Align::Start);
+    content.append(&crate::ui::inspector::hero_title(game));
+    content.append(&action);
+
+    let overlay = gtk::Overlay::new();
+    overlay.add_css_class("hero-wrap");
+    overlay.set_overflow(gtk::Overflow::Hidden);
+    overlay.set_hexpand(true);
+    overlay.set_child(Some(&art.root));
+    overlay.add_overlay(&scrim);
+    overlay.add_overlay(&content);
+
+    adw::Clamp::builder()
+        .orientation(Orientation::Vertical)
+        .maximum_size(FEATURED_HEIGHT)
+        .tightening_threshold(FEATURED_HEIGHT)
+        .child(&overlay)
+        .hexpand(true)
+        .build()
+        .upcast()
+}
+
 fn show_add(action: &gtk::Button, name: &str) {
     action.remove_css_class("discover-added");
     action.set_icon_name("list-add-symbolic");
@@ -610,6 +792,8 @@ gridview.discover-grid > child {
     border-radius: 16px;
     background-color: transparent;
 }
+.featured-art { border-radius: 16px; }
+.featured-art .art-letter { font-size: 64px; }
 .discover-card { background-color: transparent; padding: 0; }
 .discover-frame { border-radius: 12px; }
 .discover-cover.ready { background-color: transparent; }

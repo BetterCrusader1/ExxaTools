@@ -309,7 +309,7 @@ fn hero(game: &Game, actions: &GtkBox) -> gtk::Widget {
 
 /// The game's own logo when Steam has one, otherwise the name as text. The
 /// slot stays empty for the frame it takes a cached logo to arrive.
-fn hero_title(game: &Game) -> gtk::Widget {
+pub(crate) fn hero_title(game: &Game) -> gtk::Widget {
     let slot = GtkBox::new(Orientation::Vertical, 0);
     slot.set_halign(gtk::Align::Start);
     let text = || {

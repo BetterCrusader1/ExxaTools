@@ -118,6 +118,7 @@ fn run(command: Command, events: Sender<Event>) {
             decorate(&mut games);
             games.retain(|game| game.cover.is_some());
             games.truncate(30);
+            feature(&mut games);
             let _ = events.send(Event::Discover(games));
         }
         Command::LoadDoctor => {
@@ -319,6 +320,20 @@ fn decorate(games: &mut [Game]) {
                         .or_else(|| covers::ensure_cover(game.appid));
                     game.capsule = covers::ensure_asset(game.appid, covers::Asset::Capsule);
                 }
+            });
+        }
+    });
+}
+
+/// The first popular titles also get hero art and a logo for Discover's
+/// featured banner; Discover picks the first five that have a hero.
+fn feature(games: &mut [Game]) {
+    let count = games.len().min(8);
+    std::thread::scope(|scope| {
+        for game in &mut games[..count] {
+            scope.spawn(move || {
+                game.hero = covers::ensure_hero(game.appid);
+                game.logo = covers::ensure_asset(game.appid, covers::Asset::Logo);
             });
         }
     });
