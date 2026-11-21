@@ -30,6 +30,9 @@ const ACCENT_MIN_CONTRAST: f64 = 4.5;
 enum Kind {
     Plain,
     Backdrop,
+    /// Transparent title art, trimmed to its visible pixels so it aligns
+    /// with the text beside it.
+    Logo,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
@@ -140,6 +143,29 @@ fn decode(key: &Key) -> Option<Decoded> {
     let width = pixbuf.width();
     let height = pixbuf.height();
     let stride = pixbuf.rowstride() as usize;
+    if key.kind == Kind::Logo {
+        let trimmed = pixbuf
+            .has_alpha()
+            .then(|| {
+                let bytes = pixbuf.read_pixel_bytes();
+                alpha_bbox(&bytes, width as usize, height as usize, stride)
+            })
+            .flatten()
+            .and_then(|(x, y, w, h)| {
+                pixbuf
+                    .new_subpixbuf(x as i32, y as i32, w as i32, h as i32)
+                    .copy()
+            })
+            .unwrap_or(pixbuf);
+        return Some(Decoded {
+            bytes: trimmed.read_pixel_bytes(),
+            width: trimmed.width(),
+            height: trimmed.height(),
+            stride: trimmed.rowstride() as usize,
+            alpha: trimmed.has_alpha(),
+            accent: None,
+        });
+    }
     if key.kind == Kind::Plain {
         return Some(Decoded {
             bytes: pixbuf.read_pixel_bytes(),
@@ -163,6 +189,23 @@ fn decode(key: &Key) -> Option<Decoded> {
         alpha: false,
         accent,
     })
+}
+
+/// Bounding box `(x, y, width, height)` of pixels with visible alpha in RGBA
+/// rows; `None` when everything is transparent.
+fn alpha_bbox(rgba: &[u8], width: usize, height: usize, stride: usize) -> Option<(usize, usize, usize, usize)> {
+    let (mut left, mut top, mut right, mut bottom) = (width, height, 0, 0);
+    for row in 0..height {
+        for column in 0..width {
+            if rgba.get(row * stride + column * 4 + 3).is_some_and(|&alpha| alpha > 8) {
+                left = left.min(column);
+                right = right.max(column);
+                top = top.min(row);
+                bottom = bottom.max(row);
+            }
+        }
+    }
+    (left <= right && top <= bottom).then(|| (left, top, right - left + 1, bottom - top + 1))
 }
 
 /// Drops row padding and alpha so the blur works on tight RGB triples.
@@ -382,6 +425,26 @@ pub fn backdrop(path: &Path, done: impl FnOnce(Option<Loaded>) + 'static) {
         },
         Box::new(done),
     );
+}
+
+/// Loads a title logo `width` device pixels wide, trimmed to its visible
+/// pixels. `done` runs synchronously on a cache hit.
+pub fn logo(path: &Path, width: i32, done: impl FnOnce(Option<Loaded>) + 'static) {
+    load(
+        Key {
+            path: path.to_path_buf(),
+            width: width.max(1),
+            height: -1,
+            kind: Kind::Logo,
+        },
+        Box::new(done),
+    );
+}
+
+/// Device scale for `widget`, falling back to the densest monitor before it
+/// is attached.
+pub fn scale(widget: &impl IsA<gtk::Widget>) -> i32 {
+    scale_for(widget.upcast_ref())
 }
 
 /// Calls `done` synchronously on a cache hit, otherwise once the shared decode
@@ -627,6 +690,18 @@ mod tests {
             packed_rgb(&source, 2, 2, 10, 4),
             vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
         );
+    }
+
+    #[test]
+    fn logo_trim_finds_the_visible_pixels() {
+        let (width, height) = (6, 4);
+        let stride = width * 4 + 2;
+        let mut rgba = vec![0u8; stride * height];
+        for (x, y) in [(2, 1), (4, 2)] {
+            rgba[y * stride + x * 4 + 3] = 255;
+        }
+        assert_eq!(alpha_bbox(&rgba, width, height, stride), Some((2, 1, 3, 2)));
+        assert_eq!(alpha_bbox(&vec![0u8; stride * height], width, height, stride), None);
     }
 
     #[test]

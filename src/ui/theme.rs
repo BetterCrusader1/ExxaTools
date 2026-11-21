@@ -77,6 +77,9 @@ const DARK: &str = r#"
 @define-color borders rgba(255, 255, 255, 0.07);
 @define-color surface_raise rgba(255, 255, 255, 0.06);
 @define-color surface_hover rgba(255, 255, 255, 0.09);
+@define-color veil_top rgba(13, 14, 18, 0.40);
+@define-color veil_mid rgba(13, 14, 18, 0.72);
+@define-color veil_bottom rgba(13, 14, 18, 0.93);
 "#;
 
 const LIGHT: &str = r#"
@@ -92,6 +95,9 @@ const LIGHT: &str = r#"
 @define-color borders rgba(0, 0, 0, 0.08);
 @define-color surface_raise rgba(0, 0, 0, 0.05);
 @define-color surface_hover rgba(0, 0, 0, 0.08);
+@define-color veil_top rgba(245, 246, 248, 0.55);
+@define-color veil_mid rgba(245, 246, 248, 0.80);
+@define-color veil_bottom rgba(245, 246, 248, 0.94);
 "#;
 
 pub const THEME: &str = r#"
@@ -129,13 +135,23 @@ button.suggested-action {
     border-radius: 999px;
     padding: 8px 22px;
     font-weight: 700;
-    box-shadow: 0 6px 18px -6px alpha(@accent_bg_color, 0.75);
+    box-shadow: 0 6px 18px -6px rgb(from var(--accent-bg-color) r g b / 75%);
     transition: box-shadow 160ms ease-out, background-color 160ms ease-out;
 }
 button.suggested-action:hover {
-    box-shadow: 0 8px 24px -6px alpha(@accent_bg_color, 0.95);
+    box-shadow: 0 8px 24px -6px rgb(from var(--accent-bg-color) r g b / 95%);
 }
 button.global-control { border-radius: 999px; min-width: 34px; min-height: 34px; }
+
+/* Game backdrop: a veil keeps text readable; panels above turn to glass. */
+.backdrop-scrim {
+    background-image: linear-gradient(to bottom, @veil_top 0%, @veil_mid 42%, @veil_bottom 100%);
+}
+.has-backdrop .nav-rail { background-color: alpha(@sidebar_bg_color, 0.42); }
+.has-backdrop .shelf { background-color: alpha(@window_bg_color, 0.22); }
+.has-backdrop headerbar.global-header {
+    background-color: alpha(@headerbar_bg_color, 0.30);
+}
 
 /* Segmented filters. */
 .segmented {
@@ -189,8 +205,14 @@ button.global-control { border-radius: 999px; min-width: 34px; min-height: 34px;
     transition: background-color 160ms ease-out;
 }
 .hero-panel button.flat:hover { background-color: rgba(255, 255, 255, 0.22); }
-.hero-panel menubutton > button.flat,
-.hero-panel menubutton > button { padding: 8px; min-width: 20px; border-radius: 999px; }
+.hero-panel menubutton > button {
+    padding: 8px;
+    min-width: 20px;
+    border-radius: 999px;
+    color: #FFFFFF;
+    background-color: rgba(255, 255, 255, 0.13);
+}
+.hero-panel menubutton > button:hover { background-color: rgba(255, 255, 255, 0.22); }
 
 .status-pill {
     border-radius: 999px;

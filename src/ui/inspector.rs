@@ -7,43 +7,56 @@ use std::time::Duration;
 use adw::prelude::*;
 use gtk::{Box as GtkBox, Orientation};
 
-use crate::ui::art::Art;
+use crate::ui::art::{self, Art};
 use crate::ui::model::{Game, GameState, Origin};
 use crate::ui::shell::Ctx;
 use crate::ui::worker::Command;
 
-const HERO_HEIGHT: i32 = 260;
-/// Steam library heroes are up to 3840 px wide; the inspector never shows more
-/// than this logical width, so decoding the full image only wastes memory.
-const HERO_DECODE_WIDTH: i32 = 1280;
+const HERO_HEIGHT: i32 = 340;
+/// Steam library heroes are up to 3840 px wide; the full-bleed hero rarely
+/// shows more than this logical width, so decoding more only wastes memory.
+const HERO_DECODE_WIDTH: i32 = 1600;
+/// The title logo fits inside this logical box, keeping its aspect.
+const LOGO_MAX_WIDTH: i32 = 380;
+const LOGO_MAX_HEIGHT: i32 = 120;
 
 pub struct Inspector {
     pub root: gtk::Widget,
+    hero: gtk::Box,
     body: gtk::Box,
 }
 
 pub fn build() -> Inspector {
+    // The hero and the details below share the pane's full width so their
+    // left edges line up.
+    let hero = GtkBox::new(Orientation::Vertical, 0);
+    hero.set_margin_top(20);
+    hero.set_margin_start(24);
+    hero.set_margin_end(24);
+
     let body = GtkBox::new(Orientation::Vertical, 0);
-    body.set_margin_top(20);
+    body.set_margin_top(16);
     body.set_margin_bottom(28);
     body.set_margin_start(24);
     body.set_margin_end(24);
     body.set_hexpand(true);
     body.set_vexpand(true);
 
-    let clamp = adw::Clamp::builder().maximum_size(780).build();
-    clamp.set_vexpand(true);
-    clamp.set_child(Some(&body));
+    let page = GtkBox::new(Orientation::Vertical, 0);
+    page.append(&hero);
+    page.append(&body);
 
     let scroll = gtk::ScrolledWindow::new();
     scroll.set_policy(gtk::PolicyType::Never, gtk::PolicyType::Automatic);
     scroll.set_vexpand(true);
     scroll.set_hexpand(true);
     scroll.set_overlay_scrolling(false);
-    scroll.set_child(Some(&clamp));
+    scroll.add_css_class("game-tint");
+    scroll.set_child(Some(&page));
 
     let inspector = Inspector {
         root: scroll.upcast(),
+        hero,
         body,
     };
     inspector.show_empty(None);
@@ -52,6 +65,7 @@ pub fn build() -> Inspector {
 
 impl Inspector {
     pub fn show_empty(&self, ctx: Option<&Ctx>) {
+        clear(&self.hero);
         clear(&self.body);
         let page = adw::StatusPage::builder()
             .icon_name("applications-games-symbolic")
@@ -75,6 +89,7 @@ impl Inspector {
             self.show_empty(Some(ctx));
             return;
         };
+        clear(&self.hero);
         clear(&self.body);
 
         let can_launch =
@@ -164,7 +179,7 @@ impl Inspector {
         more.set_popover(Some(&popover));
         actions.append(&more);
 
-        self.body.append(&hero(game, &actions));
+        self.hero.append(&hero(game, &actions));
 
         if game.origin == Origin::Search {
             let note = gtk::Label::new(Some(
@@ -252,15 +267,7 @@ fn hero(game: &Game, actions: &GtkBox) -> gtk::Widget {
         top.append(&dlc);
     }
 
-    let title = gtk::Label::new(Some(&game.name));
-    title.add_css_class("title-1");
-    title.add_css_class("hero-title");
-    title.set_halign(gtk::Align::Start);
-    title.set_xalign(0.0);
-    title.set_wrap(true);
-    title.set_wrap_mode(gtk::pango::WrapMode::WordChar);
-    title.set_max_width_chars(42);
-    title.set_lines(2);
+    let title = hero_title(game);
 
     let meta = gtk::Label::new(Some(&game.meta()));
     meta.add_css_class("hero-meta");
@@ -298,6 +305,73 @@ fn hero(game: &Game, actions: &GtkBox) -> gtk::Widget {
         .build();
     clamp.set_hexpand(true);
     clamp.upcast()
+}
+
+/// The game's own logo when Steam has one, otherwise the name as text. The
+/// slot stays empty for the frame it takes a cached logo to arrive.
+fn hero_title(game: &Game) -> gtk::Widget {
+    let slot = GtkBox::new(Orientation::Vertical, 0);
+    slot.set_halign(gtk::Align::Start);
+    let text = || {
+        let title = gtk::Label::new(Some(&game.name));
+        title.add_css_class("title-1");
+        title.add_css_class("hero-title");
+        title.set_halign(gtk::Align::Start);
+        title.set_xalign(0.0);
+        title.set_wrap(true);
+        title.set_wrap_mode(gtk::pango::WrapMode::WordChar);
+        title.set_max_width_chars(42);
+        title.set_lines(2);
+        title
+    };
+    let Some(path) = game.logo.as_deref() else {
+        slot.append(&text());
+        return slot.upcast();
+    };
+    let fallback = text();
+    let name = game.name.clone();
+    let target = slot.clone();
+    art::logo(path, LOGO_MAX_WIDTH * art::scale(&slot), move |loaded| {
+        let Some(loaded) = loaded else {
+            target.append(&fallback);
+            return;
+        };
+        let (width, height) = logo_size(loaded.texture.width(), loaded.texture.height());
+        let picture = gtk::Picture::for_paintable(&loaded.texture);
+        picture.set_content_fit(gtk::ContentFit::Contain);
+        picture.set_can_shrink(true);
+        picture.set_alternative_text(Some(&name));
+        picture.set_tooltip_text(Some(&name));
+        picture.add_css_class("hero-logo");
+        // Clamps keep the texture's device-pixel natural size from growing
+        // the logo past its logical box on HiDPI screens.
+        let tall = adw::Clamp::builder()
+            .orientation(Orientation::Vertical)
+            .maximum_size(height)
+            .tightening_threshold(height)
+            .child(&picture)
+            .build();
+        let wide = adw::Clamp::builder()
+            .maximum_size(width)
+            .tightening_threshold(width)
+            .child(&tall)
+            .build();
+        wide.set_size_request(width, height);
+        wide.set_halign(gtk::Align::Start);
+        wide.set_margin_bottom(6);
+        target.append(&wide);
+    });
+    slot.upcast()
+}
+
+/// Fits a logo into `LOGO_MAX_WIDTH` x `LOGO_MAX_HEIGHT`, keeping its aspect.
+fn logo_size(texture_width: i32, texture_height: i32) -> (i32, i32) {
+    if texture_width <= 0 || texture_height <= 0 {
+        return (LOGO_MAX_WIDTH, LOGO_MAX_HEIGHT);
+    }
+    let aspect = texture_width as f64 / texture_height as f64;
+    let height = (LOGO_MAX_WIDTH as f64 / aspect).min(LOGO_MAX_HEIGHT as f64);
+    ((height * aspect).round() as i32, height.round() as i32)
 }
 
 fn depots_section(ctx: &Ctx, game: &Game) -> gtk::Widget {
@@ -538,5 +612,17 @@ fn confirm_remove(ctx: &Ctx, appid: u64, name: &str) {
 fn clear(container: &GtkBox) {
     while let Some(child) = container.first_child() {
         container.remove(&child);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn wide_logos_are_limited_by_width_and_tall_ones_by_height() {
+        assert_eq!(logo_size(640, 191), (380, 113));
+        assert_eq!(logo_size(501, 335), (179, 120));
+        assert_eq!(logo_size(0, 10), (LOGO_MAX_WIDTH, LOGO_MAX_HEIGHT));
     }
 }

@@ -9,6 +9,7 @@ use gtk::{Box as GtkBox, Orientation};
 use crate::ui::model::Game;
 use crate::ui::theme::{self, Theme};
 use crate::ui::worker::{Command, Event, Worker};
+use crate::ui::backdrop::Backdrop;
 use crate::ui::{discover, inspector, settings, shelf, system};
 
 const APP_ID: &str = "dev.exxatools.ExxaTools";
@@ -235,7 +236,15 @@ fn build(app: &adw::Application, initial: Page) -> Ctx {
     let root = GtkBox::new(Orientation::Vertical, 0);
     root.append(&header);
     root.append(&body);
-    overlay.set_child(Some(&root));
+
+    // The blurred game art sits under everything; the content measures the
+    // window so the tiny backdrop texture never drives its size.
+    let backdrop = Backdrop::new(root.upcast_ref());
+    let layers = gtk::Overlay::new();
+    layers.set_child(Some(&backdrop.root));
+    layers.add_overlay(&root);
+    layers.set_measure_overlay(&root, true);
+    overlay.set_child(Some(&layers));
     window.set_content(Some(&overlay));
 
     let view = Rc::new(RefCell::new(View {
@@ -259,8 +268,10 @@ fn build(app: &adw::Application, initial: Page) -> Ctx {
         let discover_loaded = Rc::new(Cell::new(false));
         let system_loaded = Rc::new(Cell::new(false));
         let current_page = current_page.clone();
+        let backdrop = backdrop.clone();
         *hooks.navigate.borrow_mut() = Some(Box::new(move |page| {
             current_page.set(page);
+            backdrop.set_active(page == Page::Library);
             stack.set_visible_child_name(page.name());
             syncing.set(true);
             if let Some(row) = nav_list.row_at_index(page.index()) {
@@ -290,6 +301,7 @@ fn build(app: &adw::Application, initial: Page) -> Ctx {
         let ctx = ctx.clone();
         let view = view.clone();
         let inspector = inspector.clone();
+        let backdrop = backdrop.clone();
         *hooks.select.borrow_mut() = Some(Box::new(move |appid| {
             view.borrow_mut().selected = appid;
             let game = appid.and_then(|appid| {
@@ -301,6 +313,13 @@ fn build(app: &adw::Application, initial: Page) -> Ctx {
             });
             if let Some(id) = appid {
                 ctx.commands.send(Command::LoadHero(id));
+            }
+            // A known hero fades in now; otherwise the previous backdrop stays
+            // until LoadHero answers, so selection never flashes to plain.
+            match &game {
+                Some(game) if game.hero.is_some() => backdrop.set_art(game.hero.as_deref()),
+                Some(_) => {}
+                None => backdrop.set_art(None),
             }
             inspector.show(&ctx, game.as_ref());
         }));
@@ -398,6 +417,7 @@ fn build(app: &adw::Application, initial: Page) -> Ctx {
         let view = view.clone();
         let shelf = shelf.clone();
         let inspector = inspector.clone();
+        let backdrop = backdrop.clone();
         let discover = discover.clone();
         let system = system.clone();
         let ctx = ctx.clone();
@@ -501,6 +521,9 @@ fn build(app: &adw::Application, initial: Page) -> Ctx {
                                 .iter()
                                 .find(|game| game.appid == appid)
                                 .cloned();
+                            if let Some(game) = &game {
+                                backdrop.set_art(game.hero.as_deref().or(game.cover.as_deref()));
+                            }
                             inspector.show(&ctx, game.as_ref());
                         }
                     }
