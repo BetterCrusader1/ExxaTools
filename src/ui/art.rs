@@ -1,6 +1,8 @@
 //! Cover and hero art decoded off the main thread into GPU textures. A
 //! byte-bounded LRU keeps scrolling from decoding twice or growing without
 //! limit; every widget asks for exactly the pixels it shows at its scale.
+//! Backdrops are blurred here on the CPU at a tiny size, so the window-wide
+//! game background costs tens of kilobytes and no per-frame GPU blur.
 
 use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
@@ -15,11 +17,44 @@ use gtk::{gdk, glib};
 /// holds a full page plus the library and a few heroes before evicting.
 const BUDGET_BYTES: usize = 48 * 1024 * 1024;
 
+/// Backdrops decode this wide regardless of window size: after the blur the
+/// texture is upscaled with linear filtering and still looks smooth.
+const BACKDROP_WIDTH: i32 = 160;
+/// Box radius at `BACKDROP_WIDTH`; three passes approximate a Gaussian of
+/// roughly 50 px once the backdrop is stretched across the window.
+const BACKDROP_RADIUS: usize = 5;
+/// White text on the accent must stay readable (WCAG AA for normal text).
+const ACCENT_MIN_CONTRAST: f64 = 4.5;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+enum Kind {
+    Plain,
+    Backdrop,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 struct Key {
     path: PathBuf,
     width: i32,
     height: i32,
+    kind: Kind,
+}
+
+/// An sRGB color taken from the artwork.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Rgb(pub u8, pub u8, pub u8);
+
+impl Rgb {
+    pub fn hex(self) -> String {
+        format!("#{:02x}{:02x}{:02x}", self.0, self.1, self.2)
+    }
+}
+
+/// A decoded texture plus, for backdrops, the game's accent color.
+#[derive(Clone)]
+pub struct Loaded {
+    pub texture: gdk::Texture,
+    pub accent: Option<Rgb>,
 }
 
 /// Least-recently-used map whose capacity is a byte cost, not an entry count.
@@ -71,10 +106,10 @@ impl<K: Clone + Eq + Hash, V: Clone> Lru<K, V> {
     }
 }
 
-type Waiter = Box<dyn FnOnce(Option<gdk::Texture>)>;
+type Waiter = Box<dyn FnOnce(Option<Loaded>)>;
 
 struct Store {
-    cache: Lru<Key, gdk::Texture>,
+    cache: Lru<Key, Loaded>,
     pending: HashMap<Key, Vec<Waiter>>,
 }
 
@@ -93,6 +128,7 @@ struct Decoded {
     height: i32,
     stride: usize,
     alpha: bool,
+    accent: Option<Rgb>,
 }
 
 /// `height < 0` keeps the source aspect ratio at the requested width.
@@ -101,13 +137,221 @@ fn decode(key: &Key) -> Option<Decoded> {
     let pixbuf =
         gtk::gdk_pixbuf::Pixbuf::from_file_at_scale(&key.path, key.width, key.height, preserve)
             .ok()?;
+    let width = pixbuf.width();
+    let height = pixbuf.height();
+    let stride = pixbuf.rowstride() as usize;
+    if key.kind == Kind::Plain {
+        return Some(Decoded {
+            bytes: pixbuf.read_pixel_bytes(),
+            width,
+            height,
+            stride,
+            alpha: pixbuf.has_alpha(),
+            accent: None,
+        });
+    }
+    let channels = pixbuf.n_channels() as usize;
+    let source = pixbuf.read_pixel_bytes();
+    let mut rgb = packed_rgb(&source, width as usize, height as usize, stride, channels);
+    let accent = accent(&rgb);
+    box_blur_rgb(&mut rgb, width as usize, height as usize, BACKDROP_RADIUS);
     Some(Decoded {
-        bytes: pixbuf.read_pixel_bytes(),
-        width: pixbuf.width(),
-        height: pixbuf.height(),
-        stride: pixbuf.rowstride() as usize,
-        alpha: pixbuf.has_alpha(),
+        bytes: glib::Bytes::from_owned(rgb),
+        width,
+        height,
+        stride: width as usize * 3,
+        alpha: false,
+        accent,
     })
+}
+
+/// Drops row padding and alpha so the blur works on tight RGB triples.
+fn packed_rgb(source: &[u8], width: usize, height: usize, stride: usize, channels: usize) -> Vec<u8> {
+    let mut out = Vec::with_capacity(width * height * 3);
+    for row in 0..height {
+        let start = row * stride;
+        for column in 0..width {
+            let at = start + column * channels;
+            match source.get(at..at + 3) {
+                Some(pixel) => out.extend_from_slice(pixel),
+                None => out.extend_from_slice(&[0, 0, 0]),
+            }
+        }
+    }
+    out
+}
+
+/// Three passes of a separable box blur (a cheap Gaussian) over packed RGB,
+/// clamping at the edges so borders do not darken.
+fn box_blur_rgb(rgb: &mut [u8], width: usize, height: usize, radius: usize) {
+    if width == 0 || height == 0 || radius == 0 || rgb.len() < width * height * 3 {
+        return;
+    }
+    let mut scratch = vec![0u8; rgb.len()];
+    for _ in 0..3 {
+        blur_pass(rgb, &mut scratch, width, height, radius, true);
+        blur_pass(&scratch, rgb, width, height, radius, false);
+    }
+}
+
+fn blur_pass(
+    src: &[u8],
+    dst: &mut [u8],
+    width: usize,
+    height: usize,
+    radius: usize,
+    horizontal: bool,
+) {
+    let (lines, length) = if horizontal { (height, width) } else { (width, height) };
+    let at = |line: usize, index: usize| {
+        if horizontal {
+            (line * width + index) * 3
+        } else {
+            (index * width + line) * 3
+        }
+    };
+    let window = (2 * radius + 1) as u32;
+    for line in 0..lines {
+        let mut sum = [0u32; 3];
+        for offset in 0..window as usize {
+            let index = offset.saturating_sub(radius).min(length - 1);
+            let pixel = at(line, index);
+            for channel in 0..3 {
+                sum[channel] += src[pixel + channel] as u32;
+            }
+        }
+        for index in 0..length {
+            let pixel = at(line, index);
+            for channel in 0..3 {
+                dst[pixel + channel] = ((sum[channel] + window / 2) / window) as u8;
+            }
+            let leaving = at(line, index.saturating_sub(radius));
+            let entering = at(line, (index + radius + 1).min(length - 1));
+            for channel in 0..3 {
+                sum[channel] = sum[channel] + src[entering + channel] as u32
+                    - src[leaving + channel] as u32;
+            }
+        }
+    }
+}
+
+/// The artwork's dominant vivid hue, made dark enough for white text. Gray or
+/// nearly black art returns `None` so the system accent stays in charge.
+fn accent(rgb: &[u8]) -> Option<Rgb> {
+    const BUCKETS: usize = 24;
+    let mut weight = [0f64; BUCKETS];
+    let mut sums = [[0f64; 3]; BUCKETS];
+    let mut pixels = 0usize;
+    for pixel in rgb.chunks_exact(3) {
+        pixels += 1;
+        let (hue, saturation, value) = hsv(pixel[0], pixel[1], pixel[2]);
+        if saturation < 0.25 || value < 0.2 {
+            continue;
+        }
+        let bucket = ((hue / 360.0) * BUCKETS as f64) as usize % BUCKETS;
+        let w = saturation * value;
+        weight[bucket] += w;
+        for channel in 0..3 {
+            sums[bucket][channel] += pixel[channel] as f64 * w;
+        }
+    }
+    let (best, &best_weight) = weight
+        .iter()
+        .enumerate()
+        .max_by(|a, b| a.1.total_cmp(b.1))?;
+    // Fewer than ~4% of the pixels at full vividness: there is no real hue.
+    if pixels == 0 || best_weight < pixels as f64 * 0.04 {
+        return None;
+    }
+    let mean = sums[best].map(|sum| sum / best_weight);
+    Some(legible(Rgb(
+        mean[0].round() as u8,
+        mean[1].round() as u8,
+        mean[2].round() as u8,
+    )))
+}
+
+/// Keeps the hue, lifts dull colors to a usable saturation and lowers
+/// lightness until white text reaches `ACCENT_MIN_CONTRAST`.
+fn legible(color: Rgb) -> Rgb {
+    let (hue, saturation, lightness) = hsl(color);
+    let saturation = saturation.clamp(0.5, 0.9);
+    let mut lightness = lightness.clamp(0.2, 0.6);
+    loop {
+        let candidate = from_hsl(hue, saturation, lightness);
+        if contrast_with_white(candidate) >= ACCENT_MIN_CONTRAST || lightness <= 0.1 {
+            return candidate;
+        }
+        lightness -= 0.01;
+    }
+}
+
+fn hsv(r: u8, g: u8, b: u8) -> (f64, f64, f64) {
+    let (r, g, b) = (r as f64 / 255.0, g as f64 / 255.0, b as f64 / 255.0);
+    let max = r.max(g).max(b);
+    let min = r.min(g).min(b);
+    let delta = max - min;
+    let hue = if delta == 0.0 {
+        0.0
+    } else if max == r {
+        60.0 * ((g - b) / delta).rem_euclid(6.0)
+    } else if max == g {
+        60.0 * ((b - r) / delta + 2.0)
+    } else {
+        60.0 * ((r - g) / delta + 4.0)
+    };
+    let saturation = if max == 0.0 { 0.0 } else { delta / max };
+    (hue, saturation, max)
+}
+
+fn hsl(color: Rgb) -> (f64, f64, f64) {
+    let (r, g, b) = (
+        color.0 as f64 / 255.0,
+        color.1 as f64 / 255.0,
+        color.2 as f64 / 255.0,
+    );
+    let max = r.max(g).max(b);
+    let min = r.min(g).min(b);
+    let lightness = (max + min) / 2.0;
+    let delta = max - min;
+    let saturation = if delta == 0.0 {
+        0.0
+    } else {
+        delta / (1.0 - (2.0 * lightness - 1.0).abs())
+    };
+    (hsv(color.0, color.1, color.2).0, saturation, lightness)
+}
+
+fn from_hsl(hue: f64, saturation: f64, lightness: f64) -> Rgb {
+    let chroma = (1.0 - (2.0 * lightness - 1.0).abs()) * saturation;
+    let x = chroma * (1.0 - ((hue / 60.0).rem_euclid(2.0) - 1.0).abs());
+    let m = lightness - chroma / 2.0;
+    let (r, g, b) = match hue as u32 {
+        0..=59 => (chroma, x, 0.0),
+        60..=119 => (x, chroma, 0.0),
+        120..=179 => (0.0, chroma, x),
+        180..=239 => (0.0, x, chroma),
+        240..=299 => (x, 0.0, chroma),
+        _ => (chroma, 0.0, x),
+    };
+    let channel = |value: f64| ((value + m) * 255.0).round().clamp(0.0, 255.0) as u8;
+    Rgb(channel(r), channel(g), channel(b))
+}
+
+fn relative_luminance(color: Rgb) -> f64 {
+    let linear = |channel: u8| {
+        let value = channel as f64 / 255.0;
+        if value <= 0.04045 {
+            value / 12.92
+        } else {
+            ((value + 0.055) / 1.055).powf(2.4)
+        }
+    };
+    0.2126 * linear(color.0) + 0.7152 * linear(color.1) + 0.0722 * linear(color.2)
+}
+
+fn contrast_with_white(color: Rgb) -> f64 {
+    1.05 / (relative_luminance(color) + 0.05)
 }
 
 fn texture(decoded: Decoded) -> gdk::Texture {
@@ -126,12 +370,26 @@ fn texture(decoded: Decoded) -> gdk::Texture {
     .upcast()
 }
 
+/// Loads the blurred backdrop for `path` together with its accent color.
+/// `done` runs synchronously on a cache hit.
+pub fn backdrop(path: &Path, done: impl FnOnce(Option<Loaded>) + 'static) {
+    load(
+        Key {
+            path: path.to_path_buf(),
+            width: BACKDROP_WIDTH,
+            height: -1,
+            kind: Kind::Backdrop,
+        },
+        Box::new(done),
+    );
+}
+
 /// Calls `done` synchronously on a cache hit, otherwise once the shared decode
 /// finishes. Concurrent requests for the same art share one decode.
 fn load(key: Key, done: Waiter) {
     let hit = STORE.with(|store| store.borrow_mut().cache.get(&key));
-    if let Some(texture) = hit {
-        done(Some(texture));
+    if let Some(loaded) = hit {
+        done(Some(loaded));
         return;
     }
     let first = STORE.with(|store| {
@@ -168,20 +426,24 @@ thread_local! {
 }
 
 fn finish(key: Key, decoded: Option<Decoded>) {
-    let texture = decoded.map(|decoded| {
+    let loaded = decoded.map(|decoded| {
         let cost = decoded.stride * decoded.height as usize;
-        let texture = texture(decoded);
+        let accent = decoded.accent;
+        let loaded = Loaded {
+            texture: texture(decoded),
+            accent,
+        };
         STORE.with(|store| {
             store
                 .borrow_mut()
                 .cache
-                .insert(key.clone(), texture.clone(), cost)
+                .insert(key.clone(), loaded.clone(), cost)
         });
-        texture
+        loaded
     });
     let waiters = STORE.with(|store| store.borrow_mut().pending.remove(&key));
     for waiter in waiters.unwrap_or_default() {
-        waiter(texture.clone());
+        waiter(loaded.clone());
     }
 }
 
@@ -258,6 +520,7 @@ impl Art {
             path: path.to_path_buf(),
             width,
             height,
+            kind: Kind::Plain,
         };
 
         let this = self.clone();
@@ -265,13 +528,13 @@ impl Art {
         let in_call = sync.clone();
         load(
             key,
-            Box::new(move |texture| {
+            Box::new(move |loaded| {
                 if this.generation.get() != generation {
                     return;
                 }
-                match texture {
-                    Some(texture) => {
-                        this.picture.set_paintable(Some(&texture));
+                match loaded {
+                    Some(loaded) => {
+                        this.picture.set_paintable(Some(&loaded.texture));
                         if in_call.get() {
                             this.root.add_css_class("instant");
                         }
@@ -329,6 +592,77 @@ pub const STYLE: &str = r#"
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn solid(color: Rgb, pixels: usize) -> Vec<u8> {
+        std::iter::repeat_n([color.0, color.1, color.2], pixels)
+            .flatten()
+            .collect()
+    }
+
+    #[test]
+    fn blur_keeps_a_uniform_image_uniform() {
+        let mut rgb = solid(Rgb(40, 120, 200), 16 * 9);
+        box_blur_rgb(&mut rgb, 16, 9, 3);
+        assert!(rgb.chunks_exact(3).all(|pixel| pixel == [40, 120, 200]));
+    }
+
+    #[test]
+    fn blur_spreads_a_bright_point_without_inventing_energy() {
+        let (width, height) = (21, 21);
+        let mut rgb = vec![0u8; width * height * 3];
+        let center = (10 * width + 10) * 3;
+        rgb[center..center + 3].copy_from_slice(&[255, 255, 255]);
+        box_blur_rgb(&mut rgb, width, height, 2);
+        assert!(rgb[center] < 255, "the point must spread");
+        let neighbour = (10 * width + 12) * 3;
+        assert!(rgb[neighbour] > 0, "neighbours must pick it up");
+        let total: u32 = rgb.iter().step_by(3).map(|&value| value as u32).sum();
+        assert!(total <= 255 + (width * height) as u32 / 2, "total {total}");
+    }
+
+    #[test]
+    fn packing_drops_alpha_and_row_padding() {
+        let source = [1, 2, 3, 255, 4, 5, 6, 255, 0, 0, 7, 8, 9, 255, 10, 11, 12, 255, 0, 0];
+        assert_eq!(
+            packed_rgb(&source, 2, 2, 10, 4),
+            vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
+        );
+    }
+
+    #[test]
+    fn gray_art_leaves_the_system_accent_alone() {
+        assert_eq!(accent(&solid(Rgb(128, 128, 128), 400)), None);
+        assert_eq!(accent(&solid(Rgb(8, 6, 10), 400)), None);
+    }
+
+    #[test]
+    fn a_red_poster_gives_a_readable_red_accent() {
+        let color = accent(&solid(Rgb(220, 30, 40), 400)).expect("accent");
+        assert!(color.0 > color.1 * 2 && color.0 > color.2 * 2, "{color:?}");
+        assert!(contrast_with_white(color) >= ACCENT_MIN_CONTRAST);
+    }
+
+    #[test]
+    fn a_bright_yellow_is_darkened_but_keeps_its_hue() {
+        let color = accent(&solid(Rgb(250, 220, 40), 400)).expect("accent");
+        assert!(contrast_with_white(color) >= ACCENT_MIN_CONTRAST, "{color:?}");
+        assert!(color.0 > color.2 && color.1 > color.2, "still yellow: {color:?}");
+    }
+
+    #[test]
+    fn the_dominant_hue_wins_over_a_gray_majority() {
+        let mut rgb = solid(Rgb(90, 90, 90), 700);
+        rgb.extend(solid(Rgb(30, 90, 230), 300));
+        let color = accent(&rgb).expect("accent");
+        assert!(color.2 > color.0 && color.2 > color.1, "{color:?}");
+    }
+
+    #[test]
+    fn contrast_matches_the_wcag_reference_points() {
+        assert!((contrast_with_white(Rgb(0, 0, 0)) - 21.0).abs() < 0.01);
+        assert!((contrast_with_white(Rgb(255, 255, 255)) - 1.0).abs() < 0.01);
+        assert!((contrast_with_white(Rgb(0x35, 0x84, 0xe4)) - 3.77).abs() < 0.02);
+    }
 
     #[test]
     fn eviction_drops_the_least_recently_used_entry_first() {
