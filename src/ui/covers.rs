@@ -102,6 +102,16 @@ impl Asset {
         }
     }
 
+    /// The store API's name for the same art, for titles whose generic CDN
+    /// path does not exist. Logos have no store counterpart.
+    fn store_key(self) -> Option<&'static str> {
+        match self {
+            Self::Hero => Some("library_hero"),
+            Self::Capsule => Some("library_capsule_2x"),
+            Self::Logo => None,
+        }
+    }
+
     /// Anything smaller is an error page or a placeholder, not art.
     fn min_len(self) -> usize {
         match self {
@@ -137,28 +147,89 @@ pub fn ensure_asset(appid: u64, asset: Asset) -> Option<PathBuf> {
         return None;
     }
     std::fs::create_dir_all(&dir).ok()?;
-    let url = format!(
+    let generic = format!(
         "https://cdn.akamai.steamstatic.com/steam/apps/{appid}/{}",
         asset.remote()
     );
-    let body = match crate::http::get_with(&url, None, Some(std::time::Duration::from_secs(7))) {
-        Ok(body) if body.len() >= asset.min_len() => body,
-        Ok(_) => {
+    let mut fetched = fetch(&generic, asset.min_len());
+    // Newer titles keep library art under hashed store paths only; the
+    // store API names the file when the generic CDN path is absent.
+    if matches!(fetched, Fetch::Missing) {
+        if let Some(url) = asset.store_key().and_then(|key| store_asset_url(appid, key)) {
+            fetched = fetch(&url, asset.min_len());
+        }
+    }
+    let body = match fetched {
+        Fetch::Body(body) => body,
+        Fetch::Missing => {
             let _ = std::fs::write(&marker, b"");
             return None;
         }
-        Err(error) => {
-            if matches!(error.status, Some(403 | 404)) {
-                let _ = std::fs::write(&marker, b"");
-            }
-            return None;
-        }
+        Fetch::Failed => return None,
     };
     let temp = dir.join(format!("{name}.tmp"));
     std::fs::write(&temp, body).ok()?;
     std::fs::rename(&temp, &path).ok()?;
     let _ = std::fs::remove_file(&marker);
     Some(path)
+}
+
+enum Fetch {
+    Body(Vec<u8>),
+    /// Steam answered: the file is not there (403/404 or a stub body).
+    Missing,
+    /// Network trouble; worth retrying next time.
+    Failed,
+}
+
+fn fetch(url: &str, min_len: usize) -> Fetch {
+    match crate::http::get_with(url, None, Some(std::time::Duration::from_secs(7))) {
+        Ok(body) if body.len() >= min_len => Fetch::Body(body),
+        Ok(_) => Fetch::Missing,
+        Err(error) if matches!(error.status, Some(403 | 404)) => Fetch::Missing,
+        Err(_) => Fetch::Failed,
+    }
+}
+
+/// Asks IStoreBrowseService for the hashed path of one library asset.
+fn store_asset_url(appid: u64, key: &str) -> Option<String> {
+    let input = serde_json::json!({
+        "ids": [{ "appid": appid }],
+        "context": { "language": "english", "country_code": "US" },
+        "data_request": { "include_assets": true },
+    });
+    let url = format!(
+        "https://api.steampowered.com/IStoreBrowseService/GetItems/v1?input_json={}",
+        query_escape(&input.to_string())
+    );
+    let body = crate::http::get_with(&url, None, Some(std::time::Duration::from_secs(7))).ok()?;
+    let value: serde_json::Value = serde_json::from_slice(&body).ok()?;
+    store_asset_from_response(appid, &value, key)
+}
+
+fn store_asset_from_response(appid: u64, value: &serde_json::Value, key: &str) -> Option<String> {
+    let file = value
+        .pointer("/response/store_items/0/assets")?
+        .get(key)?
+        .as_str()?;
+    if file.is_empty() || file.contains("..") || file.starts_with('/') {
+        return None;
+    }
+    Some(format!(
+        "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/{appid}/{file}"
+    ))
+}
+
+fn query_escape(text: &str) -> String {
+    let mut out = String::with_capacity(text.len() * 3);
+    for byte in text.bytes() {
+        if byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.' | b'~') {
+            out.push(byte as char);
+        } else {
+            out.push_str(&format!("%{byte:02X}"));
+        }
+    }
+    out
 }
 
 /// The wide Steam library art used behind the inspector's title.
@@ -193,11 +264,37 @@ mod tests {
     }
 
     #[test]
+    fn store_paths_come_from_the_asset_record_only() {
+        let response = serde_json::json!({"response": {"store_items": [{
+            "appid": 2075800,
+            "assets": {
+                "library_capsule_2x": "b31b/library_capsule_2x.jpg",
+                "library_hero": "../escape.jpg"
+            }
+        }]}});
+        assert_eq!(
+            store_asset_from_response(2075800, &response, "library_capsule_2x").as_deref(),
+            Some("https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/2075800/b31b/library_capsule_2x.jpg")
+        );
+        assert_eq!(store_asset_from_response(2075800, &response, "library_hero"), None);
+        assert_eq!(store_asset_from_response(2075800, &response, "header"), None);
+    }
+
+    #[test]
+    fn query_escape_encodes_json_punctuation() {
+        assert_eq!(query_escape(r#"{"a":[1]}"#), "%7B%22a%22%3A%5B1%5D%7D");
+    }
+
+    #[test]
     #[ignore = "network: hits the Steam CDN"]
     fn steam_serves_portrait_and_logo_art() {
         for appid in [620, 108600, 2605790] {
             assert!(ensure_asset(appid, Asset::Capsule).is_some(), "capsule {appid}");
             assert!(ensure_asset(appid, Asset::Logo).is_some(), "logo {appid}");
         }
+        // Only reachable through the store API's hashed path.
+        let marker = cover_dir().join(format!("{}.missing", Asset::Capsule.file(2075800)));
+        let _ = std::fs::remove_file(marker);
+        assert!(ensure_asset(2075800, Asset::Capsule).is_some(), "hashed capsule");
     }
 }

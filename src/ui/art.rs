@@ -610,6 +610,12 @@ impl Art {
         sync.set(false);
     }
 
+    /// Posters fill their slot; a wide header shown in a poster slot is
+    /// contained instead so its title art is not cropped away.
+    pub fn set_content_fit(&self, fit: gtk::ContentFit) {
+        self.picture.set_content_fit(fit);
+    }
+
     fn show_missing(&self) {
         self.root.add_css_class("missing");
         self.letter.set_visible(true);

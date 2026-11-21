@@ -13,12 +13,9 @@ use crate::ui::model::{parse_updated, Game};
 use crate::ui::shell::Ctx;
 use crate::ui::worker::Command;
 
-const CARD_WIDTH: i32 = 232;
-const COVER_WIDTH: i32 = 212;
-const COVER_HEIGHT: i32 = 100;
-/// Cells stretch past the minimum card width, so art decodes a little wider
-/// than the cover's minimum to stay sharp in a three-column window.
-const COVER_DECODE_WIDTH: i32 = 256;
+/// Steam's library_600x900 portrait at a 2:3 logical size.
+const POSTER_WIDTH: i32 = 180;
+const POSTER_HEIGHT: i32 = 270;
 
 /// One Discover cell: the game plus its library membership at render time.
 struct Card {
@@ -118,7 +115,7 @@ pub fn build(ctx: &Ctx) -> DiscoverPage {
     );
     grid.add_css_class("discover-grid");
     grid.set_min_columns(1);
-    grid.set_max_columns(4);
+    grid.set_max_columns(12);
     grid.set_valign(gtk::Align::Start);
 
     let flow_scroll = gtk::ScrolledWindow::new();
@@ -440,14 +437,24 @@ fn card_factory(ctx: &Ctx, state: &Rc<DiscoverState>) -> gtk::SignalListItemFact
         };
         item.set_activatable(false);
 
-        let art = Art::new(COVER_WIDTH, COVER_HEIGHT, "discover-cover");
+        let art = Art::new(POSTER_WIDTH, POSTER_HEIGHT, "discover-cover");
+        art.root.set_hexpand(false);
+
+        // Behind a header-only title: its own blurred art, so the contained
+        // wide image sits in a matching poster instead of an empty frame.
+        let fill = gtk::Picture::new();
+        fill.set_content_fit(gtk::ContentFit::Cover);
+        fill.set_can_shrink(true);
+        fill.add_css_class("discover-fill");
+        let fill_generation = Rc::new(Cell::new(0u64));
 
         let title = gtk::Label::new(None);
         title.add_css_class("discover-title");
         title.set_halign(gtk::Align::Start);
         title.set_xalign(0.0);
         title.set_ellipsize(gtk::pango::EllipsizeMode::End);
-        title.set_max_width_chars(24);
+        title.set_max_width_chars(18);
+        title.set_width_request(POSTER_WIDTH - 8);
 
         let action = gtk::Button::new();
         action.add_css_class("circular");
@@ -471,12 +478,15 @@ fn card_factory(ctx: &Ctx, state: &Rc<DiscoverState>) -> gtk::SignalListItemFact
 
         let frame = gtk::Overlay::new();
         frame.add_css_class("discover-frame");
-        frame.set_child(Some(&art.root));
+        frame.set_overflow(gtk::Overflow::Hidden);
+        frame.set_child(Some(&fill));
+        frame.add_overlay(&art.root);
         frame.add_overlay(&action);
+        frame.set_size_request(POSTER_WIDTH, POSTER_HEIGHT);
 
         let card = GtkBox::new(Orientation::Vertical, 0);
         card.add_css_class("discover-card");
-        card.set_size_request(CARD_WIDTH, -1);
+        card.set_halign(gtk::Align::Center);
         card.set_valign(gtk::Align::Start);
         card.append(&frame);
         card.append(&title);
@@ -490,7 +500,29 @@ fn card_factory(ctx: &Ctx, state: &Rc<DiscoverState>) -> gtk::SignalListItemFact
             };
             let card = object.borrow::<Card>();
             let game = &card.game;
-            art.set(game.cover.as_deref(), &game.initial(), Some(COVER_DECODE_WIDTH));
+            let generation = fill_generation.get().wrapping_add(1);
+            fill_generation.set(generation);
+            fill.set_paintable(None::<&gtk::gdk::Paintable>);
+            match (&game.capsule, &game.cover) {
+                (Some(poster), _) => {
+                    art.set_content_fit(gtk::ContentFit::Cover);
+                    art.set(Some(poster), &game.initial(), None);
+                }
+                (None, Some(header)) => {
+                    art.set_content_fit(gtk::ContentFit::Contain);
+                    art.set(Some(header), &game.initial(), Some(POSTER_WIDTH));
+                    let fill = fill.clone();
+                    let fill_generation = fill_generation.clone();
+                    crate::ui::art::backdrop(header, move |loaded| {
+                        if fill_generation.get() == generation {
+                            if let Some(loaded) = loaded {
+                                fill.set_paintable(Some(&loaded.texture));
+                            }
+                        }
+                    });
+                }
+                (None, None) => art.set(None, &game.initial(), None),
+            }
             title.set_text(&game.name);
             title.set_tooltip_text(Some(&game.name));
             if card.in_library {
@@ -574,11 +606,13 @@ gridview.discover-grid {
     padding: 12px 16px 28px;
 }
 gridview.discover-grid > child {
-    padding: 10px;
+    padding: 10px 8px 14px;
     border-radius: 16px;
     background-color: transparent;
 }
 .discover-card { background-color: transparent; padding: 0; }
+.discover-frame { border-radius: 12px; }
+.discover-cover.ready { background-color: transparent; }
 .discover-cover {
     border-radius: 12px;
     box-shadow: 0 10px 24px -14px rgba(0, 0, 0, 0.7), inset 0 0 0 1px @borders;
@@ -590,7 +624,7 @@ gridview.discover-grid > child {
 }
 .discover-card:hover .discover-cover > picture { transform: scale(1.05); }
 .discover-cover .art-letter { font-size: 28px; }
-.discover-title { margin: 10px 4px 0; font-weight: 600; }
+.discover-title { margin: 10px 4px 0; font-weight: 600; font-size: 13px; }
 
 button.discover-add {
     min-width: 34px;

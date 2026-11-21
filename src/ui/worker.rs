@@ -317,6 +317,7 @@ fn decorate(games: &mut [Game]) {
                         .as_deref()
                         .and_then(|url| covers::ensure_cover_url(game.appid, url))
                         .or_else(|| covers::ensure_cover(game.appid));
+                    game.capsule = covers::ensure_asset(game.appid, covers::Asset::Capsule);
                 }
             });
         }
