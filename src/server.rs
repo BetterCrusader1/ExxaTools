@@ -1171,9 +1171,6 @@ fn post_route(
                     Ok(json!({ "configured": true, "stats": stats }))
                 }
                 "search" => {
-                    if st.settings.hubcap_key.is_empty() {
-                        return Err((409, "set a Hubcap API key first".into()));
-                    }
                     let term = body
                         .get("query")
                         .and_then(Value::as_str)
@@ -1182,6 +1179,11 @@ fn post_route(
                         .to_string();
                     if term.is_empty() {
                         return Err((400, "query is required".into()));
+                    }
+                    if st.settings.hubcap_key.is_empty() {
+                        let items = crate::steam::search(&term, &st.settings.country)
+                            .map_err(|error| (502, error))?;
+                        return Ok(json!({ "items": items, "source": "steam" }));
                     }
                     let items = hubcap::search(&st.settings.hubcap_key, &term, 25)
                         .map_err(|error| (502, error.to_string()))?;

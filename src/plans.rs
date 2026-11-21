@@ -255,47 +255,38 @@ fn dlc_union(plans: &[SourcePlan]) -> Vec<u64> {
         .collect()
 }
 
-/// Fetches every source, stores every key and writes the freshest merged plan.
-pub fn fetch_plan(appid: u64, name_hint: Option<&str>) -> Result<Value, String> {
-    let settings = state::load()?;
-    if sources(&settings.settings).is_empty() {
-        return Err("no plan source configured: add a Hubcap or Ryuu key in Settings".into());
-    }
-    let branch = settings
-        .apps
-        .get(&appid.to_string())
-        .and_then(|record| record.get("branch"))
-        .and_then(Value::as_str)
-        .unwrap_or("public")
-        .to_string();
-    let (plans, failures) = fetch_all_sources(appid, &settings.settings);
-    if plans.is_empty() {
-        return Err(format!(
-            "no plan source answered for {appid}: {}",
-            failures
-                .iter()
-                .filter_map(|entry| entry.get("error").and_then(Value::as_str))
-                .collect::<Vec<_>>()
-                .join("; ")
-        ));
-    }
-    let catalog = crate::steam::catalog(appid).ok();
-    let depots = fresh_depots(&plans, catalog.as_ref(), &branch);
-    if depots.is_empty() {
-        return Err(format!("no downloadable depots found for {appid}"));
-    }
-    let resolved = name_hint.map(str::to_string).or_else(|| {
-        catalog.as_ref().and_then(|catalog| {
-            catalog
-                .get("name")
-                .and_then(Value::as_str)
-                .map(str::to_string)
-        })
-    });
-    let providers: Vec<String> = plans.iter().map(|plan| plan.name.clone()).collect();
-    let dlc = dlc_union(&plans);
-    let summary = state::update(|fresh| {
-        let keys = import_keys(fresh, &plans);
+/// Depots straight from the public Steam catalog, used when no plan source is configured.
+fn catalog_only_depots(catalog: &Value, branch: &str) -> Vec<Value> {
+    catalog_depots(Some(catalog), branch)
+        .into_iter()
+        .map(|(depot_id, (gid, size))| json!({ "depot_id": depot_id, "gid": gid, "size": size }))
+        .collect()
+}
+
+/// Everything a plan record needs, gathered before the state transaction.
+struct PlanDraft {
+    appid: u64,
+    branch: String,
+    depots: Vec<Value>,
+    dlc: Vec<u64>,
+    providers: Vec<String>,
+    resolved: Option<String>,
+    source_depots: usize,
+}
+
+/// Persists a plan record from prepared depots and returns the summary payload.
+fn save_plan(draft: PlanDraft, plans: &[SourcePlan]) -> Result<Value, String> {
+    let PlanDraft {
+        appid,
+        branch,
+        depots,
+        dlc,
+        providers,
+        resolved,
+        source_depots,
+    } = draft;
+    state::update(|fresh| {
+        let keys = import_keys(fresh, plans);
         let created = !fresh.apps.contains_key(&appid.to_string());
         let previous = fresh
             .apps
@@ -310,32 +301,152 @@ pub fn fetch_plan(appid: u64, name_hint: Option<&str>) -> Result<Value, String> 
             .filter_map(|depot| depot.get("depot_id").and_then(Value::as_u64))
             .filter(|id| !fresh.depot_keys.contains_key(&id.to_string()))
             .collect();
+        let source = if providers.len() == 1 {
+            providers[0].clone()
+        } else if providers.is_empty() {
+            "catalog".to_string()
+        } else {
+            "multi".to_string()
+        };
         if created {
             fresh.apps.insert(appid.to_string(), json!({
                 "appid": appid,
                 "name": resolved.unwrap_or_else(|| appid.to_string()),
                 "branch": branch,
                 "depots": depots,
-                "dlc": dlc,
-                "source": if providers.len() == 1 { providers[0].clone() } else { "multi".into() },
-                "sources": providers,
+                "dlc": dlc.clone(),
+                "source": source,
+                "sources": &providers,
                 "fixes": { "ticket": "forge", "steam_id": "", "avatar": 0, "purchase_time": 0, "online_fix": false },
                 "updated": crate::vfsys::stamp(),
             }));
         } else if let Some(record) = fresh.apps.get_mut(&appid.to_string()) {
             record["depots"] = Value::Array(depots);
-            record["sources"] = json!(providers);
+            record["sources"] = json!(&providers);
+            record["source"] = json!(source);
             record["updated"] = json!(crate::vfsys::stamp());
         }
         Ok(json!({
             "appid": appid,
             "keys": keys,
-            "depots": plans.iter().map(|plan| plan.parsed.depots.len()).sum::<usize>(),
+            "depots": source_depots,
             "created_plan": created,
             "missing_keys": missing,
-            "dlc": dlc_union(&plans),
+            "dlc": dlc,
         }))
-    })?;
+    })
+}
+
+/// Builds and installs a plan from the public Steam catalog (no depot keys).
+fn catalog_plan(
+    appid: u64,
+    branch: &str,
+    catalog: &Value,
+    resolved: Option<String>,
+    failures: Vec<Value>,
+) -> Result<Value, String> {
+    let depots = catalog_only_depots(catalog, branch);
+    if depots.is_empty() {
+        return Err(format!("no downloadable depots found for {appid}"));
+    }
+    let dlc: Vec<u64> = catalog
+        .get("dlc")
+        .and_then(Value::as_array)
+        .map(|list| list.iter().filter_map(Value::as_u64).collect())
+        .unwrap_or_default();
+    let count = depots.len();
+    let summary = save_plan(
+        PlanDraft {
+            appid,
+            branch: branch.to_string(),
+            depots,
+            dlc,
+            providers: Vec::new(),
+            resolved,
+            source_depots: count,
+        },
+        &[],
+    )?;
+    let installed = write_script(appid).unwrap_or(false);
+    Ok(json!({
+        "provider": "catalog",
+        "providers": [],
+        "summary": summary,
+        "installed": installed,
+        "failures": failures,
+    }))
+}
+
+/// Fetches every source, stores every key and writes the freshest merged plan.
+pub fn fetch_plan(appid: u64, name_hint: Option<&str>) -> Result<Value, String> {
+    let settings = state::load()?;
+    let branch = settings
+        .apps
+        .get(&appid.to_string())
+        .and_then(|record| record.get("branch"))
+        .and_then(Value::as_str)
+        .unwrap_or("public")
+        .to_string();
+    let catalog = crate::steam::catalog(appid).ok();
+    let resolved = name_hint.map(str::to_string).or_else(|| {
+        catalog.as_ref().and_then(|catalog| {
+            catalog
+                .get("name")
+                .and_then(Value::as_str)
+                .map(str::to_string)
+        })
+    });
+    if sources(&settings.settings).is_empty() {
+        // No Hubcap/Ryuu key: build the plan from the public Steam catalog instead of
+        // refusing. Manifests and sizes come from Steam; depot keys stay missing and the
+        // request-code mirrors fill in the codes at download time.
+        let Some(catalog_ref) = catalog.as_ref() else {
+            return Err(
+                "no plan source configured and the Steam catalog did not answer: \
+                        add a Hubcap or Ryuu key in Settings"
+                    .into(),
+            );
+        };
+        return catalog_plan(appid, &branch, catalog_ref, resolved, Vec::new());
+    }
+    let (plans, failures) = fetch_all_sources(appid, &settings.settings);
+    if plans.is_empty() {
+        // Sources exist but none answered (404, quota, expired key): fall back to the
+        // Steam catalog instead of leaving the game unaddable.
+        if let Some(catalog_ref) = catalog.as_ref() {
+            return catalog_plan(appid, &branch, catalog_ref, resolved, failures);
+        }
+        return Err(format!(
+            "no plan source answered for {appid}: {}",
+            failures
+                .iter()
+                .filter_map(|entry| entry.get("error").and_then(Value::as_str))
+                .collect::<Vec<_>>()
+                .join("; ")
+        ));
+    }
+    let depots = fresh_depots(&plans, catalog.as_ref(), &branch);
+    if depots.is_empty() {
+        return Err(format!("no downloadable depots found for {appid}"));
+    }
+    let providers: Vec<String> = plans.iter().map(|plan| plan.name.clone()).collect();
+    let dlc = dlc_union(&plans);
+    let count = plans
+        .iter()
+        .map(|plan| plan.parsed.depots.len())
+        .sum::<usize>();
+    let summary = save_plan(
+        PlanDraft {
+            appid,
+            branch: branch.clone(),
+            depots,
+            dlc,
+            providers: providers.clone(),
+            resolved,
+            source_depots: count,
+        },
+        &plans,
+    )?;
     let installed = write_script(appid).unwrap_or(false);
     Ok(json!({
         "provider": providers.join("+"),
@@ -586,6 +697,22 @@ mod tests {
                 depots: vec![json!({ "depot_id": depot_id, "gid": gid, "size": 42, "key": key })],
             },
         }
+    }
+
+    #[test]
+    fn catalog_only_depots_carry_manifest_and_size() {
+        let catalog = json!({
+            "depots": [
+                { "depot_id": 620, "manifests": { "public": { "gid": "123456789012345678", "size": 987 } } },
+                { "depot_id": 621, "manifests": { "public": { "gid": "223456789012345678", "size": 5 } } },
+            ]
+        });
+        let depots = catalog_only_depots(&catalog, "public");
+        assert_eq!(depots.len(), 2);
+        assert_eq!(depots[0]["depot_id"], 620);
+        assert_eq!(depots[0]["gid"], "123456789012345678");
+        assert_eq!(depots[0]["size"], 987);
+        assert_eq!(depots[1]["depot_id"], 621);
     }
 
     #[test]

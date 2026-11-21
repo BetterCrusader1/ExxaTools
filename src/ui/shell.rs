@@ -245,6 +245,7 @@ fn build(app: &adw::Application, initial: Page) -> Ctx {
     }));
     let syncing = Rc::new(Cell::new(false));
     let search_seq = Rc::new(Cell::new(0u64));
+    let current_page = Rc::new(Cell::new(Page::Library));
 
     {
         let ctx = ctx.clone();
@@ -257,7 +258,9 @@ fn build(app: &adw::Application, initial: Page) -> Ctx {
         let worker = worker.clone();
         let discover_loaded = Rc::new(Cell::new(false));
         let system_loaded = Rc::new(Cell::new(false));
+        let current_page = current_page.clone();
         *hooks.navigate.borrow_mut() = Some(Box::new(move |page| {
+            current_page.set(page);
             stack.set_visible_child_name(page.name());
             syncing.set(true);
             if let Some(row) = nav_list.row_at_index(page.index()) {
@@ -343,6 +346,7 @@ fn build(app: &adw::Application, initial: Page) -> Ctx {
         let worker = worker.clone();
         let view = view.clone();
         let search_seq = search_seq.clone();
+        let current_page = current_page.clone();
         search.connect_activate(move |entry| {
             let term = entry.text().trim().to_string();
             if term.is_empty() {
@@ -353,7 +357,9 @@ fn build(app: &adw::Application, initial: Page) -> Ctx {
             let id = search_seq.get() + 1;
             search_seq.set(id);
             view.borrow_mut().search = true;
-            ctx.navigate(Page::Library);
+            if current_page.get() != Page::Discover {
+                ctx.navigate(Page::Library);
+            }
             shelf.set_title("Search results", "Searching Steam…");
             worker.send(Command::Search { id, term });
         });
@@ -362,11 +368,16 @@ fn build(app: &adw::Application, initial: Page) -> Ctx {
         let worker = worker.clone();
         let shelf = shelf.clone();
         let view = view.clone();
+        let current_page = current_page.clone();
         search.connect_search_changed(move |entry| {
             if entry.text().trim().is_empty() && view.borrow().search {
                 view.borrow_mut().search = false;
-                shelf.set_title("Library", "Reloading…");
-                worker.send(Command::LoadLibrary);
+                if current_page.get() == Page::Discover {
+                    worker.send(Command::LoadDiscover);
+                } else {
+                    shelf.set_title("Library", "Reloading…");
+                    worker.send(Command::LoadLibrary);
+                }
             }
         });
     }
@@ -391,6 +402,7 @@ fn build(app: &adw::Application, initial: Page) -> Ctx {
         let system = system.clone();
         let ctx = ctx.clone();
         let search_seq = search_seq.clone();
+        let current_page = current_page.clone();
         gtk::glib::timeout_add_local(std::time::Duration::from_millis(80), move || {
             while let Ok(event) = events.try_recv() {
                 match event {
@@ -430,6 +442,10 @@ fn build(app: &adw::Application, initial: Page) -> Ctx {
                     }
                     Event::Search { id, games } => {
                         if !accept_search(search_seq.get(), view.borrow().search, id) {
+                            continue;
+                        }
+                        if current_page.get() == Page::Discover {
+                            discover.set_search(&games);
                             continue;
                         }
                         view.borrow_mut().games = games.clone();

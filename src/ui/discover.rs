@@ -31,6 +31,7 @@ struct DiscoverState {
     library: RefCell<BTreeSet<u64>>,
     library_games: RefCell<Vec<Game>>,
     filter: Cell<DiscoverFilter>,
+    search_mode: Cell<bool>,
 }
 
 impl DiscoverState {
@@ -219,6 +220,21 @@ impl DiscoverPage {
             self.state.reconcile_library(&library);
             merge_library_metadata(&mut games, &library);
         }
+        self.state.search_mode.set(false);
+        self.state.games.replace(games);
+        self.update_filter_sensitivity();
+        self.render();
+    }
+
+    /// Show global-search results on the Discover page (Enter in the search box
+    /// while Discover is active), instead of navigating away to Library.
+    pub fn set_search(&self, games: &[Game]) {
+        let mut games = games.to_vec();
+        if let Some(library) = loaded_library_metadata() {
+            merge_library_metadata(&mut games, &library);
+        }
+        self.state.search_mode.set(true);
+        self.state.filter.set(DiscoverFilter::Popular);
         self.state.games.replace(games);
         self.update_filter_sensitivity();
         self.render();
@@ -298,28 +314,45 @@ fn render(
             .collect::<Vec<_>>()
     };
 
-    match filter {
-        DiscoverFilter::Popular => subtitle.set_text("Popular on Steam right now"),
-        DiscoverFilter::InLibrary => subtitle.set_text(&format!(
-            "{} {} in your library",
-            visible.len(),
-            if visible.len() == 1 { "game" } else { "games" }
-        )),
-        DiscoverFilter::RecentlyUpdated => {
-            subtitle.set_text("Loaded titles, newest manifest updates first")
+    let searching = state.search_mode.get();
+    if searching {
+        subtitle.set_text(&if visible.is_empty() {
+            "Nothing found — try another name or app id".to_string()
+        } else {
+            format!(
+                "{} search result{}",
+                visible.len(),
+                if visible.len() == 1 { "" } else { "s" }
+            )
+        });
+    } else {
+        match filter {
+            DiscoverFilter::Popular => subtitle.set_text("Popular on Steam right now"),
+            DiscoverFilter::InLibrary => subtitle.set_text(&format!(
+                "{} {} in your library",
+                visible.len(),
+                if visible.len() == 1 { "game" } else { "games" }
+            )),
+            DiscoverFilter::RecentlyUpdated => {
+                subtitle.set_text("Loaded titles, newest manifest updates first")
+            }
         }
     }
 
-    if total == 0 && filter != DiscoverFilter::InLibrary {
+    if total == 0 && filter != DiscoverFilter::InLibrary && !searching {
         stack.set_visible_child_name("error");
         return;
     }
     if visible.is_empty() {
-        empty.set_description(Some(match filter {
-            DiscoverFilter::InLibrary => {
-                "Your library is empty. Add a game from Popular or search Steam above."
+        empty.set_description(Some(if searching {
+            "Nothing found on Steam for that search."
+        } else {
+            match filter {
+                DiscoverFilter::InLibrary => {
+                    "Your library is empty. Add a game from Popular or search Steam above."
+                }
+                _ => "No loaded games match this view.",
             }
-            _ => "No loaded games match this view.",
         }));
         stack.set_visible_child_name("empty");
         return;
