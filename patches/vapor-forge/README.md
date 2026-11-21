@@ -3,6 +3,46 @@
 This directory carries the local compatibility patch used by ExxaTools for
 Steam build `1794536281` and Vapor Forge `v0.1.2`.
 
+## Vapor Forge v0.2.0 (current)
+
+Official `v0.2.0` supports the steamrt64 client natively and fixes the
+license/depot-selection half of the "0 B" bug, so it supersedes most of the
+`v0.1.2` patch below (ownership latch, CM fail-open, capability gates and the
+build-specific patterns are all upstream now). Install it with
+`exxa engine install v0.2.0` and delete the stale
+`~/.local/share/vapor-forge/x86_64/.exxatools-pattern-overrides` marker.
+
+One gap remains: stock v0.2.0 only patches depots Steam already selected, so an
+unowned app whose `BuildDepotDependency` returns an empty vector still mounts
+nothing and shows **0 B**. `v0.2.0-depot-injection.patch` ports
+`inject_missing_depots` (append the plan's depots with `manifest_gid` and
+`manifest_size`, scoped to the declaring app via `-- @appid`) onto v0.2.0.
+
+The size must also reach the plan: `api.steamcmd.net` returns depot `size` and
+`download` as decimal strings, which ExxaTools now parses (`steam::value_to_u64`)
+so `setmanifestid(depot, "gid", size)` carries a real size. Without it the
+injected `manifest_size` is 0 and Steam still shows 0 B.
+
+### Build (must match the official CI recipe)
+
+```sh
+git clone --depth 1 --branch v0.2.0 https://github.com/Hintay/vapor-forge /tmp/vapor-forge
+cd /tmp/vapor-forge
+git apply /path/to/ExxaTools/patches/vapor-forge/v0.2.0-depot-injection.patch
+source "$HOME/.cargo/env"
+CFLAGS_x86_64_unknown_linux_gnu=-DLUAJIT_NO_UNWIND \
+  cargo build --release -p vapor-forge-audit-loader --target x86_64-unknown-linux-gnu
+install -Dm755 target/x86_64-unknown-linux-gnu/release/libvapor_forge.so \
+  "$HOME/.local/share/vapor-forge/x86_64/libvapor_forge.so"
+```
+
+`-DLUAJIT_NO_UNWIND` is mandatory: without it vendored LuaJIT throws through
+libgcc unwinding into mlua's allocator and Steam aborts during hook init. The
+official release builds with `cargo zigbuild` (zig cc = clang); a plain GCC 16
+build also miscompiles LuaJIT, so prefer clang or the unwind flag. Restart Steam
+after installing; verify `manifest: injected … manifest_size=<non-zero>` in the
+console log and a real size in the install dialog.
+
 ## What the patch changes
 
 - `CUser::CheckAppOwnership` and `CUser::GetSubscribedApps` are resolved from

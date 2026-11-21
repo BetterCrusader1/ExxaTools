@@ -1,0 +1,319 @@
+diff --git a/crates/features/src/manifest.rs b/crates/features/src/manifest.rs
+index 61295c4..db24b6a 100644
+--- a/crates/features/src/manifest.rs
++++ b/crates/features/src/manifest.rs
+@@ -1,5 +1,5 @@
+-use vapor_forge_config::{DepotId, ManifestId};
+-use vapor_forge_core::ScriptState;
++use vapor_forge_config::{AppId, DepotId, ManifestId};
++use vapor_forge_core::{ManifestOverride, ScriptState};
+ 
+ pub struct ManifestPatch {
+     pub depot_id: DepotId,
+@@ -7,14 +7,28 @@ pub struct ManifestPatch {
+     pub new_size: Option<u64>,
+ }
+ 
+-/// For each depot_id, check if there's a Lua manifest override.
+-pub fn find_patches(depot_ids: &[DepotId], script_state: &ScriptState) -> Vec<ManifestPatch> {
++/// An override belongs to the app that declared it; an unannotated (legacy)
++/// override stays global so old scripts keep working.
++pub fn belongs_to_app(override_value: &ManifestOverride, app_id: AppId) -> bool {
++    override_value
++        .app_id
++        .map(|owner| owner == app_id)
++        .unwrap_or(true)
++}
++
++/// For each depot_id, check if there's a Lua manifest override for this app.
++pub fn find_patches(
++    app_id: AppId,
++    depot_ids: &[DepotId],
++    script_state: &ScriptState,
++) -> Vec<ManifestPatch> {
+     depot_ids
+         .iter()
+         .filter_map(|&depot_id| {
+             script_state
+                 .manifests
+                 .get(&depot_id)
++                .filter(|override_value| belongs_to_app(override_value, app_id))
+                 .map(|ov| ManifestPatch {
+                     depot_id,
+                     new_gid: ov.gid,
+@@ -23,3 +37,28 @@ pub fn find_patches(depot_ids: &[DepotId], script_state: &ScriptState) -> Vec<Ma
+         })
+         .collect()
+ }
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++
++    #[test]
++    fn patches_do_not_cross_into_another_plan() {
++        let mut state = ScriptState::default();
++        for (app, depot, gid) in [(108600, 108603, 300), (2605790, 2605791, 400)] {
++            state.manifests.insert(
++                DepotId(depot),
++                ManifestOverride {
++                    app_id: Some(AppId(app)),
++                    depot_id: DepotId(depot),
++                    gid: ManifestId(gid),
++                    size: None,
++                },
++            );
++        }
++        let patches = find_patches(AppId(108600), &[DepotId(108603), DepotId(2605791)], &state);
++        assert_eq!(patches.len(), 1);
++        assert_eq!(patches[0].depot_id, DepotId(108603));
++        assert_eq!(patches[0].new_gid, ManifestId(300));
++    }
++}
+diff --git a/crates/hooks/src/client/depot.rs b/crates/hooks/src/client/depot.rs
+index f88c4f5..54119af 100644
+--- a/crates/hooks/src/client/depot.rs
++++ b/crates/hooks/src/client/depot.rs
+@@ -85,6 +85,10 @@ unsafe { original(
+                 as *mut vapor_forge_steam_native_abi::CUtlVector<
+                     vapor_forge_steam_native_abi::DepotEntry,
+                 >;
++            // SAFETY: vec is a live BuildDepotDependency output vector. An
++            // unowned app can return an empty one; append this app's pinned
++            // depots so Steam mounts them instead of finishing at 0 B.
++            unsafe { inject_missing_depots(vec, app_id, &ss) };
+             // SAFETY: vec is valid after BuildDepotDependency returned.
+             let size = unsafe { (*vec).len() };
+             // SAFETY: vec is the same Steam-owned vector validated above.
+@@ -95,7 +99,11 @@ unsafe { original(
+                     // SAFETY: i < size.
+                     depot_ids.push(DepotId(unsafe { (*vec).get(i) }.depot_id));
+                 }
+-                let patches = vapor_forge_features::manifest::find_patches(&depot_ids, &ss);
++                let patches = vapor_forge_features::manifest::find_patches(
++                    vapor_forge_config::AppId(app_id),
++                    &depot_ids,
++                    &ss,
++                );
+                 for patch in &patches {
+                     for i in 0..size {
+                         // SAFETY: i < size.
+@@ -123,6 +131,98 @@ unsafe { original(
+     result
+ }
+ 
++/// Add script-pinned depots that Steam omitted from its dependency vector.
++///
++/// An unowned app can reach BuildDepotDependency with an empty CUtlVector
++/// because Steam has no license-derived dependency list. The vector is backed
++/// by the process allocator, so a fresh libc allocation is safe to hand back;
++/// Steam frees the replacement at the same lifetime boundary as the original.
++/// Injection is limited to apps named in an active plan, and only to depots
++/// whose override declares this app, so one plan cannot mount another's depots.
++unsafe fn inject_missing_depots(
++    vec: *mut vapor_forge_steam_native_abi::CUtlVector<vapor_forge_steam_native_abi::DepotEntry>,
++    app_id: u32,
++    ss: &vapor_forge_core::ScriptState,
++) {
++    use std::mem::size_of;
++    use vapor_forge_steam_native_abi::DepotEntry;
++
++    let Some(vec) = (unsafe { vec.as_mut() }) else {
++        return;
++    };
++    if !ss.apps.contains(&vapor_forge_config::AppId(app_id)) {
++        return;
++    }
++    let size = vec.len();
++    let mut present = Vec::with_capacity(size);
++    for i in 0..size {
++        // SAFETY: i < len().
++        present.push(unsafe { vec.get(i) }.depot_id);
++    }
++    let missing: Vec<_> = ss
++        .manifests
++        .iter()
++        .filter(|(depot_id, override_value)| {
++            vapor_forge_features::manifest::belongs_to_app(
++                override_value,
++                vapor_forge_config::AppId(app_id),
++            ) && !present.contains(&depot_id.0)
++        })
++        .map(|(depot_id, ov)| (*depot_id, ov.clone()))
++        .collect();
++    if missing.is_empty() {
++        return;
++    }
++
++    let new_size = size + missing.len();
++    let capacity = new_size.max(vec.capacity());
++    let old_ptr = vec.m_memory.m_p_memory;
++    let old_capacity = vec.m_memory.m_n_allocation_count as usize;
++    let new_ptr = if capacity <= old_capacity && !old_ptr.is_null() {
++        old_ptr
++    } else {
++        // SAFETY: calloc returns either null or a writable zeroed block of the
++        // requested size; Steam frees it with the same process allocator.
++        let ptr = unsafe { libc::calloc(capacity, size_of::<DepotEntry>()) }.cast::<DepotEntry>();
++        if ptr.is_null() {
++            return;
++        }
++        if size > 0 && !old_ptr.is_null() {
++            // SAFETY: the old vector's allocation covers size entries.
++            unsafe { std::ptr::copy_nonoverlapping(old_ptr, ptr, size) };
++        }
++        vec.m_memory.m_p_memory = ptr;
++        vec.m_memory.m_n_allocation_count = capacity as u32;
++        vec.m_memory.m_n_grow_size = capacity as u32;
++        ptr
++    };
++
++    let mut index = size;
++    for (depot_id, ov) in missing {
++        let entry = DepotEntry {
++            depot_id: depot_id.0,
++            app_id,
++            manifest_gid: ov.gid.0,
++            manifest_size: ov.size.unwrap_or(0),
++            dlc_app_id: 0,
++            lcs_required: 0,
++            b_not_new_target: 0,
++            shared_install: 0,
++            _padding: 0,
++        };
++        // SAFETY: index < capacity and new_ptr points to capacity entries.
++        unsafe { *new_ptr.add(index) = entry };
++        index += 1;
++        info!(
++            depot_id = depot_id.0,
++            manifest_gid = ov.gid.0,
++            manifest_size = ov.size.unwrap_or(0),
++            "manifest: injected"
++        );
++    }
++    vec.m_size = new_size as i32;
++}
++
+ /// Record what Steam selected for a controlled app. An empty selection makes
+ /// Steam finish an install with no depots (0 B), so it is reported with the
+ /// ownership state that feeds the selection, once per app and outcome; other
+diff --git a/crates/runtime-core/src/lib.rs b/crates/runtime-core/src/lib.rs
+index e62192f..6019f4a 100644
+--- a/crates/runtime-core/src/lib.rs
++++ b/crates/runtime-core/src/lib.rs
+@@ -150,6 +150,9 @@ pub struct ScriptState {
+ 
+ #[derive(Clone, Debug)]
+ pub struct ManifestOverride {
++    /// Owner declared by the script that supplied this override (`-- @appid`).
++    /// Legacy scripts without the marker keep the old global behaviour.
++    pub app_id: Option<AppId>,
+     pub depot_id: DepotId,
+     pub gid: ManifestId,
+     pub size: Option<u64>,
+diff --git a/crates/scripting/src/bindings.rs b/crates/scripting/src/bindings.rs
+index 254c5d8..f7e3525 100644
+--- a/crates/scripting/src/bindings.rs
++++ b/crates/scripting/src/bindings.rs
+@@ -102,6 +102,7 @@ pub(crate) struct RuntimeState {
+     current_file: Option<PathBuf>,
+     file_depots: HashMap<PathBuf, HashSet<DepotId>>,
+     file_manifest_overrides: HashMap<PathBuf, HashMap<DepotId, ManifestOverride>>,
++    file_apps: HashMap<PathBuf, AppId>,
+     file_parse_sequence: HashMap<PathBuf, u64>,
+     file_mtimes: HashMap<PathBuf, u32>,
+     next_parse_sequence: u64,
+@@ -219,7 +220,7 @@ pub(crate) fn snapshot_state(state: &Shared<RuntimeState>) -> ScriptState {
+ /// slice for the same path, stamp its mtime and parse sequence, then mark it
+ /// as the active file so `addappid` / `setmanifestid` callbacks attribute
+ /// their writes correctly.
+-pub(crate) fn begin_parse_file(state: &Shared<RuntimeState>, path: &Path) {
++pub(crate) fn begin_parse_file(state: &Shared<RuntimeState>, path: &Path, app_id: Option<AppId>) {
+     unload_file(state, path);
+     let mut state = lock_shared(state);
+     let owned = path.to_path_buf();
+@@ -228,6 +229,9 @@ pub(crate) fn begin_parse_file(state: &Shared<RuntimeState>, path: &Path) {
+     state.file_parse_sequence.insert(owned.clone(), seq);
+     let mtime = file_mtime_unix(path).unwrap_or(0);
+     state.file_mtimes.insert(owned.clone(), mtime);
++    if let Some(app_id) = app_id {
++        state.file_apps.insert(owned.clone(), app_id);
++    }
+     state.current_file = Some(owned);
+ }
+ 
+@@ -266,6 +270,7 @@ pub(crate) fn unload_file(state: &Shared<RuntimeState>, path: &Path) {
+     }
+     state.file_parse_sequence.remove(path);
+     state.file_mtimes.remove(path);
++    state.file_apps.remove(path);
+ }
+ 
+ pub(crate) fn provider_functions(lua: &Lua) -> (bool, bool) {
+@@ -481,12 +486,18 @@ fn install_setmanifestid(
+                 mlua::Error::RuntimeError("setmanifestid: gid must be decimal".into())
+             })?;
+             let depot_id = DepotId(depot_id_raw);
++            let mut state = lock_shared(&state);
++            let app_id = state
++                .current_file
++                .as_ref()
++                .and_then(|path| state.file_apps.get(path))
++                .copied();
+             let override_value = ManifestOverride {
++                app_id,
+                 depot_id,
+                 gid: ManifestId(gid_raw),
+                 size,
+             };
+-            let mut state = lock_shared(&state);
+             let current_file = state.current_file.clone();
+             if let Some(path) = current_file {
+                 state
+diff --git a/crates/scripting/src/registry.rs b/crates/scripting/src/registry.rs
+index 97e4464..52f09fd 100644
+--- a/crates/scripting/src/registry.rs
++++ b/crates/scripting/src/registry.rs
+@@ -63,7 +63,13 @@ impl ScriptRegistry {
+     }
+ 
+     pub(crate) fn parse_file(&mut self, path: &Path, source: &str) -> Vec<String> {
+-        begin_parse_file(&self.state, path);
++        let app_id = source.lines().take(32).find_map(|line| {
++            line.trim()
++                .strip_prefix("-- @appid ")
++                .and_then(|value| value.trim().parse::<u32>().ok())
++                .map(vapor_forge_core::AppId)
++        });
++        begin_parse_file(&self.state, path, app_id);
+         let errors = execute_source(&self.lua, path, source, &self.ctx);
+         end_parse_file(&self.state);
+         errors
+diff --git a/crates/scripting/src/tests.rs b/crates/scripting/src/tests.rs
+index 922937d..c7fea90 100644
+--- a/crates/scripting/src/tests.rs
++++ b/crates/scripting/src/tests.rs
+@@ -531,3 +531,23 @@ fn report_can_restrict_lua_network_hosts() {
+ 
+     let _ = std::fs::remove_dir_all(&dir);
+ }
++
++#[test]
++fn plan_files_bind_manifests_to_the_declared_app() {
++    let dir = std::env::temp_dir().join(format!("lua-app-binding-{}", std::process::id()));
++    let _ = std::fs::create_dir_all(&dir);
++    std::fs::write(
++        dir.join("108600.lua"),
++        "-- @appid 108600\naddappid(108600)\nsetmanifestid(108603, \"300\", 5000)\n",
++    )
++    .unwrap();
++    std::fs::write(
++        dir.join("2605790.lua"),
++        "-- @appid 2605790\naddappid(2605790)\nsetmanifestid(2605791, \"400\", 6000)\n",
++    )
++    .unwrap();
++    let state = execute_scripts(&[dir.to_string_lossy().into_owned()]);
++    assert_eq!(state.manifests[&DepotId(108603)].app_id, Some(AppId(108600)));
++    assert_eq!(state.manifests[&DepotId(2605791)].app_id, Some(AppId(2605790)));
++    let _ = std::fs::remove_dir_all(&dir);
++}

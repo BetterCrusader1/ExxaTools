@@ -237,8 +237,8 @@ fn parse_depots(raw: Option<&Value>) -> Vec<Value> {
                 branch.clone(),
                 json!({
                     "gid": gid,
-                    "size": entry.get("size").and_then(Value::as_u64),
-                    "download": entry.get("download").and_then(Value::as_u64),
+                    "size": entry.get("size").and_then(value_to_u64),
+                    "download": entry.get("download").and_then(value_to_u64),
                 }),
             );
         }
@@ -281,6 +281,17 @@ fn value_to_gid(value: &Value) -> Option<String> {
     match value {
         Value::String(text) => Some(text.trim().to_string()),
         Value::Number(number) => Some(number.to_string()),
+        _ => None,
+    }
+}
+
+/// Manifest sizes arrive as JSON numbers from some mirrors and as decimal
+/// strings from `api.steamcmd.net`; accept both so a string size is not dropped
+/// (a missing size renders `setmanifestid` without one and Steam shows 0 B).
+fn value_to_u64(value: &Value) -> Option<u64> {
+    match value {
+        Value::Number(number) => number.as_u64(),
+        Value::String(text) => text.trim().parse::<u64>().ok(),
         _ => None,
     }
 }
@@ -432,4 +443,36 @@ pub fn dlc_names(appid: u64, cc: &str) -> Vec<Value> {
         *guard = Some((appid, cc.to_string(), Instant::now(), out.clone()));
     }
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn sizes_parse_from_numbers_and_strings() {
+        assert_eq!(value_to_u64(&json!(177552390)), Some(177552390));
+        assert_eq!(value_to_u64(&json!("177552390")), Some(177552390));
+        assert_eq!(value_to_u64(&json!(" 42 ")), Some(42));
+        assert_eq!(value_to_u64(&json!("abc")), None);
+        assert_eq!(value_to_u64(&json!(null)), None);
+    }
+
+    #[test]
+    fn string_manifest_sizes_survive_parse_depots() {
+        let raw = json!({
+            "5196332": {
+                "manifests": {
+                    "public": { "gid": "3252767132873796058", "size": "177552390", "download": "93599152" }
+                }
+            }
+        });
+        let depots = parse_depots(Some(&raw));
+        assert_eq!(depots.len(), 1);
+        let manifest = &depots[0]["manifests"]["public"];
+        assert_eq!(manifest["gid"], "3252767132873796058");
+        assert_eq!(manifest["size"], 177552390);
+        assert_eq!(manifest["download"], 93599152);
+    }
 }
