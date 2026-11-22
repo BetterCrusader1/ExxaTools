@@ -12,7 +12,7 @@ use crate::ui::model::{Game, GameState, Origin};
 use crate::ui::shell::Ctx;
 use crate::ui::worker::Command;
 
-const HERO_HEIGHT: i32 = 300;
+const HERO_HEIGHT: i32 = 256;
 /// The technical names live here, one hover away from the plain labels.
 const CHECK_TOOLTIP: &str = "Sync manifests: fetch the newest manifests and depot keys from your sources";
 const REPAIR_TOOLTIP: &str = "Fix the update loop: clear Steam's update-required flags for this game and restart Steam";
@@ -21,7 +21,7 @@ const REPAIR_TOOLTIP: &str = "Fix the update loop: clear Steam's update-required
 const HERO_DECODE_WIDTH: i32 = 1280;
 /// The title logo fits inside this logical box, keeping its aspect.
 const LOGO_MAX_WIDTH: i32 = 380;
-const LOGO_MAX_HEIGHT: i32 = 120;
+const LOGO_MAX_HEIGHT: i32 = 92;
 
 pub struct Inspector {
     pub root: gtk::Widget,
@@ -117,7 +117,19 @@ impl Inspector {
             self.show_empty(Some(ctx));
             return;
         };
+        let changed = self
+            .last
+            .borrow()
+            .as_ref()
+            .is_none_or(|(_, last)| last.appid != game.appid);
         self.last.replace(Some((ctx.clone(), game.clone())));
+        // Picking a card lower in the collection brings its spotlight into
+        // view; a re-render of the same game keeps the scroll where it is.
+        if changed {
+            if let Some(scroll) = self.root.downcast_ref::<gtk::ScrolledWindow>() {
+                scroll.vadjustment().set_value(0.0);
+            }
+        }
         let compact = self.compact.get();
         clear(&self.hero);
         clear(&self.body);
@@ -305,7 +317,11 @@ fn hero(game: &Game, actions: &GtkBox) -> gtk::Widget {
     pill.add_css_class(game.state.pill_class());
     let top = GtkBox::new(Orientation::Horizontal, 8);
     top.set_margin_bottom(8);
-    top.append(&pill);
+    // Ready is the normal case and the card already says it; the hero only
+    // tags a state that asks for attention.
+    if game.state != GameState::Ready {
+        top.append(&pill);
+    }
     if game.dlc > 0 {
         let dlc = gtk::Label::new(Some(&format!("{} DLC", game.dlc)));
         dlc.add_css_class("status-pill");
@@ -313,6 +329,7 @@ fn hero(game: &Game, actions: &GtkBox) -> gtk::Widget {
         top.append(&dlc);
     }
 
+    top.set_visible(top.first_child().is_some());
     let title = hero_title(game);
 
     let meta = gtk::Label::new(Some(&game.hero_meta()));
@@ -668,8 +685,8 @@ mod tests {
 
     #[test]
     fn wide_logos_are_limited_by_width_and_tall_ones_by_height() {
-        assert_eq!(logo_size(640, 191), (380, 113));
-        assert_eq!(logo_size(501, 335), (179, 120));
+        assert_eq!(logo_size(640, 191), (308, 92));
+        assert_eq!(logo_size(501, 335), (138, 92));
         assert_eq!(logo_size(0, 10), (LOGO_MAX_WIDTH, LOGO_MAX_HEIGHT));
     }
 }

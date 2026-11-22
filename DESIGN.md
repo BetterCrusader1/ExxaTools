@@ -37,7 +37,7 @@ The tracked `web/logo.png`, `web/logo-128.png` and `web/logo-48.png` remain the 
 ## Signature Elements
 
 - **Game backdrop.** On Library, the selected game's hero is blurred on the CPU at 160 px (`art::backdrop`) and laid under the whole window with a theme veil. Rail, shelf and header turn translucent over it (`.has-backdrop`), reading as frosted glass without a per-frame GPU blur. It crossfades in 450 ms when the selection changes; System, Settings and Discover stay plain.
-- **Hero.** Full pane width, 340 px, Steam `library_hero` art with a bottom-left scrim, Steam `logo.png` trimmed to its visible pixels (the name is its alternative text and the fallback), state pills and one pill primary action.
+- **Hero.** Full pane width, 256 px, Steam `library_hero` art with a bottom-left scrim, Steam `logo.png` trimmed to its visible pixels (the name is its alternative text and the fallback), state pills and one pill primary action.
 - **Featured banner.** Discover's Popular view opens with five titles that have hero art; it advances every 7 s, pauses under pointer or focus, and stays still when GTK animations are off.
 
 ## Color

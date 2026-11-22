@@ -86,9 +86,9 @@ const DARK: &str = r#"
 @define-color warning_color #e6b450;
 @define-color error_color #ff8a80;
 @define-color card_stock #17151f;
-@define-color veil_top rgba(0, 0, 0, 0.35);
-@define-color veil_mid rgba(0, 0, 0, 0.74);
-@define-color veil_bottom rgba(0, 0, 0, 0.95);
+@define-color veil_top rgba(0, 0, 0, 0.66);
+@define-color veil_mid rgba(0, 0, 0, 0.86);
+@define-color veil_bottom rgba(0, 0, 0, 0.97);
 "#;
 
 const LIGHT: &str = r#"
@@ -238,7 +238,7 @@ button.global-control:hover { color: @window_fg_color; }
     background-color: transparent;
     border: 0;
     padding: 0;
-    margin: 24px;
+    margin: 20px 24px;
     box-shadow: none;
 }
 .hero-panel label { color: #ffffff; }
@@ -273,10 +273,20 @@ button.global-control:hover { color: @window_fg_color; }
 .hero-panel .status-pill { background-color: rgba(0, 0, 0, 0.6); color: #ecebf2; }
 .hero-panel .pill-ready { color: #8ee6b0; }
 
-.boxed-list, list.boxed-list, .card {
-    border-radius: 3px;
-    box-shadow: none;
+/* System and Settings speak the collection's language: each group is a
+   card of the same stock as the game cards, rows divided by a hairline,
+   the row under the pointer lifted one step. */
+.boxed-list, list.boxed-list {
+    background-color: @card_stock;
+    border-radius: 8px;
+    box-shadow: inset 0 0 0 1px @borders;
 }
+list.boxed-list > row { background: none; }
+list.boxed-list > row:hover { background-color: @surface_hover; }
+list.boxed-list > row:not(:last-child) { border-bottom: 1px solid @borders; }
+preferencesgroup > box > box > label.heading,
+preferencespage .heading { font-size: 15px; font-weight: 800; }
+.card { border-radius: 8px; box-shadow: none; }
 
 .depot-table {
     background-color: @card_bg_color;
