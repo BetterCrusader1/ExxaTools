@@ -1,5 +1,5 @@
 ---
-name: Pearl Black
+name: Foil Collection
 colors:
   source: "libadwaita named colors and --accent-bg-color redefined per theme in src/ui/theme.rs"
   dark: "#000000 window, header and rail; #0e0d12 cards; #1f1d27 borders; #ecebf2 text"
@@ -21,14 +21,14 @@ rounded:
 components:
   header: "borderless adw::HeaderBar with a pill search, refresh and theme"
   navigation: "native ListBox; soft filled selection, accent icon"
-  library: "shelf list + full-bleed hero with the game's logo over a window-wide blurred backdrop"
+  library: "the selected game's full-bleed hero, then the collection as 2:3 portrait cards; the selected card is the only foil; technical details close the page"
   discover: "featured carousel, then a grid of 2:3 Steam posters with overlay Add buttons"
   details: "depots and plan metadata collapsed until requested"
 ---
 
 ## Overview
 
-ExxaTools is a native Steam companion for a personal game library: find a game, see its state, and launch, add, sync or repair it. The visual direction is **Pearl Black**: pure black chrome, one pearl-violet accent taken from the ExxaTools mark, and the game's own art carrying the rest of the color.
+ExxaTools is a native Steam companion for a personal game library: find a game, see its state, and launch, add, sync or repair it. The visual direction is **Foil Collection** (chosen in an Impeccable shape round): the library is a collection of cards like Steam's trading cards, on pure black chrome with one pearl-violet accent taken from the ExxaTools mark. Pearl foil is the signature move and appears in exactly two places: the selected card, and a card that has just been added.
 
 GTK and libadwaita still own controls, focus behavior and accessibility semantics. The look comes from a redefined neutral palette, real Steam artwork (hero, logo, portrait poster) and a small set of component treatments.
 
@@ -70,7 +70,8 @@ The navigation rail is 200 px (64 px icon-only on narrow windows) and holds only
 
 - **Buttons:** 6 px radius. `suggested-action` is a pearl-violet gradient whose light band slides across on hover (Play included). Hero secondaries are black glass with a faint violet edge.
 - **Filters:** `.segmented` tabs; the current one has a 2 px pearl underline.
-- **Library rows:** 64×30 cover, name, one-line meta, status dot; soft filled selection.
+- **Collection cards:** 168×252 portrait (Steam `library_600x900`), name, state in words coloured by state; the selected card gets a pearl gradient edge and a diagonal sheen (`collection.rs`). Zero games shows an empty state with Browse Discover.
+- **Add:** no confirmation; the poster's button shows a spinner (the banner says Adding…), success flashes the card foil and offers Open in Library, a key-source failure stays 10 s and offers Open Settings.
 - **Discover cards:** 180×270 poster (`library_600x900`, or the store API's hashed `library_capsule_2x`), hover zoom inside the frame, title below, circular overlay Add button that turns accent on hover and green when added. A header-only title is contained over its own blurred art.
 - **Art loading:** every image goes through `src/ui/art.rs`: one decoder thread, a 48 MB LRU, a skeleton while loading and a 220 ms fade on arrival.
 
