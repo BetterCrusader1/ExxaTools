@@ -230,6 +230,19 @@ fn is_source(root: &Path, path: &Path) -> bool {
     }
 }
 
+/// Only writes, creates, renames and deletes count. inotify also reports
+/// opens and reads, and cargo opens every source file while building, so
+/// counting those made each build schedule the next one, forever.
+fn changes_content(kind: &notify::EventKind) -> bool {
+    use notify::event::{EventKind, ModifyKind};
+    match kind {
+        EventKind::Create(_) | EventKind::Remove(_) => true,
+        EventKind::Modify(ModifyKind::Metadata(_)) => false,
+        EventKind::Modify(_) => true,
+        _ => false,
+    }
+}
+
 fn builder_loop(root: &Path, cargo: &Path) -> Result<(), String> {
     use notify::{RecursiveMode, Watcher};
 
@@ -260,7 +273,9 @@ fn builder_loop(root: &Path, cargo: &Path) -> Result<(), String> {
             .max(Duration::from_millis(50));
         match receiver.recv_timeout(wait) {
             Ok(Ok(event)) => {
-                if event.paths.iter().any(|path| is_source(root, path)) {
+                if changes_content(&event.kind)
+                    && event.paths.iter().any(|path| is_source(root, path))
+                {
                     dirty = Some(Instant::now());
                 }
             }
@@ -368,6 +383,16 @@ mod tests {
         assert!(!is_source(root, Path::new("/c/src/.art.rs.swp")));
         assert!(!is_source(root, Path::new("/c/src/art.rs~")));
         assert!(!is_source(root, Path::new("/elsewhere/src/main.rs")));
+    }
+
+    #[test]
+    fn reading_a_source_file_is_not_a_change() {
+        use notify::event::{AccessKind, AccessMode, CreateKind, DataChange, EventKind, MetadataKind, ModifyKind};
+        assert!(!changes_content(&EventKind::Access(AccessKind::Open(AccessMode::Any))));
+        assert!(!changes_content(&EventKind::Access(AccessKind::Close(AccessMode::Read))));
+        assert!(!changes_content(&EventKind::Modify(ModifyKind::Metadata(MetadataKind::AccessTime))));
+        assert!(changes_content(&EventKind::Modify(ModifyKind::Data(DataChange::Content))));
+        assert!(changes_content(&EventKind::Create(CreateKind::File)));
     }
 
     #[test]
