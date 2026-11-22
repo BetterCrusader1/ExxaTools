@@ -318,7 +318,7 @@ fn hero(game: &Game, actions: &GtkBox) -> gtk::Widget {
 
     let title = hero_title(game);
 
-    let meta = gtk::Label::new(Some(&game.meta()));
+    let meta = gtk::Label::new(Some(&game.hero_meta()));
     meta.add_css_class("hero-meta");
     meta.set_halign(gtk::Align::Start);
     meta.set_xalign(0.0);

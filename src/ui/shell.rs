@@ -969,13 +969,13 @@ gridview.collection-grid > child {
 .card-frame {
     border-radius: 6px;
     padding: 2px;
-    background-color: #17151f;
+    background-color: @card_stock;
     transition: box-shadow 200ms ease-out, background 200ms ease-out;
 }
 .card-art { border-radius: 4px; }
 .card-art .art-letter { font-size: 40px; }
 .foil { border-radius: 4px; opacity: 0; transition: opacity 260ms ease-out; }
-gridview.collection-grid > child:hover .card-frame { background-color: #2a2638; }
+gridview.collection-grid > child:hover .card-frame { background-color: @surface_hover; }
 gridview.collection-grid > child:selected .card-frame {
     background-image: linear-gradient(135deg, #4a2fb8 0%, #b7a4ff 30%, #f1ecff 48%, #9d86f7 62%, #4a2fb8 100%);
     box-shadow: 0 14px 28px -10px rgba(123, 92, 240, 0.55);
@@ -992,9 +992,9 @@ gridview.collection-grid > child:selected .foil {
 gridview.collection-grid > child:focus-visible .card-frame { box-shadow: 0 0 0 2px @pearl_light; }
 .card-name { margin: 9px 2px 0; font-weight: 700; }
 .card-caption { margin: 1px 2px 0; font-size: 12px; color: @muted_fg; }
-.card-caption.state-ready { color: #8ee6b0; }
-.card-caption.state-planned { color: #e6b450; }
-.card-caption.state-warning { color: #ff8a80; }
+.card-caption.state-ready { color: @success_color; }
+.card-caption.state-planned { color: @warning_color; }
+.card-caption.state-warning { color: @error_color; }
 .collection .title-3 { font-size: 22px; }
 
 .status-dot {

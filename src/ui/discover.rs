@@ -779,10 +779,22 @@ fn featured_page(ctx: &Ctx, state: &Rc<DiscoverState>, game: &Game, in_library: 
         .upcast()
 }
 
+/// Icon plus a visible word, so the action is readable without hovering
+/// and carries its own accessible name.
+fn action_label(icon: &str, text: &str) -> GtkBox {
+    let image = gtk::Image::from_icon_name(icon);
+    image.set_pixel_size(14);
+    let label = gtk::Label::new(Some(text));
+    let content = GtkBox::new(Orientation::Horizontal, 6);
+    content.append(&image);
+    content.append(&label);
+    content
+}
+
 fn show_add(action: &gtk::Button, name: &str) {
     action.remove_css_class("discover-added");
     action.remove_css_class("discover-adding");
-    action.set_icon_name("list-add-symbolic");
+    action.set_child(Some(&action_label("list-add-symbolic", "Add")));
     action.set_sensitive(true);
     action.set_cursor_from_name(Some("pointer"));
     action.set_tooltip_text(Some(&format!("Add {name} to your library")));
@@ -801,7 +813,7 @@ fn show_adding(action: &gtk::Button, name: &str) {
 fn show_in_library(action: &gtk::Button) {
     action.remove_css_class("discover-adding");
     action.add_css_class("discover-added");
-    action.set_icon_name("object-select-symbolic");
+    action.set_child(Some(&action_label("object-select-symbolic", "Added")));
     action.set_sensitive(false);
     action.set_cursor_from_name(None);
     action.set_tooltip_text(Some("Already in your library"));
@@ -872,9 +884,9 @@ gridview.discover-grid > child {
 }
 
 button.discover-add {
-    min-width: 32px;
-    min-height: 32px;
-    padding: 0;
+    min-height: 30px;
+    padding: 0 12px;
+    font-weight: 700;
     background-color: rgba(0, 0, 0, 0.72);
     color: #ffffff;
     box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.24);

@@ -235,6 +235,26 @@ impl Game {
         )
     }
 
+    /// The line under the hero's logo: what a player cares about (download
+    /// size, freshness) instead of branch and depot counts.
+    pub fn hero_meta(&self) -> String {
+        let total: u64 = self.depots.iter().filter_map(|depot| depot.size).sum();
+        let mut parts = Vec::new();
+        if total > 0 {
+            parts.push(human_size(total));
+        }
+        if let Some(updated) = self.updated.filter(|value| *value > 0) {
+            parts.push(format!("updated {}", relative_time(updated)));
+        }
+        if parts.is_empty() {
+            let branch = if self.branch.is_empty() { "public" } else { &self.branch };
+            let mut label = format!("{branch} branch");
+            label[..1].make_ascii_uppercase();
+            return label;
+        }
+        parts.join(", ")
+    }
+
     /// One line under a collection card: the state in words.
     pub fn card_caption(&self) -> String {
         self.state.label().to_string()
@@ -364,7 +384,9 @@ pub fn relative_time(epoch: u64) -> String {
         0..=59 => "just now".into(),
         60..=3_599 => format!("{} min ago", seconds / 60),
         3_600..=86_399 => format!("{} h ago", seconds / 3_600),
-        86_400..=2_591_999 => format!("{} days ago", seconds / 86_400),
+        86_400..=172_799 => "1 day ago".into(),
+        172_800..=2_591_999 => format!("{} days ago", seconds / 86_400),
+        2_592_000..=5_183_999 => "1 month ago".into(),
         _ => format!("{} months ago", seconds / 2_592_000),
     }
 }
@@ -441,9 +463,26 @@ mod tests {
     }
 
     #[test]
+    fn hero_meta_prefers_size_and_freshness_over_depot_counts() {
+        let mut game = Game::from_search(&serde_json::json!({"appid": 620, "name": "Portal 2"})).expect("game");
+        assert_eq!(game.hero_meta(), "Public branch");
+        game.depots = vec![
+            Depot { id: 621, gid: "1".into(), size: Some(3 * 1024 * 1024 * 1024), has_key: true },
+            Depot { id: 622, gid: "2".into(), size: Some(512 * 1024 * 1024), has_key: true },
+        ];
+        assert_eq!(game.hero_meta(), "3.5 GB");
+        game.updated = Some(1);
+        assert!(game.hero_meta().starts_with("3.5 GB, updated "));
+    }
+
+    #[test]
     fn sizes_and_time_read_like_ui_copy() {
         assert_eq!(human_size(2 * 1024 * 1024 * 1024), "2.0 GB");
         assert_eq!(human_size(512 * 1024 * 1024), "512 MB");
         assert_eq!(relative_time(0), "not yet refreshed");
+        let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
+        assert_eq!(relative_time(now - 90_000), "1 day ago");
+        assert_eq!(relative_time(now - 3 * 86_400), "3 days ago");
+        assert_eq!(relative_time(now - 3_000_000), "1 month ago");
     }
 }

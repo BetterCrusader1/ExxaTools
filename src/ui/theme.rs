@@ -85,6 +85,7 @@ const DARK: &str = r#"
 @define-color success_color #8ee6b0;
 @define-color warning_color #e6b450;
 @define-color error_color #ff8a80;
+@define-color card_stock #17151f;
 @define-color veil_top rgba(0, 0, 0, 0.35);
 @define-color veil_mid rgba(0, 0, 0, 0.74);
 @define-color veil_bottom rgba(0, 0, 0, 0.95);
@@ -109,9 +110,13 @@ const LIGHT: &str = r#"
 @define-color pearl #6a4ae0;
 @define-color pearl_light #8b70f0;
 @define-color pearl_deep #4a2fb8;
-@define-color veil_top rgba(233, 236, 239, 0.50);
-@define-color veil_mid rgba(233, 236, 239, 0.80);
-@define-color veil_bottom rgba(233, 236, 239, 0.95);
+@define-color success_color #1d7a4a;
+@define-color warning_color #8f5d00;
+@define-color error_color #b3261e;
+@define-color card_stock #d9dde3;
+@define-color veil_top rgba(233, 236, 239, 0.72);
+@define-color veil_mid rgba(233, 236, 239, 0.90);
+@define-color veil_bottom rgba(233, 236, 239, 0.97);
 "#;
 
 /// Steam native: the Steam client's own library language, read from its
