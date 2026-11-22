@@ -13,6 +13,9 @@ use crate::ui::shell::Ctx;
 use crate::ui::worker::Command;
 
 const HERO_HEIGHT: i32 = 300;
+/// The technical names live here, one hover away from the plain labels.
+const CHECK_TOOLTIP: &str = "Sync manifests: fetch the newest manifests and depot keys from your sources";
+const REPAIR_TOOLTIP: &str = "Fix the update loop: clear Steam's update-required flags for this game and restart Steam";
 /// Steam library heroes are up to 3840 px wide; the full-bleed hero rarely
 /// shows more than this logical width, so decoding more only wastes memory.
 const HERO_DECODE_WIDTH: i32 = 1280;
@@ -126,21 +129,19 @@ impl Inspector {
         actions.set_margin_top(14);
         actions.append(&primary_button(ctx, game));
 
-        // (label, icon, command): beside the primary action when there is
-        // room, in the overflow menu on narrow windows.
-        let mut secondary: Vec<(&str, &str, Command)> = Vec::new();
+        // (label, icon, tooltip, command): beside the primary action when
+        // there is room, in the overflow menu on narrow windows.
+        let mut secondary: Vec<(&str, &str, &str, Command)> = Vec::new();
         if game.origin != Origin::Search {
             if can_launch {
-                secondary.push(("Sync manifests", "emblem-synchronizing-symbolic", Command::Sync(game.appid)));
+                secondary.push(("Check for updates", "emblem-synchronizing-symbolic", CHECK_TOOLTIP, Command::Sync(game.appid)));
             }
-            secondary.push(("Fix update loop", "applications-engineering-symbolic", Command::Fix(game.appid)));
+            secondary.push(("Repair", "applications-engineering-symbolic", REPAIR_TOOLTIP, Command::Fix(game.appid)));
         }
         if !compact {
-            for (label, _, command) in &secondary {
+            for (label, _, tooltip, command) in &secondary {
                 let button = action_button(label);
-                if matches!(command, Command::Fix(_)) {
-                    button.set_tooltip_text(Some("Repair appmanifest flags and restart Steam"));
-                }
+                button.set_tooltip_text(Some(tooltip));
                 let commands = ctx.commands.clone();
                 let command = command.clone();
                 button.connect_clicked(move |_| commands.send(command.clone()));
@@ -165,8 +166,9 @@ impl Inspector {
         menu.set_margin_end(5);
 
         if compact {
-            for (label, icon, command) in secondary {
+            for (label, icon, tooltip, command) in secondary {
                 let button = menu_button(label, icon);
+                button.set_tooltip_text(Some(tooltip));
                 let commands = ctx.commands.clone();
                 let popover = popover.clone();
                 button.connect_clicked(move |_| {
@@ -273,7 +275,8 @@ fn primary_button(ctx: &Ctx, game: &Game) -> gtk::Button {
         launch.connect_clicked(move |_| commands.send(Command::Launch(appid)));
         return launch;
     }
-    let sync = gtk::Button::with_label("Sync manifests");
+    let sync = gtk::Button::with_label("Check for updates");
+    sync.set_tooltip_text(Some(CHECK_TOOLTIP));
     sync.add_css_class("suggested-action");
     sync.set_cursor_from_name(Some("pointer"));
     let commands = ctx.commands.clone();
