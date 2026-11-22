@@ -249,7 +249,7 @@ pub fn run() -> Value {
         } else {
             format!("missing: {}", unkeyed.join(", "))
         },
-        "Encrypted depots do not download without a key",
+        &key_hint(&st.apps),
         "",
     ));
 
@@ -353,6 +353,25 @@ mod tests {
         let nowhere = engine_check(false, false, true);
         assert_eq!(nowhere.status, "bad");
     }
+}
+
+/// Why games lack keys, per game, when a source failure was recorded.
+fn key_hint(apps: &std::collections::BTreeMap<String, Value>) -> String {
+    let reasons: Vec<String> = apps
+        .values()
+        .filter_map(|record| {
+            let reason = record.get("key_error").and_then(Value::as_str)?;
+            let name = record.get("name").and_then(Value::as_str).unwrap_or("A game");
+            Some(format!("{name}: {reason}"))
+        })
+        .collect();
+    if reasons.is_empty() {
+        return "Encrypted depots do not download without a key".into();
+    }
+    format!(
+        "{}. ExxaTools asks the key sources again at Steam start and every 30 minutes",
+        reasons.join("; ")
+    )
 }
 
 /// Names each pending game and why, instead of a bare count:

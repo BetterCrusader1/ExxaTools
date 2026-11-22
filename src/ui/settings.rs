@@ -383,7 +383,7 @@ pub fn build(ctx: &Ctx) -> SettingsPage {
     let providers_group = adw::PreferencesGroup::builder()
         .title("Manifest request codes")
         .description(
-            "Steam tries enabled mirrors in this order. Turn off one that is down or rate limited.",
+            "Codes that let Steam download a manifest, tried in this order. They are not depot keys: keys come only from the plan sources above.",
         )
         .build();
     for (_, row) in &toggles {

@@ -414,7 +414,16 @@ pub fn fetch_plan(appid: u64, name_hint: Option<&str>) -> Result<Value, String> 
         // Sources exist but none answered (404, quota, expired key): fall back to the
         // Steam catalog instead of leaving the game unaddable.
         if let Some(catalog_ref) = catalog.as_ref() {
-            return catalog_plan(appid, &branch, catalog_ref, resolved, failures);
+            let reason = failures
+                .first()
+                .and_then(|failure| failure.get("error"))
+                .and_then(Value::as_str)
+                .map(str::to_string);
+            let plan = catalog_plan(appid, &branch, catalog_ref, resolved, failures);
+            if plan.is_ok() {
+                record_key_error(appid, reason.as_deref());
+            }
+            return plan;
         }
         return Err(format!(
             "no plan source answered for {appid}: {}",
@@ -633,6 +642,23 @@ fn merge_refresh(
 
 /// One refresh on server start and then every thirty minutes. Steam starting the
 /// companion server therefore also starts a freshness pass.
+/// Remembers why a game has no keys (shown in System) or clears it.
+fn record_key_error(appid: u64, reason: Option<&str>) {
+    let _ = state::update(|state| {
+        if let Some(record) = state.apps.get_mut(&appid.to_string()).and_then(Value::as_object_mut) {
+            match reason {
+                Some(reason) => {
+                    record.insert("key_error".into(), Value::String(reason.to_string()));
+                }
+                None => {
+                    record.remove("key_error");
+                }
+            }
+        }
+        Ok(())
+    });
+}
+
 /// Games added while every key source failed (a Hubcap daily limit, say)
 /// hold a catalog-only plan without keys. Each auto-update round asks the
 /// sources again, so they start downloading once a source has keys.
@@ -650,6 +676,7 @@ fn retry_keyless() {
     for appid in keyless {
         match fetch_plan(appid, None) {
             Ok(plan) if plan.get("provider").and_then(Value::as_str) != Some("catalog") => {
+                record_key_error(appid, None);
                 eprintln!("plans: keys found for {appid}");
             }
             Ok(_) => eprintln!("plans: still no keys for {appid}"),
