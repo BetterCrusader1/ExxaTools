@@ -170,19 +170,24 @@ button {
 button.circular { border-radius: 6px; }
 button:focus-visible { outline: 2px solid @pearl_light; outline-offset: 1px; }
 /* Pearl: a dark violet with a sheen that slides across on hover. */
+/* Primary: a solid pearl key. The light comes from above (a soft top
+   highlight and a vertical gradient), never from a diagonal band: at button
+   size a diagonal stop reads as a seam, not a sheen. */
 button.suggested-action {
-    background-image: linear-gradient(120deg,
-        @pearl_deep 0%, @pearl 38%, @pearl_light 50%, @pearl 62%, @pearl_deep 100%);
-    background-size: 260% 100%;
-    background-position: 100% 0;
+    background-image: linear-gradient(to bottom, shade(@pearl, 1.12), @pearl);
     color: #ffffff;
     font-weight: 700;
     padding: 7px 22px;
-    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.22), inset 0 -1px 0 rgba(0, 0, 0, 0.35);
-    transition: background-position 420ms ease-out;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.16), 0 1px 2px rgba(0, 0, 0, 0.45);
+    transition: box-shadow 150ms ease-out;
 }
-button.suggested-action:hover { background-position: 0% 0; }
-button.suggested-action:active { box-shadow: inset 0 2px 3px rgba(0, 0, 0, 0.45); }
+button.suggested-action:hover {
+    background-image: linear-gradient(to bottom, shade(@pearl, 1.22), shade(@pearl, 1.08));
+}
+button.suggested-action:active {
+    background-image: linear-gradient(to bottom, shade(@pearl, 0.92), shade(@pearl, 0.92));
+    box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.45);
+}
 button.suggested-action.play { font-size: 15px; padding: 8px 30px; }
 button.suggested-action:disabled {
     background-image: none;
