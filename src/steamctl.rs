@@ -459,11 +459,19 @@ fn steam_command(extra_args: &[String]) -> Result<(Command, String), String> {
 pub fn install_companion() -> Result<std::path::PathBuf, String> {
     let exe =
         crate::paths::executable().map_err(|error| format!("cannot locate myself: {error}"))?;
+    install_companion_from(&exe)?;
+    Ok(crate::paths::companion_bin())
+}
+
+/// Installs `source` as the companion when its content differs. Returns
+/// whether anything was replaced; running copies keep their old inode.
+pub fn install_companion_from(source: &std::path::Path) -> Result<bool, String> {
     let target = crate::paths::companion_bin();
-    let fresh = std::fs::read(&exe).map_err(|error| format!("cannot read {exe:?}: {error}"))?;
+    let fresh =
+        std::fs::read(source).map_err(|error| format!("cannot read {source:?}: {error}"))?;
     let current = std::fs::read(&target).unwrap_or_default();
     if fresh == current {
-        return Ok(target);
+        return Ok(false);
     }
     let parent = target
         .parent()
@@ -483,7 +491,7 @@ pub fn install_companion() -> Result<std::path::PathBuf, String> {
         let _ = std::fs::remove_file(&temporary);
         return Err(format!("cannot install {}", target.display()));
     }
-    Ok(target)
+    Ok(true)
 }
 
 pub fn start(extra_args: &[String]) -> Result<serde_json::Value, String> {

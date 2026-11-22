@@ -1549,6 +1549,9 @@ pub fn serve(config: Config) -> Result<(), String> {
     );
     std::thread::spawn(crate::steamui::watch_loop);
     crate::steamui::start_pump();
+    crate::live::start_server_reexec(config.port);
+    crate::live::start_steam_follower();
+    crate::live::start_builder();
     crate::plans::start_auto_update();
     let listener = Arc::new(listener);
     for incoming in listener.incoming() {

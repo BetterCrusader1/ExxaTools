@@ -104,6 +104,11 @@ struct NavRail {
     list: gtk::ListBox,
 }
 
+thread_local! {
+    /// Set when a new build is installed: the page to reopen after exec.
+    static RESTART: Cell<Option<Page>> = const { Cell::new(None) };
+}
+
 pub fn run(url: &str) -> Result<(), String> {
     let app = adw::Application::builder().application_id(APP_ID).build();
     app.set_flags(gtk::gio::ApplicationFlags::HANDLES_COMMAND_LINE);
@@ -140,7 +145,68 @@ pub fn run(url: &str) -> Result<(), String> {
         0.into()
     });
     app.run_with_args(&["exxa", url]);
+    if let Some(page) = RESTART.with(Cell::take) {
+        // The GTK app has released its D-Bus name and display connection, so
+        // the new build starts as the primary instance on the same page.
+        let url = format!(
+            "http://127.0.0.1:{}/?page={}",
+            crate::server::DEFAULT_PORT,
+            page.name()
+        );
+        use std::os::unix::process::CommandExt;
+        let error = std::process::Command::new(crate::paths::companion_bin())
+            .args(["window", "--url", &url])
+            .env(crate::live::REEXEC_ENV, "1")
+            .exec();
+        return Err(format!("cannot restart into the new build: {error}"));
+    }
     Ok(())
+}
+
+/// Keeps the dashboard in step with Steam and with new builds: restart into
+/// a freshly installed companion, close when Steam exits, report builds.
+fn follow_live(ctx: &Ctx, current_page: Rc<Cell<Page>>) {
+    let mut updates = crate::live::UpdateWatch::new();
+    let mut steam_seen = crate::steamctl::is_running();
+    let started = std::time::SystemTime::now()
+        .duration_since(std::time::SystemTime::UNIX_EPOCH)
+        .map(|value| value.as_secs())
+        .unwrap_or(0);
+    let mut reported = started;
+    let ctx = ctx.clone();
+    gtk::glib::timeout_add_local(std::time::Duration::from_secs(2), move || {
+        let status = crate::live::status();
+        let at = status.get("at").and_then(serde_json::Value::as_u64).unwrap_or(0);
+        if at > reported {
+            reported = at;
+            let message = status.get("message").and_then(serde_json::Value::as_str).unwrap_or("");
+            match status.get("state").and_then(serde_json::Value::as_str) {
+                Some("building") => ctx.toast_text("Building the latest changes…"),
+                Some("failed") => ctx.toast_text(&format!("Build failed: {message}")),
+                _ => {}
+            }
+        }
+        if updates.ready() {
+            RESTART.with(|slot| slot.set(Some(current_page.get())));
+            ctx.toast_text("Updating to the latest build…");
+            let window = ctx.window.clone();
+            gtk::glib::timeout_add_local_once(std::time::Duration::from_millis(700), move || {
+                if let Some(app) = window.application() {
+                    app.quit();
+                }
+            });
+            return gtk::glib::ControlFlow::Break;
+        }
+        let running = crate::steamctl::is_running();
+        if steam_seen && !running && crate::live::close_with_steam() {
+            if let Some(app) = ctx.window.application() {
+                app.quit();
+            }
+            return gtk::glib::ControlFlow::Break;
+        }
+        steam_seen |= running;
+        gtk::glib::ControlFlow::Continue
+    });
 }
 
 fn build(app: &adw::Application, initial: Page) -> Ctx {
@@ -545,6 +611,7 @@ fn build(app: &adw::Application, initial: Page) -> Ctx {
     }
 
     window.present();
+    follow_live(&ctx, current_page.clone());
     nav.list
         .select_row(nav.list.row_at_index(initial.index()).as_ref());
     worker.send(Command::LoadLibrary);

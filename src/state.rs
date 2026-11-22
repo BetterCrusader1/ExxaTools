@@ -20,6 +20,12 @@ pub struct Settings {
     pub plan_sources: BTreeMap<String, serde_json::Value>,
     pub theme: String,
     pub auto_update_plans: bool,
+    /// Open the dashboard when Steam's UI comes up.
+    pub open_with_steam: bool,
+    /// Close the dashboard when Steam exits.
+    pub close_with_steam: bool,
+    /// Rebuild from the checkout and update in place when sources change.
+    pub live_rebuild: bool,
 }
 
 impl Default for Settings {
@@ -45,6 +51,9 @@ impl Default for Settings {
             plan_sources: BTreeMap::new(),
             theme: "dark".into(),
             auto_update_plans: true,
+            open_with_steam: true,
+            close_with_steam: true,
+            live_rebuild: true,
         }
     }
 }

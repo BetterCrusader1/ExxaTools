@@ -207,6 +207,61 @@ fn drafts_equal(left: &SettingsDraft, right: &SettingsDraft) -> bool {
         && left.auto_update_plans == right.auto_update_plans
 }
 
+/// Steam coupling switches apply at once, like the theme: they change how
+/// ExxaTools behaves around Steam, not a draft that needs saving.
+fn steam_group(ctx: &Ctx, settings: &crate::state::Settings) -> adw::PreferencesGroup {
+    let group = adw::PreferencesGroup::builder()
+        .title("Steam")
+        .description("ExxaTools starts with Steam; choose how closely the dashboard follows it.")
+        .build();
+    type Apply = fn(&mut crate::state::Settings, bool);
+    // (title, subtitle, active, needs a source checkout, apply)
+    let rows: [(&str, &str, bool, bool, Apply); 3] = [
+        (
+            "Open with Steam",
+            "Show the dashboard as soon as Steam's window is up",
+            settings.open_with_steam,
+            false,
+            |settings, value| settings.open_with_steam = value,
+        ),
+        (
+            "Close with Steam",
+            "Close the dashboard when Steam exits",
+            settings.close_with_steam,
+            false,
+            |settings, value| settings.close_with_steam = value,
+        ),
+        (
+            "Live updates from source",
+            "Rebuild when the code changes and restart into the new build",
+            settings.live_rebuild,
+            true,
+            |settings, value| settings.live_rebuild = value,
+        ),
+    ];
+    for (title, subtitle, active, needs_checkout, apply) in rows {
+        let row = adw::SwitchRow::builder()
+            .title(title)
+            .subtitle(subtitle)
+            .active(active)
+            .build();
+        // A packaged build has no checkout to rebuild from.
+        row.set_visible(!needs_checkout || crate::live::checkout().is_some());
+        let ctx = ctx.clone();
+        row.connect_active_notify(move |row| {
+            let value = row.is_active();
+            if let Err(error) = crate::state::update(|state| {
+                apply(&mut state.settings, value);
+                Ok(())
+            }) {
+                ctx.toast_text(&format!("Could not save: {error}"));
+            }
+        });
+        group.add(&row);
+    }
+    group
+}
+
 pub fn build(ctx: &Ctx) -> SettingsPage {
     let loaded = crate::state::load().unwrap_or_default();
     let page = adw::PreferencesPage::new();
@@ -256,6 +311,8 @@ pub fn build(ctx: &Ctx) -> SettingsPage {
         .build();
     updates.add(&auto_update);
     page.add(&updates);
+
+    page.add(&steam_group(ctx, &loaded.settings));
 
     let region = adw::PreferencesGroup::builder()
         .title("Store")

@@ -23,6 +23,14 @@ steam          # the server comes up by itself
 ./exxa window  # the dashboard
 ```
 
+The dashboard follows Steam: it opens when Steam's window is up and closes
+when Steam exits (both switchable in Settings → Steam). A server built from
+this checkout also watches `src/`, `assets/`, `web/` and `Cargo.toml`: a
+change is rebuilt with `cargo build --release`, installed as the companion,
+and the server and the open dashboard restart into it on their own. Build
+failures show up as a toast; the full log is in
+`~/.cache/exxatools/live-build.log`.
+
 Inside Steam: an ExxaTools panel next to **Help**, a card on every store page,
 and the dashboard as a native window (not a browser tab). The panel has quick
 actions for Discover, manifest sync, plan repair, the provider and Steam

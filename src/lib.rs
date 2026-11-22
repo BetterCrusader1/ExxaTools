@@ -8,6 +8,7 @@ pub mod diagnostics;
 pub mod doctor;
 pub mod engine;
 pub mod http;
+pub mod live;
 pub mod hubcap;
 pub mod lua;
 pub mod paths;
