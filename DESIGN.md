@@ -42,7 +42,7 @@ The tracked `web/logo.png`, `web/logo-128.png` and `web/logo-48.png` remain the 
 
 ## Color
 
-Each theme redefines libadwaita's named colors (`window_bg_color`, `sidebar_bg_color`, `card_bg_color`, `borders`, ...) plus `surface_raise`, `surface_hover` and the backdrop veil (`veil_top`, `veil_mid`, `veil_bottom`). The accent is never redefined globally; only `.game-tint` scopes a per-game accent. Text on artwork is white over a dark scrim in both themes. Status colors communicate state, not decoration.
+Each theme redefines libadwaita's named colors (`window_bg_color`, `sidebar_bg_color`, `card_bg_color`, `borders`, ...) plus `surface_raise`, `surface_hover` and the backdrop veil (`veil_top`, `veil_mid`, `veil_bottom`). The accent is pearl violet, set once through `--accent-bg-color`. Text on artwork is white over a dark scrim in both themes. Status colors communicate state, not decoration.
 
 ## Typography
 

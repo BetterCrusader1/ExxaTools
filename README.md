@@ -43,8 +43,9 @@ restart; each library game has Install, Sync, Launch and Fix update buttons.
 - **System** — the Doctor's checks, each with its fix
 - **Settings** — sources, keys, request-code mirrors
 
-Midnight dark and paper light themes, switched live from the title bar. The
-selected game's blurred art and accent color tint the Library; Discover leads
+Pearl Black (pure black with a pearl-violet accent) and a light theme,
+switched live from the title bar. The selected game's blurred art tints the
+Library; Discover leads
 with a featured banner and Steam's portrait posters.
 
 The window folds down to 420 px: the rail turns to icons below 1000 px and
