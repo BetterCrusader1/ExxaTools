@@ -47,6 +47,10 @@ Midnight dark and paper light themes, switched live from the title bar. The
 selected game's blurred art and accent color tint the Library; Discover leads
 with a featured banner and Steam's portrait posters.
 
+The window folds down to 420 px: the rail turns to icons below 1000 px and
+the library shelf slides over the game below 760 px. Keys: `Ctrl+K`/`Ctrl+F`
+search, `Ctrl+1`…`Ctrl+4` pages, `Ctrl+R`/`F5` refresh, `F9` the folded shelf.
+
 ## Daily commands
 
 ```sh

@@ -99,10 +99,19 @@ pub fn build(ctx: &Ctx) -> DiscoverPage {
     let filter_bar = GtkBox::new(Orientation::Horizontal, 0);
     filter_bar.add_css_class("segmented");
     filter_bar.set_halign(gtk::Align::Start);
-    filter_bar.set_margin_top(6);
-    filter_bar.set_margin_start(24);
-    filter_bar.set_margin_end(24);
     filter_bar.set_sensitive(false);
+
+    // On a narrow window the segmented control scrolls instead of setting the
+    // window's minimum width.
+    let filter_scroll = gtk::ScrolledWindow::new();
+    filter_scroll.set_policy(gtk::PolicyType::Automatic, gtk::PolicyType::Never);
+    filter_scroll.set_propagate_natural_width(true);
+    filter_scroll.set_propagate_natural_height(true);
+    filter_scroll.set_halign(gtk::Align::Start);
+    filter_scroll.set_margin_top(6);
+    filter_scroll.set_margin_start(24);
+    filter_scroll.set_margin_end(24);
+    filter_scroll.set_child(Some(&filter_bar));
 
     let popular = filter_button("Popular");
     let in_library = filter_button("In Library");
@@ -180,7 +189,7 @@ pub fn build(ctx: &Ctx) -> DiscoverPage {
 
     let root = GtkBox::new(Orientation::Vertical, 0);
     root.append(&header);
-    root.append(&filter_bar);
+    root.append(&filter_scroll);
     root.append(&stack);
 
     for (button, filter) in [

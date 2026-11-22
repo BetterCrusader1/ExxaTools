@@ -34,6 +34,8 @@ pub fn build(ctx: &Ctx) -> SystemPage {
     let subtitle = gtk::Label::new(Some("Runtime checks and integration status"));
     subtitle.add_css_class("dim-label");
     subtitle.set_halign(gtk::Align::Start);
+    subtitle.set_xalign(0.0);
+    subtitle.set_wrap(true);
     let headings = GtkBox::new(Orientation::Vertical, 2);
     headings.set_hexpand(true);
     headings.append(&title);
@@ -81,9 +83,13 @@ pub fn build(ctx: &Ctx) -> SystemPage {
     let summary_title = gtk::Label::new(Some("Checking the setup"));
     summary_title.add_css_class("heading");
     summary_title.set_halign(gtk::Align::Start);
+    summary_title.set_xalign(0.0);
+    summary_title.set_wrap(true);
     let summary_detail = gtk::Label::new(Some("Reading engine, Steam and plan state."));
     summary_detail.add_css_class("dim-label");
     summary_detail.set_halign(gtk::Align::Start);
+    summary_detail.set_xalign(0.0);
+    summary_detail.set_wrap(true);
     let summary_text = GtkBox::new(Orientation::Vertical, 2);
     summary_text.set_hexpand(true);
     summary_text.append(&summary_title);

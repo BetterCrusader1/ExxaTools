@@ -59,7 +59,6 @@ pub fn build() -> Shelf {
 
     let root = GtkBox::new(Orientation::Vertical, 0);
     root.add_css_class("shelf");
-    root.set_width_request(310);
     root.append(&heading);
     root.append(&subtitle);
     root.append(&scroll);

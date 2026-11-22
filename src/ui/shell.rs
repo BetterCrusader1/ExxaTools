@@ -102,6 +102,9 @@ struct View {
 struct NavRail {
     root: gtk::Widget,
     list: gtk::ListBox,
+    /// Hidden in the icon-only rail of a narrow window.
+    labels: Vec<gtk::Label>,
+    rows: Vec<GtkBox>,
 }
 
 thread_local! {
@@ -210,13 +213,21 @@ fn follow_live(ctx: &Ctx, current_page: Rc<Cell<Page>>) {
 }
 
 fn build(app: &adw::Application, initial: Page) -> Ctx {
+    let (width, height, maximized) = window_size::load();
     let window = adw::ApplicationWindow::builder()
         .application(app)
         .title("ExxaTools")
         .icon_name("exxatools")
-        .default_width(1280)
-        .default_height(820)
+        .default_width(width)
+        .default_height(height)
+        .maximized(maximized)
         .build();
+    // Breakpoints need a minimum size; below this the layout cannot fold.
+    window.set_size_request(MIN_WIDTH, MIN_HEIGHT);
+    window.connect_close_request(|window| {
+        window_size::save(window);
+        gtk::glib::Propagation::Proceed
+    });
 
     let overlay = adw::ToastOverlay::new();
     let initial_theme = crate::state::load()
@@ -244,20 +255,24 @@ fn build(app: &adw::Application, initial: Page) -> Ctx {
     let system = Rc::new(system::build(&ctx));
     let settings = Rc::new(settings::build(&ctx));
 
-    let paned = gtk::Paned::new(Orientation::Horizontal);
-    paned.add_css_class("library-paned");
-    paned.set_start_child(Some(&shelf.root));
-    paned.set_end_child(Some(&inspector.root));
-    paned.set_position(320);
-    paned.set_resize_start_child(false);
-    paned.set_shrink_start_child(false);
+    // Side by side when there is room; on a narrow window the shelf slides
+    // over the game instead, from the header's sidebar button.
+    let split = adw::OverlaySplitView::new();
+    split.add_css_class("library-split");
+    split.set_sidebar(Some(&shelf.root));
+    split.set_content(Some(&inspector.root));
+    split.set_min_sidebar_width(280.0);
+    split.set_max_sidebar_width(340.0);
+    split.set_sidebar_width_fraction(0.28);
 
     let stack = gtk::Stack::new();
     stack.set_hexpand(true);
     stack.set_vexpand(true);
     stack.set_transition_type(gtk::StackTransitionType::Crossfade);
     stack.set_transition_duration(180);
-    stack.add_named(&paned, Some(Page::Library.name()));
+    // Only the visible page may set the window's minimum width.
+    stack.set_hhomogeneous(false);
+    stack.add_named(&split, Some(Page::Library.name()));
     stack.add_named(&discover.root, Some(Page::Discover.name()));
     stack.add_named(&system.root, Some(Page::System.name()));
     stack.add_named(&settings.root, Some(Page::Settings.name()));
@@ -270,7 +285,7 @@ fn build(app: &adw::Application, initial: Page) -> Ctx {
     let search = gtk::SearchEntry::new();
     search.add_css_class("global-search");
     search.set_placeholder_text(Some("Search Steam by name or app id"));
-    search.set_width_chars(38);
+    search.set_width_chars(4);
     search.set_max_width_chars(46);
     search.set_hexpand(true);
 
@@ -293,9 +308,22 @@ fn build(app: &adw::Application, initial: Page) -> Ctx {
         });
     }
 
+    let shelf_toggle = gtk::ToggleButton::new();
+    shelf_toggle.set_icon_name("sidebar-show-symbolic");
+    shelf_toggle.add_css_class("flat");
+    shelf_toggle.add_css_class("global-control");
+    shelf_toggle.set_tooltip_text(Some("Show the library (F9)"));
+    shelf_toggle.set_visible(false);
+    split
+        .bind_property("show-sidebar", &shelf_toggle, "active")
+        .bidirectional()
+        .sync_create()
+        .build();
+
     let header = adw::HeaderBar::new();
     header.add_css_class("global-header");
     header.set_title_widget(Some(&search));
+    header.pack_start(&shelf_toggle);
     header.pack_end(&theme_button);
     header.pack_end(&refresh);
 
@@ -610,8 +638,24 @@ fn build(app: &adw::Application, initial: Page) -> Ctx {
         });
     }
 
+    install_breakpoints(&window, &nav, &split, &shelf_toggle, &inspector);
+    install_shortcuts(&window, &ctx, &search, &refresh, &split);
+    {
+        // Picking a game in the folded layout returns to it.
+        let split = split.clone();
+        shelf.list.connect_row_activated(move |_, _| {
+            if split.is_collapsed() {
+                split.set_show_sidebar(false);
+            }
+        });
+    }
+    {
+        let ctx = ctx.clone();
+        shelf_toggle.connect_clicked(move |_| ctx.navigate(Page::Library));
+    }
     window.present();
     follow_live(&ctx, current_page.clone());
+    snapshot_on_request(&window);
     nav.list
         .select_row(nav.list.row_at_index(initial.index()).as_ref());
     worker.send(Command::LoadLibrary);
@@ -648,6 +692,193 @@ fn page_from_url(url: &str) -> Page {
     }
 }
 
+/// `EXXA_SNAPSHOT=/path.png` renders the window to a PNG after
+/// `EXXA_SNAPSHOT_DELAY` seconds (default 10) and quits: screenshots for docs
+/// and layout checks that do not depend on which window has focus.
+fn snapshot_on_request(window: &adw::ApplicationWindow) {
+    let Some(path) = std::env::var_os("EXXA_SNAPSHOT") else {
+        return;
+    };
+    let delay = std::env::var("EXXA_SNAPSHOT_DELAY")
+        .ok()
+        .and_then(|value| value.parse().ok())
+        .unwrap_or(10);
+    let window = window.clone();
+    gtk::glib::timeout_add_local_once(std::time::Duration::from_secs(delay), move || {
+        let paintable = gtk::WidgetPaintable::new(Some(&window));
+        let snapshot = gtk::Snapshot::new();
+        paintable.snapshot(&snapshot, window.width() as f64, window.height() as f64);
+        let texture = snapshot.to_node().and_then(|node| {
+            window
+                .renderer()
+                .map(|renderer| renderer.render_texture(node, None))
+        });
+        match texture.map(|texture| texture.save_to_png(&path)) {
+            Some(Ok(())) => eprintln!("snapshot saved"),
+            Some(Err(error)) => eprintln!("snapshot failed: {error}"),
+            None => eprintln!("snapshot failed: nothing rendered"),
+        }
+        if let Some(app) = window.application() {
+            app.quit();
+        }
+    });
+}
+
+const MIN_WIDTH: i32 = 420;
+const MIN_HEIGHT: i32 = 480;
+
+/// Below this the rail shows icons only.
+const RAIL_BREAKPOINT: &str = "max-width: 1000sp";
+/// Below this the shelf folds over the game.
+const FOLD_BREAKPOINT: &str = "max-width: 760sp";
+
+fn install_breakpoints(
+    window: &adw::ApplicationWindow,
+    nav: &NavRail,
+    split: &adw::OverlaySplitView,
+    shelf_toggle: &gtk::ToggleButton,
+    inspector: &Rc<inspector::Inspector>,
+) {
+    // libadwaita applies only the last matching breakpoint, so the folded
+    // layout repeats the icon-only rail setters.
+    let compact_rail = |breakpoint: &adw::Breakpoint| {
+        breakpoint.add_setter(&nav.root, "width-request", Some(&64.to_value()));
+        for label in &nav.labels {
+            breakpoint.add_setter(label, "visible", Some(&false.to_value()));
+        }
+        for row in &nav.rows {
+            breakpoint.add_setter(row, "halign", Some(&gtk::Align::Center.to_value()));
+        }
+    };
+    if let Ok(condition) = adw::BreakpointCondition::parse(RAIL_BREAKPOINT) {
+        let rail = adw::Breakpoint::new(condition);
+        compact_rail(&rail);
+        window.add_breakpoint(rail);
+    }
+    if let Ok(condition) = adw::BreakpointCondition::parse(FOLD_BREAKPOINT) {
+        let fold = adw::Breakpoint::new(condition);
+        compact_rail(&fold);
+        fold.add_setter(split, "collapsed", Some(&true.to_value()));
+        fold.add_setter(split, "show-sidebar", Some(&false.to_value()));
+        fold.add_setter(shelf_toggle, "visible", Some(&true.to_value()));
+        let classes = vec!["library-split".to_string(), "compact".to_string()];
+        fold.add_setter(split, "css-classes", Some(&classes.to_value()));
+        {
+            let inspector = inspector.clone();
+            fold.connect_apply(move |_| inspector.set_compact(true));
+        }
+        {
+            let inspector = inspector.clone();
+            fold.connect_unapply(move |_| inspector.set_compact(false));
+        }
+        window.add_breakpoint(fold);
+    }
+}
+
+/// Keyboard: Ctrl+K or Ctrl+F search, Ctrl+1..4 pages, Ctrl+R or F5 refresh,
+/// F9 the folded library.
+fn install_shortcuts(
+    window: &adw::ApplicationWindow,
+    ctx: &Ctx,
+    search: &gtk::SearchEntry,
+    refresh: &gtk::Button,
+    split: &adw::OverlaySplitView,
+) {
+    let controller = gtk::ShortcutController::new();
+    controller.set_scope(gtk::ShortcutScope::Managed);
+    let add = |triggers: &str, action: Box<dyn Fn() + 'static>| {
+        let Some(trigger) = gtk::ShortcutTrigger::parse_string(triggers) else {
+            return;
+        };
+        let callback = gtk::CallbackAction::new(move |_, _| {
+            action();
+            gtk::glib::Propagation::Stop
+        });
+        controller.add_shortcut(gtk::Shortcut::new(Some(trigger), Some(callback)));
+    };
+    {
+        let search = search.clone();
+        add(
+            "<Control>k|<Control>f",
+            Box::new(move || {
+                search.grab_focus();
+                search.select_region(0, -1);
+            }),
+        );
+    }
+    for (index, page) in [Page::Library, Page::Discover, Page::System, Page::Settings]
+        .into_iter()
+        .enumerate()
+    {
+        let ctx = ctx.clone();
+        add(
+            &format!("<Control>{}", index + 1),
+            Box::new(move || ctx.navigate(page)),
+        );
+    }
+    {
+        let refresh = refresh.clone();
+        add("<Control>r|F5", Box::new(move || refresh.emit_clicked()));
+    }
+    {
+        let split = split.clone();
+        let ctx = ctx.clone();
+        add(
+            "F9",
+            Box::new(move || {
+                if split.is_collapsed() {
+                    ctx.navigate(Page::Library);
+                    split.set_show_sidebar(!split.shows_sidebar());
+                }
+            }),
+        );
+    }
+    window.add_controller(controller);
+}
+
+/// The window keeps its size across restarts, including live updates.
+mod window_size {
+    use gtk::prelude::*;
+
+    const DEFAULT: (i32, i32) = (1280, 820);
+
+    fn path() -> std::path::PathBuf {
+        crate::paths::state_dir().join("window-size.json")
+    }
+
+    pub fn load() -> (i32, i32, bool) {
+        let value: serde_json::Value = std::fs::read(path())
+            .ok()
+            .and_then(|bytes| serde_json::from_slice(&bytes).ok())
+            .unwrap_or_default();
+        let read = |key: &str, fallback: i32, min: i32| {
+            value
+                .get(key)
+                .and_then(serde_json::Value::as_i64)
+                .map(|number| (number as i32).max(min))
+                .unwrap_or(fallback)
+        };
+        (
+            read("width", DEFAULT.0, super::MIN_WIDTH),
+            read("height", DEFAULT.1, super::MIN_HEIGHT),
+            value
+                .get("maximized")
+                .and_then(serde_json::Value::as_bool)
+                .unwrap_or(false),
+        )
+    }
+
+    pub fn save(window: &adw::ApplicationWindow) {
+        let (width, height) = window.default_size();
+        let body = serde_json::json!({
+            "width": width,
+            "height": height,
+            "maximized": window.is_maximized(),
+        });
+        let _ = std::fs::write(path(), body.to_string());
+    }
+}
+
 fn build_nav() -> NavRail {
     let brand = gtk::Label::new(Some("ExxaTools"));
     brand.add_css_class("title-3");
@@ -670,17 +901,21 @@ fn build_nav() -> NavRail {
     list.add_css_class("navigation-sidebar");
     list.set_selection_mode(gtk::SelectionMode::Single);
 
-    for (icon, label) in [
+    let mut labels = vec![brand.clone()];
+    let mut rows = Vec::new();
+    for (index, (icon, label)) in [
         ("applications-games-symbolic", "Library"),
         ("system-search-symbolic", "Discover"),
         ("applications-utilities-symbolic", "System"),
         ("emblem-system-symbolic", "Settings"),
     ]
     .iter()
+    .enumerate()
     {
         let row = gtk::ListBoxRow::new();
         row.add_css_class("nav-row");
         row.set_cursor_from_name(Some("pointer"));
+        row.set_tooltip_text(Some(&format!("{label} (Ctrl+{})", index + 1)));
         let image = gtk::Image::from_icon_name(icon);
         image.set_pixel_size(16);
         image.add_css_class("nav-icon");
@@ -696,7 +931,10 @@ fn build_nav() -> NavRail {
         content.append(&text);
         row.set_child(Some(&content));
         list.append(&row);
+        labels.push(text);
+        rows.push(content);
     }
+    rows.push(brand_row.clone());
 
     let spacer = GtkBox::new(Orientation::Vertical, 0);
     spacer.set_vexpand(true);
@@ -711,6 +949,8 @@ fn build_nav() -> NavRail {
     NavRail {
         root: root.upcast(),
         list,
+        labels,
+        rows,
     }
 }
 
@@ -769,9 +1009,12 @@ const STYLE: &str = r#"
 
 .depot-table { padding: 3px 0; }
 .depot-table separator { min-height: 1px; }
-.library-paned > separator {
-    background-color: @borders;
-    min-width: 1px;
+.library-split > widget.sidebar-pane { background: none; }
+/* Folded, the shelf floats over the game and must be opaque. */
+.library-split.compact .shelf,
+.has-backdrop .library-split.compact .shelf {
+    background-color: @window_bg_color;
+    box-shadow: 0 0 24px rgba(0, 0, 0, 0.45);
 }
 "#;
 

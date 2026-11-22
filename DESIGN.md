@@ -65,7 +65,7 @@ Platform font with Adwaita classes. `title-1` is 28 px/800 with -0.5 px tracking
 └──────────────┴───────────────────┴───────────────────────────────────────┘
 ```
 
-The navigation rail is 200 px and holds only brand and destinations. The shelf is about 310–320 px. The hero and the details below share the inspector's left edge.
+The navigation rail is 200 px (64 px icon-only on narrow windows) and holds only brand and destinations. The shelf is about 310–320 px. The hero and the details below share the inspector's left edge.
 
 ## Components
 
@@ -89,4 +89,4 @@ Page crossfade 180 ms, backdrop crossfade 450 ms, art fade 220 ms, hover transit
 
 Native focus order, activation and selection semantics are retained. Game accents are contrast-guarded for white text (4.5:1); the logo keeps the game name as alternative text. Text over bright art relies on the veil and hero scrim.
 
-Open: the fixed rail and shelf still constrain narrow windows (planned adaptive layout); no screen-reader audit or WCAG conformance claim; Discover's featured heroes cost about 20 MB more than the previous header-only grid.
+Adaptive layout: minimum 420 px; below 1000 px the rail is icon-only, below 760 px the shelf is an overlay (`adw::OverlaySplitView`) and the hero's secondary actions move into its overflow menu. Open: no screen-reader audit or WCAG conformance claim; Discover's featured heroes cost about 20 MB more than the previous header-only grid.

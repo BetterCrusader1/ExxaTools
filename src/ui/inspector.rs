@@ -24,6 +24,9 @@ pub struct Inspector {
     pub root: gtk::Widget,
     hero: gtk::Box,
     body: gtk::Box,
+    /// Narrow windows move the secondary actions into the overflow menu.
+    compact: Cell<bool>,
+    last: std::cell::RefCell<Option<(Ctx, Game)>>,
 }
 
 pub fn build() -> Inspector {
@@ -58,6 +61,8 @@ pub fn build() -> Inspector {
         root: scroll.upcast(),
         hero,
         body,
+        compact: Cell::new(false),
+        last: std::cell::RefCell::new(None),
     };
     inspector.show_empty(None);
     inspector
@@ -84,11 +89,26 @@ impl Inspector {
         self.body.append(&page);
     }
 
+    /// Re-renders the current game when the layout switches between wide and
+    /// narrow, so the action row always fits.
+    pub fn set_compact(&self, compact: bool) {
+        if self.compact.replace(compact) == compact {
+            return;
+        }
+        let last = self.last.borrow().clone();
+        if let Some((ctx, game)) = last {
+            self.show(&ctx, Some(&game));
+        }
+    }
+
     pub fn show(&self, ctx: &Ctx, game: Option<&Game>) {
         let Some(game) = game else {
+            self.last.replace(None);
             self.show_empty(Some(ctx));
             return;
         };
+        self.last.replace(Some((ctx.clone(), game.clone())));
+        let compact = self.compact.get();
         clear(&self.hero);
         clear(&self.body);
 
@@ -99,21 +119,26 @@ impl Inspector {
         actions.set_margin_top(14);
         actions.append(&primary_button(ctx, game));
 
+        // (label, icon, command): beside the primary action when there is
+        // room, in the overflow menu on narrow windows.
+        let mut secondary: Vec<(&str, &str, Command)> = Vec::new();
         if game.origin != Origin::Search {
             if can_launch {
-                let sync = action_button("Sync manifests");
-                let commands = ctx.commands.clone();
-                let appid = game.appid;
-                sync.connect_clicked(move |_| commands.send(Command::Sync(appid)));
-                actions.append(&sync);
+                secondary.push(("Sync manifests", "emblem-synchronizing-symbolic", Command::Sync(game.appid)));
             }
-
-            let fix = action_button("Fix update loop");
-            fix.set_tooltip_text(Some("Repair appmanifest flags and restart Steam"));
-            let commands = ctx.commands.clone();
-            let appid = game.appid;
-            fix.connect_clicked(move |_| commands.send(Command::Fix(appid)));
-            actions.append(&fix);
+            secondary.push(("Fix update loop", "applications-engineering-symbolic", Command::Fix(game.appid)));
+        }
+        if !compact {
+            for (label, _, command) in &secondary {
+                let button = action_button(label);
+                if matches!(command, Command::Fix(_)) {
+                    button.set_tooltip_text(Some("Repair appmanifest flags and restart Steam"));
+                }
+                let commands = ctx.commands.clone();
+                let command = command.clone();
+                button.connect_clicked(move |_| commands.send(command.clone()));
+                actions.append(&button);
+            }
         }
 
         let menu_spacer = GtkBox::new(Orientation::Horizontal, 0);
@@ -131,6 +156,19 @@ impl Inspector {
         menu.set_margin_bottom(5);
         menu.set_margin_start(5);
         menu.set_margin_end(5);
+
+        if compact {
+            for (label, icon, command) in secondary {
+                let button = menu_button(label, icon);
+                let commands = ctx.commands.clone();
+                let popover = popover.clone();
+                button.connect_clicked(move |_| {
+                    popover.popdown();
+                    commands.send(command.clone());
+                });
+                menu.append(&button);
+            }
+        }
 
         let copy = menu_button("Copy app id", "edit-copy-symbolic");
         {
@@ -356,7 +394,8 @@ pub(crate) fn hero_title(game: &Game) -> gtk::Widget {
             .tightening_threshold(width)
             .child(&tall)
             .build();
-        wide.set_size_request(width, height);
+        // Height only: a fixed width would set the window's minimum width.
+        wide.set_size_request(-1, height);
         wide.set_halign(gtk::Align::Start);
         wide.set_margin_bottom(6);
         target.append(&wide);
