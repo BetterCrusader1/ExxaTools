@@ -654,6 +654,9 @@ fn build(app: &adw::Application, initial: Page) -> Ctx {
         shelf_toggle.connect_clicked(move |_| ctx.navigate(Page::Library));
     }
     window.present();
+    // Start on the navigation, not in the search field: an empty, already
+    // focused search reads as an alert.
+    nav.list.grab_focus();
     follow_live(&ctx, current_page.clone());
     snapshot_on_request(&window);
     nav.list
@@ -961,18 +964,19 @@ const STYLE: &str = r#"
 }
 .nav-rail list { background: none; }
 .nav-row {
-    border-radius: 10px;
+    border-radius: 3px;
     margin: 1px 10px;
-    transition: background-color 140ms ease-out;
+    transition: background-color 120ms ease-out;
 }
 .nav-row:hover { background-color: @surface_raise; }
 .nav-row:selected,
 .nav-row:selected:hover {
     background-color: @surface_hover;
+    box-shadow: inset 3px 0 0 @pearl;
 }
-.nav-icon { color: alpha(@window_fg_color, 0.6); }
-.nav-label { font-weight: 600; color: alpha(@window_fg_color, 0.78); }
-.nav-row:selected .nav-icon { color: @accent_color; }
+.nav-icon { color: @muted_fg; }
+.nav-label { font-weight: 700; color: @muted_fg; }
+.nav-row:selected .nav-icon { color: @pearl_light; }
 .nav-row:selected .nav-label { color: @window_fg_color; }
 
 .shelf {
@@ -981,13 +985,16 @@ const STYLE: &str = r#"
 }
 .shelf-list { background-color: transparent; }
 .game-row {
-    border-radius: 12px;
+    border-radius: 3px;
     margin-bottom: 2px;
-    transition: background-color 140ms ease-out;
+    transition: background-color 120ms ease-out;
 }
 .game-row:hover { background-color: @surface_raise; }
 .game-row:selected,
-.game-row:selected:hover { background-color: @surface_hover; }
+.game-row:selected:hover {
+    background-color: @surface_hover;
+    box-shadow: inset 3px 0 0 @pearl;
+}
 .game-name { font-weight: 600; }
 
 .status-dot {
@@ -1001,10 +1008,10 @@ const STYLE: &str = r#"
 .dot-warning { background-color: @error_color; }
 .dot-disabled { background-color: @insensitive_fg_color; }
 
-.shelf-cover { border-radius: 7px; }
+.shelf-cover { border-radius: 2px; }
 .shelf-cover .art-letter { font-size: 13px; }
 
-.hero { border-radius: 16px; }
+.hero { border-radius: 4px; }
 .hero .art-letter { font-size: 64px; }
 
 .depot-table { padding: 3px 0; }

@@ -1,23 +1,23 @@
 ---
-name: Midnight Cinema
+name: Pearl Black
 colors:
-  source: "libadwaita named colors redefined per theme in src/ui/theme.rs"
-  dark: "#0d0e12 window, #111217 sidebar, white 4.5% cards, white 7% borders"
-  light: "#f5f6f8 window, #eceef2 sidebar, white cards, black 8% borders"
-  accent: "system accent; the selected game's accent inside .game-tint"
+  source: "libadwaita named colors and --accent-bg-color redefined per theme in src/ui/theme.rs"
+  dark: "#000000 window, header and rail; #0e0d12 cards; #1f1d27 borders; #ecebf2 text"
+  light: "#e9ecef window, #f6f7f8 cards, #c5cbd1 borders"
+  accent: "pearl violet #7b5cf0 (deep #4a2fb8, light #b7a4ff), matching the ExxaTools mark"
   state: "@success_color, @warning_color, @error_color"
 typography:
   ui: "platform font through GTK/libadwaita"
-  display: "title-1 28px/800, hero title 32px/800, tight letter-spacing"
+  display: "title-1 30px/800, hero title 36px/800, tight letter-spacing"
   data: "monospace, only for identifiers"
 spacing:
   unit: "4px"
   rhythm: "4 / 8 / 12 / 16 / 20 / 24 / 32px"
 rounded:
-  rows: "10-12px"
-  posters: "12px"
-  hero: "16px"
-  actions: "999px (pills)"
+  rows: "3px"
+  posters: "3px"
+  hero: "8px"
+  actions: "6px"
 components:
   header: "borderless adw::HeaderBar with a pill search, refresh and theme"
   navigation: "native ListBox; soft filled selection, accent icon"
@@ -28,7 +28,7 @@ components:
 
 ## Overview
 
-ExxaTools is a native Steam companion for a personal game library: find a game, see its state, and launch, add, sync or repair it. The visual direction is **Midnight Cinema**: a deep, quiet chrome where the game's own art carries the color.
+ExxaTools is a native Steam companion for a personal game library: find a game, see its state, and launch, add, sync or repair it. The visual direction is **Pearl Black**: pure black chrome, one pearl-violet accent taken from the ExxaTools mark, and the game's own art carrying the rest of the color.
 
 GTK and libadwaita still own controls, focus behavior and accessibility semantics. The look comes from a redefined neutral palette, real Steam artwork (hero, logo, portrait poster) and a small set of component treatments.
 
@@ -37,7 +37,6 @@ The tracked `web/logo.png`, `web/logo-128.png` and `web/logo-48.png` remain the 
 ## Signature Elements
 
 - **Game backdrop.** On Library, the selected game's hero is blurred on the CPU at 160 px (`art::backdrop`) and laid under the whole window with a theme veil. Rail, shelf and header turn translucent over it (`.has-backdrop`), reading as frosted glass without a per-frame GPU blur. It crossfades in 450 ms when the selection changes; System, Settings and Discover stay plain.
-- **Game accent.** The same pixels give the art's dominant vivid hue, darkened until white text reaches 4.5:1. It overrides `--accent-bg-color` only inside the inspector (`.game-tint`); gray art keeps the system accent.
 - **Hero.** Full pane width, 340 px, Steam `library_hero` art with a bottom-left scrim, Steam `logo.png` trimmed to its visible pixels (the name is its alternative text and the fallback), state pills and one pill primary action.
 - **Featured banner.** Discover's Popular view opens with five titles that have hero art; it advances every 7 s, pauses under pointer or focus, and stays still when GTK animations are off.
 
@@ -69,8 +68,8 @@ The navigation rail is 200 px (64 px icon-only on narrow windows) and holds only
 
 ## Components
 
-- **Buttons:** 10 px radius by default. `suggested-action` is a pill with a soft glow in the current accent. Hero secondaries are glass pills (white 13%, no border).
-- **Filters:** `.segmented` pill control, the checked segment raised on `card_bg_color`.
+- **Buttons:** 6 px radius. `suggested-action` is a pearl-violet gradient whose light band slides across on hover (Play included). Hero secondaries are black glass with a faint violet edge.
+- **Filters:** `.segmented` tabs; the current one has a 2 px pearl underline.
 - **Library rows:** 64×30 cover, name, one-line meta, status dot; soft filled selection.
 - **Discover cards:** 180×270 poster (`library_600x900`, or the store API's hashed `library_capsule_2x`), hover zoom inside the frame, title below, circular overlay Add button that turns accent on hover and green when added. A header-only title is contained over its own blurred art.
 - **Art loading:** every image goes through `src/ui/art.rs`: one decoder thread, a 48 MB LRU, a skeleton while loading and a 220 ms fade on arrival.
@@ -81,12 +80,12 @@ Page crossfade 180 ms, backdrop crossfade 450 ms, art fade 220 ms, hover transit
 
 ## Do's and Don'ts
 
-**Do** let artwork carry color; keep one primary action per detail view; keep technical detail one layer down; route all images through `art.rs`; keep the accent scoped.
+**Do** let artwork carry color; keep one primary action per detail view; keep technical detail one layer down; route all images through `art.rs`; keep pearl for the primary action, the current page and focus.
 
-**Don't** redefine the accent globally; add per-frame GPU blur; reintroduce status-card dashboards; put `Restart Steam` back into the native app; claim rendered review without an actual capture.
+**Don't** introduce a second accent; add per-frame GPU blur; reintroduce status-card dashboards; put `Restart Steam` back into the native app; claim rendered review without an actual capture.
 
 ## Accessibility and Accepted Debt
 
-Native focus order, activation and selection semantics are retained. Game accents are contrast-guarded for white text (4.5:1); the logo keeps the game name as alternative text. Text over bright art relies on the veil and hero scrim.
+Native focus order, activation and selection semantics are retained. The logo keeps the game name as alternative text. Text over bright art relies on the veil and hero scrim.
 
 Adaptive layout: minimum 420 px; below 1000 px the rail is icon-only, below 760 px the shelf is an overlay (`adw::OverlaySplitView`) and the hero's secondary actions move into its overflow menu. Open: no screen-reader audit or WCAG conformance claim; Discover's featured heroes cost about 20 MB more than the previous header-only grid.

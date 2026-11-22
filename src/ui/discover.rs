@@ -805,48 +805,47 @@ gridview.discover-grid {
 }
 gridview.discover-grid > child {
     padding: 10px 8px 14px;
-    border-radius: 16px;
+    border-radius: 8px;
     background-color: transparent;
 }
-.featured-art { border-radius: 16px; }
+.featured-art { border-radius: 4px; }
 .featured-art .art-letter { font-size: 64px; }
 .discover-card { background-color: transparent; padding: 0; }
-.discover-frame { border-radius: 12px; }
+.discover-frame { border-radius: 3px; }
 .discover-cover.ready { background-color: transparent; }
 .discover-cover {
-    border-radius: 12px;
-    box-shadow: 0 10px 24px -14px rgba(0, 0, 0, 0.7), inset 0 0 0 1px @borders;
-    transition: box-shadow 200ms ease-out;
+    border-radius: 3px;
+    box-shadow: inset 0 0 0 1px @borders;
+    transition: box-shadow 120ms ease-out;
 }
-.discover-cover > picture { transition: transform 260ms ease-out, opacity 220ms ease-out; }
-.discover-card:hover .discover-cover {
-    box-shadow: 0 16px 32px -14px rgba(0, 0, 0, 0.85), inset 0 0 0 1px alpha(@window_fg_color, 0.18);
-}
-.discover-card:hover .discover-cover > picture { transform: scale(1.05); }
+.discover-card:hover .discover-cover { box-shadow: inset 0 0 0 2px @pearl_light; }
 .discover-cover .art-letter { font-size: 28px; }
-.discover-title { margin: 10px 4px 0; font-weight: 600; font-size: 13px; }
+.discover-title {
+    margin: 9px 2px 0;
+    font-weight: 700;
+    font-size: 13px;
+}
 
 button.discover-add {
-    min-width: 34px;
-    min-height: 34px;
+    min-width: 32px;
+    min-height: 32px;
     padding: 0;
-    background-color: rgba(10, 10, 14, 0.62);
-    color: #FFFFFF;
-    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.18);
-    transition: background-color 160ms ease-out, box-shadow 160ms ease-out;
+    background-color: rgba(0, 0, 0, 0.72);
+    color: #ffffff;
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.24);
 }
 .discover-card:hover button.discover-add:not(.discover-added),
 button.discover-add:focus-visible {
-    background-color: @accent_bg_color;
-    color: @accent_fg_color;
-    box-shadow: 0 6px 16px -4px alpha(@accent_bg_color, 0.8);
+    background: linear-gradient(120deg, @pearl_deep, @pearl 55%, @pearl_light);
+    color: #ffffff;
+    box-shadow: none;
 }
 button.discover-add.discover-added,
 button.discover-add.discover-added:disabled {
-    background-color: @success_color;
-    color: #FFFFFF;
+    background-color: rgba(0, 0, 0, 0.72);
+    color: #8ee6b0;
     opacity: 1;
-    box-shadow: none;
+    box-shadow: inset 0 0 0 1px rgba(142, 230, 176, 0.5);
 }
 "#;
 

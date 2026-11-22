@@ -54,7 +54,6 @@ pub fn build() -> Inspector {
     scroll.set_vexpand(true);
     scroll.set_hexpand(true);
     scroll.set_overlay_scrolling(false);
-    scroll.add_css_class("game-tint");
     scroll.set_child(Some(&page));
 
     let inspector = Inspector {
@@ -257,8 +256,9 @@ fn primary_button(ctx: &Ctx, game: &Game) -> gtk::Button {
         return add;
     }
     if game.installed && game.state != GameState::KeysMissing {
-        let launch = gtk::Button::with_label("Launch");
+        let launch = gtk::Button::with_label("Play");
         launch.add_css_class("suggested-action");
+        launch.add_css_class("play");
         launch.set_cursor_from_name(Some("pointer"));
         let commands = ctx.commands.clone();
         let appid = game.appid;

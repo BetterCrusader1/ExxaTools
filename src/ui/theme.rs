@@ -1,6 +1,6 @@
-//! Midnight styling: a deep neutral palette expressed through libadwaita's
-//! named colors, plus the component treatments (pill primary, glass hero
-//! actions, segmented filters) that give the dashboard its own character.
+//! Steam native styling: the Steam client's own library palette and keys,
+//! expressed through libadwaita's named colors and accent variables, so the
+//! dashboard reads as part of Steam.
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Theme {
@@ -53,9 +53,8 @@ impl Theme {
     }
 }
 
-/// Midnight: deep neutral layers in dark, soft paper in light. Only the
-/// libadwaita named colors are redefined, so every native widget follows; the
-/// accent stays the user's system accent.
+/// Each theme redefines libadwaita's named colors, so every native widget
+/// follows; `THEME` holds the shared component rules.
 pub fn css(theme: Theme) -> String {
     let palette = match theme {
         Theme::Dark => DARK,
@@ -65,123 +64,148 @@ pub fn css(theme: Theme) -> String {
 }
 
 const DARK: &str = r#"
-@define-color window_bg_color #0d0e12;
-@define-color view_bg_color #0d0e12;
-@define-color headerbar_bg_color #0d0e12;
-@define-color headerbar_backdrop_color #0d0e12;
-@define-color sidebar_bg_color #111217;
-@define-color sidebar_backdrop_color #111217;
-@define-color card_bg_color rgba(255, 255, 255, 0.045);
-@define-color popover_bg_color #1a1b21;
-@define-color dialog_bg_color #17181d;
-@define-color borders rgba(255, 255, 255, 0.07);
-@define-color surface_raise rgba(255, 255, 255, 0.06);
-@define-color surface_hover rgba(255, 255, 255, 0.09);
-@define-color veil_top rgba(13, 14, 18, 0.40);
-@define-color veil_mid rgba(13, 14, 18, 0.72);
-@define-color veil_bottom rgba(13, 14, 18, 0.93);
+@define-color window_bg_color #000000;
+@define-color view_bg_color #000000;
+@define-color headerbar_bg_color #000000;
+@define-color headerbar_backdrop_color #000000;
+@define-color sidebar_bg_color #000000;
+@define-color sidebar_backdrop_color #000000;
+@define-color card_bg_color #0e0d12;
+@define-color popover_bg_color #141219;
+@define-color dialog_bg_color #0e0d12;
+@define-color window_fg_color #ecebf2;
+@define-color view_fg_color #ecebf2;
+@define-color borders #1f1d27;
+@define-color muted_fg #8c8a99;
+@define-color surface_raise #0f0e14;
+@define-color surface_hover #1a1822;
+@define-color pearl #7b5cf0;
+@define-color pearl_light #b7a4ff;
+@define-color pearl_deep #4a2fb8;
+@define-color veil_top rgba(0, 0, 0, 0.35);
+@define-color veil_mid rgba(0, 0, 0, 0.74);
+@define-color veil_bottom rgba(0, 0, 0, 0.95);
 "#;
 
 const LIGHT: &str = r#"
-@define-color window_bg_color #f5f6f8;
-@define-color view_bg_color #f5f6f8;
-@define-color headerbar_bg_color #f5f6f8;
-@define-color headerbar_backdrop_color #f5f6f8;
-@define-color sidebar_bg_color #eceef2;
-@define-color sidebar_backdrop_color #eceef2;
-@define-color card_bg_color #ffffff;
+@define-color window_bg_color #e9ecef;
+@define-color view_bg_color #e9ecef;
+@define-color headerbar_bg_color #dfe3e6;
+@define-color headerbar_backdrop_color #dfe3e6;
+@define-color sidebar_bg_color #dfe3e6;
+@define-color sidebar_backdrop_color #dfe3e6;
+@define-color card_bg_color #f6f7f8;
 @define-color popover_bg_color #ffffff;
 @define-color dialog_bg_color #ffffff;
-@define-color borders rgba(0, 0, 0, 0.08);
-@define-color surface_raise rgba(0, 0, 0, 0.05);
-@define-color surface_hover rgba(0, 0, 0, 0.08);
-@define-color veil_top rgba(245, 246, 248, 0.55);
-@define-color veil_mid rgba(245, 246, 248, 0.80);
-@define-color veil_bottom rgba(245, 246, 248, 0.94);
+@define-color window_fg_color #1b1e22;
+@define-color view_fg_color #1b1e22;
+@define-color borders #c5cbd1;
+@define-color muted_fg #5d6670;
+@define-color surface_raise #dde1e5;
+@define-color surface_hover #cfd5db;
+@define-color pearl #6a4ae0;
+@define-color pearl_light #8b70f0;
+@define-color pearl_deep #4a2fb8;
+@define-color veil_top rgba(233, 236, 239, 0.50);
+@define-color veil_mid rgba(233, 236, 239, 0.80);
+@define-color veil_bottom rgba(233, 236, 239, 0.95);
 "#;
 
+/// Steam native: the Steam client's own library language, read from its
+/// stylesheet (steamui/css/library.css): graphite #1b1e22 to #3d4450
+/// surfaces, #dfe3e6 text, a blue #1a9fff accent, the green play gradient
+/// and the blue install gradient, 2 px corners. ExxaTools runs inside Steam
+/// and should look like part of it; the game's art stays the loud element.
 pub const THEME: &str = r#"
-/* Typography: tighter, heavier display titles. */
-.title-1 {
-    font-size: 28px;
-    font-weight: 800;
-    letter-spacing: -0.5px;
+:root {
+    --accent-bg-color: @pearl;
+    --accent-fg-color: #ffffff;
 }
-.title-3 { font-weight: 800; letter-spacing: -0.2px; }
 
-/* Header: borderless, with a soft pill search. */
+.title-1 { font-size: 30px; font-weight: 800; letter-spacing: -0.3px; }
+.title-3 { font-weight: 800; }
+.hero-title { font-size: 36px; font-weight: 800; letter-spacing: -0.5px; }
+.heading { font-weight: 700; }
+.dim-label, .caption.dim-label { color: @muted_fg; opacity: 1; }
+
 headerbar.global-header {
     box-shadow: none;
-    border-bottom: 1px solid @borders;
-    min-height: 52px;
+    border-bottom: 1px solid rgba(0, 0, 0, 0.45);
+    min-height: 48px;
 }
-entry.global-search, searchbar entry, .global-search {
-    border-radius: 999px;
-    background-color: @surface_raise;
-    box-shadow: none;
-    min-height: 34px;
-    padding: 0 14px;
+entry.global-search, .global-search {
+    border-radius: 3px;
+    background-color: @card_bg_color;
+    box-shadow: inset 0 0 0 1px @borders;
+    min-height: 32px;
+    padding: 0 12px;
+    color: @window_fg_color;
 }
 .global-search:focus-within {
-    background-color: @surface_hover;
-    outline: 2px solid alpha(@accent_bg_color, 0.55);
-    outline-offset: -2px;
+    box-shadow: inset 0 0 0 1px @pearl;
+    outline: none;
 }
 
-/* Buttons: rounded, quiet secondaries, a pill primary with a soft glow. */
-button { border-radius: 10px; }
-button.circular { border-radius: 999px; }
+/* Buttons: Steam's 2 px keys. Play is green, install/add is blue,
+   everything else is a quiet graphite key. */
+button {
+    border-radius: 6px;
+    transition: background 160ms ease-out, color 120ms ease-out, box-shadow 160ms ease-out;
+}
+button.circular { border-radius: 6px; }
+button:focus-visible { outline: 2px solid @pearl_light; outline-offset: 1px; }
+/* Pearl: a dark violet with a sheen that slides across on hover. */
 button.suggested-action {
-    border-radius: 999px;
-    padding: 8px 22px;
+    background-image: linear-gradient(120deg,
+        @pearl_deep 0%, @pearl 38%, @pearl_light 50%, @pearl 62%, @pearl_deep 100%);
+    background-size: 260% 100%;
+    background-position: 100% 0;
+    color: #ffffff;
     font-weight: 700;
-    box-shadow: 0 6px 18px -6px rgb(from var(--accent-bg-color) r g b / 75%);
-    transition: box-shadow 160ms ease-out, background-color 160ms ease-out;
+    padding: 7px 22px;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.22), inset 0 -1px 0 rgba(0, 0, 0, 0.35);
+    transition: background-position 420ms ease-out;
 }
-button.suggested-action:hover {
-    box-shadow: 0 8px 24px -6px rgb(from var(--accent-bg-color) r g b / 95%);
+button.suggested-action:hover { background-position: 0% 0; }
+button.suggested-action:active { box-shadow: inset 0 2px 3px rgba(0, 0, 0, 0.45); }
+button.suggested-action.play { font-size: 15px; padding: 8px 30px; }
+button.suggested-action:disabled { opacity: 0.5; }
+button.global-control { min-width: 30px; min-height: 30px; padding: 0; color: @muted_fg; }
+button.global-control:hover { color: @window_fg_color; }
+
+/* Filters: Steam's library tabs. */
+.segmented { background: none; padding: 0; }
+.segmented > button {
+    border-radius: 0;
+    background: none;
+    box-shadow: none;
+    padding: 6px 0 7px;
+    margin-right: 22px;
+    font-weight: 700;
+    color: @muted_fg;
 }
-button.global-control { border-radius: 999px; min-width: 34px; min-height: 34px; }
+.segmented > button:hover { color: @window_fg_color; background: none; }
+.segmented > button:checked {
+    color: @window_fg_color;
+    background: none;
+    box-shadow: inset 0 -2px 0 @pearl_light;
+}
 
 /* Game backdrop: a veil keeps text readable; panels above turn to glass. */
 .backdrop-scrim {
     background-image: linear-gradient(to bottom, @veil_top 0%, @veil_mid 42%, @veil_bottom 100%);
 }
-.has-backdrop .nav-rail { background-color: alpha(@sidebar_bg_color, 0.42); }
-.has-backdrop .shelf { background-color: alpha(@window_bg_color, 0.22); }
-.has-backdrop headerbar.global-header {
-    background-color: alpha(@headerbar_bg_color, 0.30);
-}
+.has-backdrop .nav-rail { background-color: alpha(@sidebar_bg_color, 0.62); }
+.has-backdrop .shelf { background-color: alpha(@window_bg_color, 0.36); }
+.has-backdrop headerbar.global-header { background-color: alpha(@headerbar_bg_color, 0.55); }
 
-/* Segmented filters. */
-.segmented {
-    background-color: @surface_raise;
-    border-radius: 999px;
-    padding: 3px;
-}
-.segmented > button {
-    border-radius: 999px;
-    background: none;
-    box-shadow: none;
-    padding: 5px 16px;
-    font-weight: 600;
-    color: alpha(@window_fg_color, 0.65);
-    transition: background-color 160ms ease-out, color 160ms ease-out;
-}
-.segmented > button:hover { color: @window_fg_color; }
-.segmented > button:checked {
-    background-color: @card_bg_color;
-    color: @window_fg_color;
-    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25), inset 0 0 0 1px @borders;
-}
-
-/* Hero: cinematic band, glass secondaries. */
-.hero-wrap, .hero, .hero-scrim { border-radius: 16px; }
-.hero-wrap { box-shadow: 0 18px 40px -18px rgba(0, 0, 0, 0.65); }
+/* Hero: Steam's library header, art full bleed with the play bar below. */
+.hero-wrap, .hero, .hero-scrim { border-radius: 8px; }
+.hero-wrap { box-shadow: 0 10px 30px -12px rgba(0, 0, 0, 0.8); }
 .hero-scrim {
     background-image: linear-gradient(to top,
-        rgba(0, 0, 0, 0.92) 0%,
-        rgba(0, 0, 0, 0.45) 48%,
+        rgba(0, 0, 0, 0.96) 0%,
+        rgba(0, 0, 0, 0.55) 45%,
         rgba(0, 0, 0, 0.00) 100%),
         linear-gradient(to right, rgba(0, 0, 0, 0.55) 0%, rgba(0, 0, 0, 0.0) 60%);
 }
@@ -192,55 +216,47 @@ button.global-control { border-radius: 999px; min-width: 34px; min-height: 34px;
     margin: 24px;
     box-shadow: none;
 }
-.hero-panel label { color: #FFFFFF; }
-.hero-title { font-size: 32px; font-weight: 800; letter-spacing: -0.6px; }
-.hero-meta, .hero-panel .dim-label { color: rgba(255, 255, 255, 0.72); }
-.hero-panel button.flat {
-    background-color: rgba(255, 255, 255, 0.13);
-    border: none;
-    border-radius: 999px;
-    padding: 8px 18px;
-    font-weight: 600;
-    color: #FFFFFF;
-    transition: background-color 160ms ease-out;
-}
-.hero-panel button.flat:hover { background-color: rgba(255, 255, 255, 0.22); }
+.hero-panel label { color: #ffffff; }
+.hero-meta, .hero-panel .dim-label { color: rgba(236, 235, 242, 0.72); }
+.hero-panel button.flat,
 .hero-panel menubutton > button {
-    padding: 8px;
-    min-width: 20px;
-    border-radius: 999px;
-    color: #FFFFFF;
-    background-color: rgba(255, 255, 255, 0.13);
+    background-color: rgba(0, 0, 0, 0.55);
+    color: #ecebf2;
+    font-weight: 600;
+    padding: 7px 16px;
+    box-shadow: inset 0 0 0 1px rgba(183, 164, 255, 0.28);
 }
-.hero-panel menubutton > button:hover { background-color: rgba(255, 255, 255, 0.22); }
+.hero-panel button.flat:hover,
+.hero-panel menubutton > button:hover {
+    background-color: rgba(123, 92, 240, 0.30);
+    box-shadow: inset 0 0 0 1px rgba(183, 164, 255, 0.6);
+    color: #ffffff;
+}
+.hero-panel menubutton > button { padding: 7px 10px; }
 
 .status-pill {
-    border-radius: 999px;
-    padding: 3px 10px;
+    border-radius: 2px;
+    padding: 2px 7px;
     font-weight: 700;
-    font-size: 12px;
+    font-size: 11px;
 }
-.pill-ready { background-color: alpha(@success_color, 0.14); color: @success_color; }
-.pill-planned { background-color: alpha(@warning_color, 0.14); color: @warning_color; }
-.pill-warning { background-color: alpha(@error_color, 0.14); color: @error_color; }
-.pill-disabled { background-color: alpha(@insensitive_fg_color, 0.14); color: @insensitive_fg_color; }
-.pill-neutral { background-color: alpha(@accent_bg_color, 0.14); color: @accent_color; }
-.hero-scrim .status-pill, .hero-panel .status-pill {
-    background-color: rgba(255, 255, 255, 0.14);
-    color: #FFFFFF;
-}
-.hero-panel .pill-ready { background-color: alpha(@success_color, 0.28); }
+.pill-ready { background-color: alpha(@success_color, 0.18); color: @success_color; }
+.pill-planned { background-color: alpha(@warning_color, 0.18); color: @warning_color; }
+.pill-warning { background-color: alpha(@error_color, 0.18); color: @error_color; }
+.pill-disabled { background-color: alpha(@insensitive_fg_color, 0.18); color: @insensitive_fg_color; }
+.pill-neutral { background-color: @surface_raise; color: @window_fg_color; }
+.hero-panel .status-pill { background-color: rgba(0, 0, 0, 0.6); color: #ecebf2; }
+.hero-panel .pill-ready { color: #8ee6b0; }
 
-/* Raised groups (expanders, preferences) lose the hard border. */
 .boxed-list, list.boxed-list, .card {
-    border-radius: 14px;
-    box-shadow: inset 0 0 0 1px @borders;
+    border-radius: 3px;
+    box-shadow: none;
 }
 
 .depot-table {
     background-color: @card_bg_color;
     border: 1px solid @borders;
-    border-radius: 12px;
+    border-radius: 3px;
 }
 .depot-table separator { background-color: @borders; }
 .mono { font-family: monospace; }
@@ -251,13 +267,12 @@ mod tests {
     use super::*;
 
     #[test]
-    fn midnight_redefines_adwaita_named_colors_and_keeps_the_system_accent() {
+    fn pearl_black_redefines_the_palette_and_one_accent() {
         for theme in [Theme::Dark, Theme::Light] {
             let css = css(theme);
             assert!(css.contains("@define-color window_bg_color"));
-            assert!(css.contains("@define-color card_bg_color"));
-            assert!(!css.contains("@define-color accent"));
-            assert!(!css.contains("Inter"));
+            assert!(css.contains("--accent-bg-color: @pearl;"));
+            assert!(css.contains("@pearl_light"), "pearl sheen");
             assert!(css.contains(".hero-panel"));
             assert!(css.contains(".segmented"));
         }
