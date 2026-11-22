@@ -235,6 +235,11 @@ impl Game {
         )
     }
 
+    /// One line under a collection card: the state in words.
+    pub fn card_caption(&self) -> String {
+        self.state.label().to_string()
+    }
+
     pub fn initial(&self) -> String {
         self.name
             .chars()

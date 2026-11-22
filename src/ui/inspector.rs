@@ -12,7 +12,7 @@ use crate::ui::model::{Game, GameState, Origin};
 use crate::ui::shell::Ctx;
 use crate::ui::worker::Command;
 
-const HERO_HEIGHT: i32 = 340;
+const HERO_HEIGHT: i32 = 300;
 /// Steam library heroes are up to 3840 px wide; the full-bleed hero rarely
 /// shows more than this logical width, so decoding more only wastes memory.
 const HERO_DECODE_WIDTH: i32 = 1280;
@@ -22,6 +22,7 @@ const LOGO_MAX_HEIGHT: i32 = 120;
 
 pub struct Inspector {
     pub root: gtk::Widget,
+    page: gtk::Box,
     hero: gtk::Box,
     body: gtk::Box,
     /// Narrow windows move the secondary actions into the overflow menu.
@@ -58,6 +59,7 @@ pub fn build() -> Inspector {
 
     let inspector = Inspector {
         root: scroll.upcast(),
+        page,
         hero,
         body,
         compact: Cell::new(false),
@@ -86,6 +88,12 @@ impl Inspector {
             page.set_child(Some(&discover));
         }
         self.body.append(&page);
+    }
+
+    /// Content that scrolls with the spotlight: it sits right under the
+    /// hero, so the collection leads and the technical details close the page.
+    pub fn append_below(&self, widget: &impl IsA<gtk::Widget>) {
+        self.page.insert_child_after(widget, Some(&self.hero));
     }
 
     /// Re-renders the current game when the layout switches between wide and

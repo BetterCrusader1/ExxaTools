@@ -51,6 +51,12 @@ pub enum Event {
     Clipboard(String),
     RefreshLibrary,
     SettingsReload,
+    /// The answer to an Add: `error` is None on success.
+    Added {
+        appid: u64,
+        name: String,
+        error: Option<String>,
+    },
     Hero {
         appid: u64,
         path: Option<std::path::PathBuf>,
@@ -173,10 +179,12 @@ fn run(command: Command, events: Sender<Event>) {
         }
         Command::Add { appid, name } => match crate::plans::fetch_plan(appid, Some(&name)) {
             Ok(_) => {
-                toast(&events, format!("{name} added to the library"), false);
+                let _ = events.send(Event::Added { appid, name, error: None });
                 let _ = events.send(Event::RefreshLibrary);
             }
-            Err(error) => toast(&events, error, true),
+            Err(error) => {
+                let _ = events.send(Event::Added { appid, name, error: Some(error) });
+            }
         },
         Command::Sync(appid) => match crate::plans::refresh_plan(appid) {
             Ok(value) => {

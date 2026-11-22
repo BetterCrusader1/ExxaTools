@@ -10,7 +10,7 @@ use crate::ui::model::Game;
 use crate::ui::theme::{self, Theme};
 use crate::ui::worker::{Command, Event, Worker};
 use crate::ui::backdrop::Backdrop;
-use crate::ui::{discover, inspector, settings, shelf, system};
+use crate::ui::{collection, discover, inspector, settings, system};
 
 const APP_ID: &str = "dev.exxatools.ExxaTools";
 
@@ -166,6 +166,42 @@ pub fn run(url: &str) -> Result<(), String> {
     Ok(())
 }
 
+/// The end of the main job: success says where the game went and opens it;
+/// a missing key source says where to fix it instead of vanishing.
+fn added_toast(ctx: &Ctx, shelf: &collection::Collection, appid: u64, name: &str, error: Option<&str>) {
+    let toast = match error {
+        None => {
+            let toast = adw::Toast::new(&format!("{name} is in your library. Steam will download it."));
+            toast.set_button_label(Some("Open in Library"));
+            let ctx = ctx.clone();
+            let shelf = shelf.clone();
+            toast.connect_button_clicked(move |_| {
+                ctx.navigate(Page::Library);
+                shelf.select_appid(appid);
+            });
+            toast
+        }
+        Some(error) => {
+            let toast = adw::Toast::new(&format!("Could not add {name}: {error}"));
+            toast.set_timeout(10);
+            if needs_key_source(error) {
+                toast.set_button_label(Some("Open Settings"));
+                let ctx = ctx.clone();
+                toast.connect_button_clicked(move |_| ctx.navigate(Page::Settings));
+            }
+            toast
+        }
+    };
+    ctx.toast.add_toast(toast);
+}
+
+/// Failures fixed in Settings: no or expired key, no source, rate limits.
+fn needs_key_source(error: &str) -> bool {
+    ["plan source", "API key", "daily limit", "ryuu", "hubcap", "key"]
+        .iter()
+        .any(|needle| error.to_ascii_lowercase().contains(&needle.to_ascii_lowercase()))
+}
+
 /// Keeps the dashboard in step with Steam and with new builds: restart into
 /// a freshly installed companion, close when Steam exits, report builds.
 fn follow_live(ctx: &Ctx, current_page: Rc<Cell<Page>>) {
@@ -249,21 +285,17 @@ fn build(app: &adw::Application, initial: Page) -> Ctx {
         hooks: hooks.clone(),
     };
 
-    let shelf = shelf::build();
+    let shelf = {
+        let ctx = ctx.clone();
+        collection::build(move || ctx.navigate(Page::Discover))
+    };
     let inspector = Rc::new(inspector::build());
     let discover = Rc::new(discover::build(&ctx));
     let system = Rc::new(system::build(&ctx));
     let settings = Rc::new(settings::build(&ctx));
 
-    // Side by side when there is room; on a narrow window the shelf slides
-    // over the game instead, from the header's sidebar button.
-    let split = adw::OverlaySplitView::new();
-    split.add_css_class("library-split");
-    split.set_sidebar(Some(&shelf.root));
-    split.set_content(Some(&inspector.root));
-    split.set_min_sidebar_width(280.0);
-    split.set_max_sidebar_width(340.0);
-    split.set_sidebar_width_fraction(0.28);
+    // One page: the selected game's spotlight, then the whole collection.
+    inspector.append_below(&shelf.root);
 
     let stack = gtk::Stack::new();
     stack.set_hexpand(true);
@@ -272,7 +304,7 @@ fn build(app: &adw::Application, initial: Page) -> Ctx {
     stack.set_transition_duration(180);
     // Only the visible page may set the window's minimum width.
     stack.set_hhomogeneous(false);
-    stack.add_named(&split, Some(Page::Library.name()));
+    stack.add_named(&inspector.root, Some(Page::Library.name()));
     stack.add_named(&discover.root, Some(Page::Discover.name()));
     stack.add_named(&system.root, Some(Page::System.name()));
     stack.add_named(&settings.root, Some(Page::Settings.name()));
@@ -308,22 +340,9 @@ fn build(app: &adw::Application, initial: Page) -> Ctx {
         });
     }
 
-    let shelf_toggle = gtk::ToggleButton::new();
-    shelf_toggle.set_icon_name("sidebar-show-symbolic");
-    shelf_toggle.add_css_class("flat");
-    shelf_toggle.add_css_class("global-control");
-    shelf_toggle.set_tooltip_text(Some("Show the library (F9)"));
-    shelf_toggle.set_visible(false);
-    split
-        .bind_property("show-sidebar", &shelf_toggle, "active")
-        .bidirectional()
-        .sync_create()
-        .build();
-
     let header = adw::HeaderBar::new();
     header.add_css_class("global-header");
     header.set_title_widget(Some(&search));
-    header.pack_start(&shelf_toggle);
     header.pack_end(&theme_button);
     header.pack_end(&refresh);
 
@@ -420,19 +439,8 @@ fn build(app: &adw::Application, initial: Page) -> Ctx {
     }
 
     {
-        let appids = shelf.appids.clone();
         let ctx = ctx.clone();
-        shelf.list.connect_row_selected(move |_, row| {
-            let appid = row.and_then(|row| {
-                let index = row.index();
-                if index < 0 {
-                    None
-                } else {
-                    appids.borrow().get(index as usize).copied()
-                }
-            });
-            ctx.select(appid);
-        });
+        shelf.connect_select(move |appid| ctx.select(appid));
     }
 
     {
@@ -593,6 +601,10 @@ fn build(app: &adw::Application, initial: Page) -> Ctx {
                             ctx.toast_text(&text);
                         }
                     }
+                    Event::Added { appid, name, error } => {
+                        discover.finish_add(appid, error.is_none());
+                        added_toast(&ctx, &shelf, appid, &name, error.as_deref());
+                    }
                     Event::Clipboard(text) => {
                         ctx.clipboard(&text);
                         ctx.toast_text("Diagnostics copied to the clipboard");
@@ -638,21 +650,8 @@ fn build(app: &adw::Application, initial: Page) -> Ctx {
         });
     }
 
-    install_breakpoints(&window, &nav, &split, &shelf_toggle, &inspector);
-    install_shortcuts(&window, &ctx, &search, &refresh, &split);
-    {
-        // Picking a game in the folded layout returns to it.
-        let split = split.clone();
-        shelf.list.connect_row_activated(move |_, _| {
-            if split.is_collapsed() {
-                split.set_show_sidebar(false);
-            }
-        });
-    }
-    {
-        let ctx = ctx.clone();
-        shelf_toggle.connect_clicked(move |_| ctx.navigate(Page::Library));
-    }
+    install_breakpoints(&window, &nav, &inspector);
+    install_shortcuts(&window, &ctx, &search, &refresh);
     window.present();
     // Start on the navigation, not in the search field: an empty, already
     // focused search reads as an alert.
@@ -732,14 +731,12 @@ const MIN_HEIGHT: i32 = 480;
 
 /// Below this the rail shows icons only.
 const RAIL_BREAKPOINT: &str = "max-width: 1000sp";
-/// Below this the shelf folds over the game.
+/// Below this the hero's secondary actions fold into its menu.
 const FOLD_BREAKPOINT: &str = "max-width: 760sp";
 
 fn install_breakpoints(
     window: &adw::ApplicationWindow,
     nav: &NavRail,
-    split: &adw::OverlaySplitView,
-    shelf_toggle: &gtk::ToggleButton,
     inspector: &Rc<inspector::Inspector>,
 ) {
     // libadwaita applies only the last matching breakpoint, so the folded
@@ -761,11 +758,6 @@ fn install_breakpoints(
     if let Ok(condition) = adw::BreakpointCondition::parse(FOLD_BREAKPOINT) {
         let fold = adw::Breakpoint::new(condition);
         compact_rail(&fold);
-        fold.add_setter(split, "collapsed", Some(&true.to_value()));
-        fold.add_setter(split, "show-sidebar", Some(&false.to_value()));
-        fold.add_setter(shelf_toggle, "visible", Some(&true.to_value()));
-        let classes = vec!["library-split".to_string(), "compact".to_string()];
-        fold.add_setter(split, "css-classes", Some(&classes.to_value()));
         {
             let inspector = inspector.clone();
             fold.connect_apply(move |_| inspector.set_compact(true));
@@ -778,14 +770,12 @@ fn install_breakpoints(
     }
 }
 
-/// Keyboard: Ctrl+K or Ctrl+F search, Ctrl+1..4 pages, Ctrl+R or F5 refresh,
-/// F9 the folded library.
+/// Keyboard: Ctrl+K or Ctrl+F search, Ctrl+1..4 pages, Ctrl+R or F5 refresh.
 fn install_shortcuts(
     window: &adw::ApplicationWindow,
     ctx: &Ctx,
     search: &gtk::SearchEntry,
     refresh: &gtk::Button,
-    split: &adw::OverlaySplitView,
 ) {
     let controller = gtk::ShortcutController::new();
     controller.set_scope(gtk::ShortcutScope::Managed);
@@ -822,19 +812,6 @@ fn install_shortcuts(
     {
         let refresh = refresh.clone();
         add("<Control>r|F5", Box::new(move || refresh.emit_clicked()));
-    }
-    {
-        let split = split.clone();
-        let ctx = ctx.clone();
-        add(
-            "F9",
-            Box::new(move || {
-                if split.is_collapsed() {
-                    ctx.navigate(Page::Library);
-                    split.set_show_sidebar(!split.shows_sidebar());
-                }
-            }),
-        );
     }
     window.add_controller(controller);
 }
@@ -971,31 +948,54 @@ const STYLE: &str = r#"
 .nav-row:hover { background-color: @surface_raise; }
 .nav-row:selected,
 .nav-row:selected:hover {
-    background-color: @surface_hover;
-    box-shadow: inset 3px 0 0 @pearl;
+    background-color: alpha(@pearl, 0.16);
 }
 .nav-icon { color: @muted_fg; }
 .nav-label { font-weight: 700; color: @muted_fg; }
 .nav-row:selected .nav-icon { color: @pearl_light; }
 .nav-row:selected .nav-label { color: @window_fg_color; }
 
-.shelf {
-    background-color: @window_bg_color;
-    border-right: 1px solid @borders;
+/* Collection: card stock at rest, one foil card when selected. */
+gridview.collection-grid {
+    background: none;
+    padding: 4px 16px 32px;
 }
-.shelf-list { background-color: transparent; }
-.game-row {
-    border-radius: 3px;
-    margin-bottom: 2px;
-    transition: background-color 120ms ease-out;
+gridview.collection-grid > child {
+    padding: 10px 6px 12px;
+    border-radius: 8px;
+    background: none;
+    outline: none;
 }
-.game-row:hover { background-color: @surface_raise; }
-.game-row:selected,
-.game-row:selected:hover {
-    background-color: @surface_hover;
-    box-shadow: inset 3px 0 0 @pearl;
+.card-frame {
+    border-radius: 6px;
+    padding: 2px;
+    background-color: #17151f;
+    transition: box-shadow 200ms ease-out, background 200ms ease-out;
 }
-.game-name { font-weight: 600; }
+.card-art { border-radius: 4px; }
+.card-art .art-letter { font-size: 40px; }
+.foil { border-radius: 4px; opacity: 0; transition: opacity 260ms ease-out; }
+gridview.collection-grid > child:hover .card-frame { background-color: #2a2638; }
+gridview.collection-grid > child:selected .card-frame {
+    background-image: linear-gradient(135deg, #4a2fb8 0%, #b7a4ff 30%, #f1ecff 48%, #9d86f7 62%, #4a2fb8 100%);
+    box-shadow: 0 14px 28px -10px rgba(123, 92, 240, 0.55);
+}
+gridview.collection-grid > child:selected .foil {
+    opacity: 1;
+    background-image: linear-gradient(115deg,
+        rgba(255, 255, 255, 0) 30%,
+        rgba(214, 200, 255, 0.28) 45%,
+        rgba(255, 255, 255, 0.40) 50%,
+        rgba(183, 164, 255, 0.22) 56%,
+        rgba(255, 255, 255, 0) 70%);
+}
+gridview.collection-grid > child:focus-visible .card-frame { box-shadow: 0 0 0 2px @pearl_light; }
+.card-name { margin: 9px 2px 0; font-weight: 700; }
+.card-caption { margin: 1px 2px 0; font-size: 12px; color: @muted_fg; }
+.card-caption.state-ready { color: #8ee6b0; }
+.card-caption.state-planned { color: #e6b450; }
+.card-caption.state-warning { color: #ff8a80; }
+.collection .title-3 { font-size: 22px; }
 
 .status-dot {
     min-width: 7px;
@@ -1008,21 +1008,11 @@ const STYLE: &str = r#"
 .dot-warning { background-color: @error_color; }
 .dot-disabled { background-color: @insensitive_fg_color; }
 
-.shelf-cover { border-radius: 2px; }
-.shelf-cover .art-letter { font-size: 13px; }
-
 .hero { border-radius: 4px; }
 .hero .art-letter { font-size: 64px; }
 
 .depot-table { padding: 3px 0; }
 .depot-table separator { min-height: 1px; }
-.library-split > widget.sidebar-pane { background: none; }
-/* Folded, the shelf floats over the game and must be opaque. */
-.library-split.compact .shelf,
-.has-backdrop .library-split.compact .shelf {
-    background-color: @window_bg_color;
-    box-shadow: 0 0 24px rgba(0, 0, 0, 0.45);
-}
 "#;
 
 #[cfg(test)]

@@ -44,6 +44,10 @@ struct DiscoverState {
     library_games: RefCell<Vec<Game>>,
     filter: Cell<DiscoverFilter>,
     search_mode: Cell<bool>,
+    /// Adds sent to the worker and not answered yet.
+    pending: RefCell<BTreeSet<u64>>,
+    /// Titles that just joined the library; their card flashes foil once.
+    flash: RefCell<BTreeSet<u64>>,
 }
 
 impl DiscoverState {
@@ -280,6 +284,20 @@ impl DiscoverPage {
         self.filter_bar.set_sensitive(has_games);
     }
 
+    /// The worker answered an Add. Success joins the library now (the
+    /// RefreshLibrary that follows confirms it) and flashes the card once.
+    pub fn finish_add(&self, appid: u64, added: bool) {
+        self.state.pending.borrow_mut().remove(&appid);
+        if added {
+            self.state.library.borrow_mut().insert(appid);
+            self.state.flash.borrow_mut().insert(appid);
+        }
+        let visible = self.stack.visible_child_name();
+        if matches!(visible.as_deref(), Some("flow") | Some("empty")) {
+            self.render();
+        }
+    }
+
     /// Re-read the worker-persisted library after RefreshLibrary and update the
     /// existing Discover cards without another Discover network request.
     pub fn reconcile_library(&self) {
@@ -383,8 +401,9 @@ fn render(
     }
 
     let library = state.library.borrow();
-    if searching || filter != DiscoverFilter::Popular {
+    let featured_ids = if searching || filter != DiscoverFilter::Popular {
         featured.set_games(&[], &library);
+        BTreeSet::new()
     } else {
         let picks = visible
             .iter()
@@ -393,9 +412,12 @@ fn render(
             .cloned()
             .collect::<Vec<_>>();
         featured.set_games(&picks, &library);
-    }
+        picks.iter().map(|game| game.appid).collect()
+    };
+    // The banner already shows its titles; the grid continues after them.
     let items = visible
         .into_iter()
+        .filter(|game| !featured_ids.contains(&game.appid))
         .map(|game| {
             let in_library = library.contains(&game.appid);
             glib::BoxedAnyObject::new(Card { game, in_library })
@@ -508,9 +530,10 @@ fn card_factory(ctx: &Ctx, state: &Rc<DiscoverState>) -> gtk::SignalListItemFact
             let ctx = ctx.clone();
             let state = state.clone();
             let current = current.clone();
-            action.connect_clicked(move |_| {
+            action.connect_clicked(move |action| {
                 if let Some((appid, name)) = current.borrow().clone() {
-                    confirm_add(&ctx, state.clone(), appid, &name);
+                    start_add(&ctx, &state, appid, &name);
+                    show_adding(action, &name);
                 }
             });
         }
@@ -531,6 +554,7 @@ fn card_factory(ctx: &Ctx, state: &Rc<DiscoverState>) -> gtk::SignalListItemFact
         card.append(&title);
         item.set_child(Some(&card));
 
+        let state = state.clone();
         item.connect_item_notify(move |item| {
             let Some(object) = item.item().and_downcast::<glib::BoxedAnyObject>() else {
                 current.replace(None);
@@ -567,6 +591,16 @@ fn card_factory(ctx: &Ctx, state: &Rc<DiscoverState>) -> gtk::SignalListItemFact
             if card.in_library {
                 current.replace(None);
                 show_in_library(&action);
+                if state.flash.borrow_mut().remove(&game.appid) {
+                    frame.add_css_class("foil-flash");
+                    let frame = frame.clone();
+                    glib::timeout_add_local_once(std::time::Duration::from_millis(1400), move || {
+                        frame.remove_css_class("foil-flash");
+                    });
+                }
+            } else if state.pending.borrow().contains(&game.appid) {
+                current.replace(None);
+                show_adding(&action, &game.name);
             } else {
                 current.replace(Some((game.appid, game.name.clone())));
                 show_add(&action, &game.name);
@@ -691,7 +725,13 @@ fn featured_page(ctx: &Ctx, state: &Rc<DiscoverState>, game: &Game, in_library: 
     scrim.add_css_class("hero-scrim");
     scrim.set_can_target(false);
 
-    let action = if in_library {
+    let adding = state.pending.borrow().contains(&game.appid);
+    let action = if adding {
+        let busy = gtk::Button::with_label("Adding…");
+        busy.add_css_class("suggested-action");
+        busy.set_sensitive(false);
+        busy
+    } else if in_library {
         let added = gtk::Button::with_label("In your library");
         added.add_css_class("flat");
         added.set_sensitive(false);
@@ -704,7 +744,11 @@ fn featured_page(ctx: &Ctx, state: &Rc<DiscoverState>, game: &Game, in_library: 
         let state = state.clone();
         let appid = game.appid;
         let name = game.name.clone();
-        add.connect_clicked(move |_| confirm_add(&ctx, state.clone(), appid, &name));
+        add.connect_clicked(move |add| {
+            start_add(&ctx, &state, appid, &name);
+            add.set_label("Adding…");
+            add.set_sensitive(false);
+        });
         add
     };
     action.set_halign(gtk::Align::Start);
@@ -737,13 +781,25 @@ fn featured_page(ctx: &Ctx, state: &Rc<DiscoverState>, game: &Game, in_library: 
 
 fn show_add(action: &gtk::Button, name: &str) {
     action.remove_css_class("discover-added");
+    action.remove_css_class("discover-adding");
     action.set_icon_name("list-add-symbolic");
     action.set_sensitive(true);
     action.set_cursor_from_name(Some("pointer"));
     action.set_tooltip_text(Some(&format!("Add {name} to your library")));
 }
 
+fn show_adding(action: &gtk::Button, name: &str) {
+    action.remove_css_class("discover-added");
+    action.add_css_class("discover-adding");
+    let spinner = gtk::Spinner::new();
+    spinner.start();
+    action.set_child(Some(&spinner));
+    action.set_sensitive(false);
+    action.set_tooltip_text(Some(&format!("Adding {name}…")));
+}
+
 fn show_in_library(action: &gtk::Button) {
+    action.remove_css_class("discover-adding");
     action.add_css_class("discover-added");
     action.set_icon_name("object-select-symbolic");
     action.set_sensitive(false);
@@ -755,34 +811,23 @@ fn add_response(_state: &DiscoverState, response: &str, appid: u64, name: &str) 
     if response != "add" {
         return None;
     }
-    // Sending Add is only a request. RefreshLibrary reconciliation is the sole
-    // membership transition, so a failed worker operation cannot enable this.
+    // Sending Add is only a request: membership changes when the worker
+    // answers (finish_add on success, then RefreshLibrary), never on send.
     Some(Command::Add {
         appid,
         name: name.to_string(),
     })
 }
 
-fn confirm_add(ctx: &Ctx, state: Rc<DiscoverState>, appid: u64, name: &str) {
-    let dialog = adw::MessageDialog::new(
-        Some(&ctx.window),
-        Some("Add to library?"),
-        Some(&format!(
-            "ExxaTools will build a plan for {name} and pin its manifests so Steam can install it."
-        )),
-    );
-    dialog.add_response("cancel", "Cancel");
-    dialog.add_response("add", "Add to library");
-    dialog.set_response_appearance("add", adw::ResponseAppearance::Suggested);
-    let commands = ctx.commands.clone();
-    let name = name.to_string();
-    dialog.connect_response(None, move |dialog, response| {
-        dialog.close();
-        if let Some(command) = add_response(&state, response, appid, &name) {
-            commands.send(command);
-        }
-    });
-    dialog.present();
+/// Adding is reversible (Remove is one menu away), so it starts at once: no
+/// confirmation, the card shows progress, and the worker's answer settles it.
+fn start_add(ctx: &Ctx, state: &Rc<DiscoverState>, appid: u64, name: &str) {
+    if !state.pending.borrow_mut().insert(appid) {
+        return;
+    }
+    if let Some(command) = add_response(state, "add", appid, name) {
+        ctx.commands.send(command);
+    }
 }
 
 fn install_css() {
@@ -840,6 +885,17 @@ button.discover-add:focus-visible {
     color: #ffffff;
     box-shadow: none;
 }
+button.discover-add.discover-adding,
+button.discover-add.discover-adding:disabled {
+    background-color: rgba(0, 0, 0, 0.72);
+    color: #ffffff;
+    opacity: 1;
+}
+.discover-frame.foil-flash {
+    background-image: linear-gradient(135deg, #4a2fb8 0%, #b7a4ff 30%, #f1ecff 48%, #9d86f7 62%, #4a2fb8 100%);
+    box-shadow: 0 14px 28px -10px rgba(123, 92, 240, 0.6);
+}
+.discover-frame { padding: 2px; transition: box-shadow 400ms ease-out; }
 button.discover-add.discover-added,
 button.discover-add.discover-added:disabled {
     background-color: rgba(0, 0, 0, 0.72);
