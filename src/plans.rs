@@ -633,6 +633,31 @@ fn merge_refresh(
 
 /// One refresh on server start and then every thirty minutes. Steam starting the
 /// companion server therefore also starts a freshness pass.
+/// Games added while every key source failed (a Hubcap daily limit, say)
+/// hold a catalog-only plan without keys. Each auto-update round asks the
+/// sources again, so they start downloading once a source has keys.
+fn retry_keyless() {
+    let Ok(current) = state::load() else { return };
+    let keyless: Vec<u64> = current
+        .apps
+        .values()
+        .filter(|record| record.get("source").and_then(Value::as_str) == Some("catalog"))
+        .filter_map(|record| record.get("appid").and_then(Value::as_u64))
+        .collect();
+    if keyless.is_empty() || sources(&current.settings).is_empty() {
+        return;
+    }
+    for appid in keyless {
+        match fetch_plan(appid, None) {
+            Ok(plan) if plan.get("provider").and_then(Value::as_str) != Some("catalog") => {
+                eprintln!("plans: keys found for {appid}");
+            }
+            Ok(_) => eprintln!("plans: still no keys for {appid}"),
+            Err(error) => eprintln!("plans: retry for {appid} failed: {error}"),
+        }
+    }
+}
+
 pub fn start_auto_update() {
     if AUTO_STARTED.swap(true, Ordering::SeqCst) {
         return;
@@ -657,6 +682,7 @@ pub fn start_auto_update() {
                     ),
                     Err(error) => eprintln!("plans: auto update failed: {error}"),
                 }
+                retry_keyless();
             }
             std::thread::sleep(std::time::Duration::from_secs(30 * 60));
         }
