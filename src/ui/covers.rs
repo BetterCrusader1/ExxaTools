@@ -37,6 +37,14 @@ pub fn ensure_cover(appid: u64) -> Option<PathBuf> {
     None
 }
 
+/// The header cover if it is already cached; never touches the network.
+pub fn cached_cover(appid: u64) -> Option<PathBuf> {
+    let path = cover_path(appid);
+    std::fs::metadata(&path)
+        .is_ok_and(|meta| meta.is_file() && meta.len() > 1024)
+        .then_some(path)
+}
+
 /// Downloads a store-provided capsule URL, which is the only reliable image
 /// for apps whose generic CDN path was renamed.
 pub fn ensure_cover_url(appid: u64, url: &str) -> Option<PathBuf> {
@@ -123,6 +131,12 @@ impl Asset {
 
 fn missing_is_fresh(age: std::time::Duration) -> bool {
     age < MISSING_TTL
+}
+
+/// The asset if it is already cached; never touches the network.
+pub fn cached_asset(appid: u64, asset: Asset) -> Option<PathBuf> {
+    let path = cover_dir().join(asset.file(appid));
+    path.is_file().then_some(path)
 }
 
 /// Returns the local file for `asset`, downloading it once. Only a definite

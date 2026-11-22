@@ -572,7 +572,7 @@ fn card_factory(ctx: &Ctx, state: &Rc<DiscoverState>) -> gtk::SignalListItemFact
 struct Featured {
     root: GtkBox,
     carousel: adw::Carousel,
-    shown: RefCell<Vec<(u64, bool)>>,
+    shown: RefCell<Vec<(u64, bool, bool, bool)>>,
     ctx: Ctx,
     state: Rc<DiscoverState>,
 }
@@ -649,7 +649,14 @@ impl Featured {
     fn set_games(&self, games: &[Game], library: &BTreeSet<u64>) {
         let wanted = games
             .iter()
-            .map(|game| (game.appid, library.contains(&game.appid)))
+            .map(|game| {
+                (
+                    game.appid,
+                    library.contains(&game.appid),
+                    game.hero.is_some(),
+                    game.logo.is_some(),
+                )
+            })
             .collect::<Vec<_>>();
         if *self.shown.borrow() == wanted {
             return;
@@ -657,7 +664,7 @@ impl Featured {
         while self.carousel.n_pages() > 0 {
             self.carousel.remove(&self.carousel.nth_page(0));
         }
-        for (game, (_, in_library)) in games.iter().zip(&wanted) {
+        for (game, (_, in_library, _, _)) in games.iter().zip(&wanted) {
             self.carousel
                 .append(&featured_page(&self.ctx, &self.state, game, *in_library));
         }

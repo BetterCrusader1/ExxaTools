@@ -152,6 +152,15 @@ fn run(command: Command, events: Sender<Event>) {
                 .iter()
                 .filter_map(Game::from_discover)
                 .collect();
+            // A cold art cache costs ~7 s of downloads. Show what is already
+            // on disk first, then replace it once every poster has arrived.
+            let mut quick = games.clone();
+            decorate_cached(&mut quick);
+            quick.retain(|game| game.cover.is_some());
+            if quick.len() >= QUICK_DISCOVER_MIN {
+                quick.truncate(30);
+                let _ = events.send(Event::Discover(quick));
+            }
             decorate(&mut games);
             games.retain(|game| game.cover.is_some());
             games.truncate(30);
@@ -345,9 +354,24 @@ fn search(term: &str) -> Result<Vec<Game>, String> {
         .collect())
 }
 
+/// Enough cached titles to fill the first screen of Discover.
+const QUICK_DISCOVER_MIN: usize = 10;
+
+/// Art that is already on disk, without touching the network.
+fn decorate_cached(games: &mut [Game]) {
+    for (index, game) in games.iter_mut().enumerate() {
+        game.cover = covers::cached_cover(game.appid);
+        game.capsule = covers::cached_asset(game.appid, covers::Asset::Capsule);
+        if index < 8 {
+            game.hero = covers::cached_asset(game.appid, covers::Asset::Hero);
+            game.logo = covers::cached_asset(game.appid, covers::Asset::Logo);
+        }
+    }
+}
+
 fn decorate(games: &mut [Game]) {
     std::thread::scope(|scope| {
-        for chunk in games.chunks_mut(6) {
+        for chunk in games.chunks_mut(3) {
             scope.spawn(move || {
                 for game in chunk {
                     game.cover = game
