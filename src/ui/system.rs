@@ -14,6 +14,7 @@ const GROUPS: [&str; 6] = ["Engine", "Steam", "Plans", "Storage", "Sources", "Ot
 pub struct SystemPage {
     pub root: gtk::Widget,
     summary_icon: gtk::Image,
+    summary: gtk::Box,
     summary_spinner: gtk::Spinner,
     summary_title: gtk::Label,
     summary_detail: gtk::Label,
@@ -31,7 +32,7 @@ pub fn build(ctx: &Ctx) -> SystemPage {
     let title = gtk::Label::new(Some("System"));
     title.add_css_class("title-1");
     title.set_halign(gtk::Align::Start);
-    let subtitle = gtk::Label::new(Some("Runtime checks and integration status"));
+    let subtitle = gtk::Label::new(Some("Whether ExxaTools, Vapor Forge and Steam are wired together"));
     subtitle.add_css_class("dim-label");
     subtitle.set_halign(gtk::Align::Start);
     subtitle.set_xalign(0.0);
@@ -85,7 +86,7 @@ pub fn build(ctx: &Ctx) -> SystemPage {
     summary_visual.append(&summary_icon);
     summary_visual.append(&summary_spinner);
     let summary_title = gtk::Label::new(Some("Checking the setup"));
-    summary_title.add_css_class("heading");
+    summary_title.add_css_class("band-title");
     summary_title.set_halign(gtk::Align::Start);
     summary_title.set_xalign(0.0);
     summary_title.set_wrap(true);
@@ -100,6 +101,7 @@ pub fn build(ctx: &Ctx) -> SystemPage {
     summary_text.append(&summary_detail);
 
     let summary = GtkBox::new(Orientation::Horizontal, 14);
+    summary.add_css_class("system-band");
     summary.set_margin_start(24);
     summary.set_margin_end(24);
     summary.set_margin_top(8);
@@ -132,6 +134,7 @@ pub fn build(ctx: &Ctx) -> SystemPage {
     SystemPage {
         root: clamp.upcast(),
         summary_icon,
+        summary,
         summary_spinner,
         summary_title,
         summary_detail,
@@ -149,6 +152,11 @@ impl SystemPage {
         let (_, title) = report.summary();
         self.summary_icon
             .add_css_class(summary_status_class(report));
+        for class in ["band-success", "band-warning", "band-error"] {
+            self.summary.remove_css_class(class);
+        }
+        self.summary
+            .add_css_class(&format!("band-{}", summary_status_class(report)));
         self.summary_title.set_text(title);
         let failures = report.failed();
         let where_ = report
@@ -183,7 +191,6 @@ impl SystemPage {
         if !attention.is_empty() {
             let group = adw::PreferencesGroup::builder()
                 .title("Needs attention")
-                .description("These checks block a clean setup or need a decision.")
                 .build();
             for item in attention {
                 group.add(&doctor_row(item, &self.ctx));
@@ -191,23 +198,34 @@ impl SystemPage {
             self.body.append(&group);
         }
 
-        for group_name in GROUPS {
-            let items: Vec<_> = report
-                .items
-                .iter()
-                .filter(|item| item.group() == group_name && item.status == "ok")
-                .collect();
-            if items.is_empty() {
-                continue;
+        // Passing checks are confirmation, not reading: one compact set of
+        // chips grouped by area, details one hover away.
+        let passing: Vec<_> = GROUPS
+            .iter()
+            .flat_map(|group| {
+                report
+                    .items
+                    .iter()
+                    .filter(move |item| item.group() == *group && item.status == "ok")
+            })
+            .collect();
+        if !passing.is_empty() {
+            let heading = gtk::Label::new(Some(&format!("Working ({})", passing.len())));
+            heading.add_css_class("heading");
+            heading.set_halign(gtk::Align::Start);
+            heading.set_margin_top(8);
+            let chips = gtk::FlowBox::new();
+            chips.set_selection_mode(gtk::SelectionMode::None);
+            chips.set_column_spacing(8);
+            chips.set_row_spacing(8);
+            chips.set_max_children_per_line(4);
+            chips.set_min_children_per_line(1);
+            chips.set_homogeneous(true);
+            for item in passing {
+                chips.append(&check_chip(item));
             }
-            let group = adw::PreferencesGroup::builder()
-                .title(group_name)
-                .description(group_description(group_name))
-                .build();
-            for item in items {
-                group.add(&doctor_row(item, &self.ctx));
-            }
-            self.body.append(&group);
+            self.body.append(&heading);
+            self.body.append(&chips);
         }
     }
 
@@ -266,15 +284,27 @@ fn summary_status_class(report: &DoctorReport) -> &'static str {
     }
 }
 
-fn group_description(name: &str) -> &'static str {
-    match name {
-        "Engine" => "Vapor Forge installation and client integration",
-        "Steam" => "Client startup and debugging integration",
-        "Plans" => "Plan files, manifest provider and depot keys",
-        "Storage" => "Library capacity and install state",
-        "Sources" => "Optional manifest and key sources",
-        _ => "Additional runtime checks",
+
+/// A passing check: a green tick and its name; the explanation and any
+/// technical value live in the tooltip.
+fn check_chip(item: &DoctorItem) -> gtk::Widget {
+    let tick = gtk::Image::from_icon_name("object-select-symbolic");
+    tick.set_pixel_size(14);
+    tick.add_css_class("chip-tick");
+    let label = gtk::Label::new(Some(&item.label));
+    label.set_xalign(0.0);
+    label.set_ellipsize(gtk::pango::EllipsizeMode::End);
+    let chip = GtkBox::new(Orientation::Horizontal, 8);
+    chip.add_css_class("check-chip");
+    chip.append(&tick);
+    chip.append(&label);
+    let mut tooltip = format!("{}: {}", item.group(), row_subtitle(item));
+    if let Some(value) = technical_value(item) {
+        tooltip.push('\n');
+        tooltip.push_str(value);
     }
+    chip.set_tooltip_text(Some(&tooltip));
+    chip.upcast()
 }
 
 fn doctor_row(item: &DoctorItem, ctx: &Ctx) -> gtk::Widget {
@@ -311,6 +341,10 @@ fn doctor_row(item: &DoctorItem, ctx: &Ctx) -> gtk::Widget {
 }
 
 fn row_subtitle(item: &DoctorItem) -> String {
+    // A pending update fix names the game itself; that is the useful line.
+    if item.status != "ok" && item.id == "appmanifest" && !item.detail.trim().is_empty() {
+        return item.detail.clone();
+    }
     if item.status != "ok" && !item.hint.trim().is_empty() {
         return item.hint.clone();
     }

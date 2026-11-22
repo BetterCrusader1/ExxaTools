@@ -1007,6 +1007,26 @@ gridview.collection-grid > child:focus-visible .card-frame { box-shadow: 0 0 0 2
 .dot-planned { background-color: @warning_color; }
 .dot-warning { background-color: @error_color; }
 .dot-disabled { background-color: @insensitive_fg_color; }
+
+/* System: a state band, the open issues, then passing checks as chips. */
+.system-band {
+    padding: 18px 20px;
+    border-radius: 10px;
+    background-color: @card_stock;
+    box-shadow: inset 0 0 0 1px @borders;
+}
+.system-band.band-success { background-color: alpha(@success_color, 0.08); box-shadow: inset 0 0 0 1px alpha(@success_color, 0.35); }
+.system-band.band-warning { background-color: alpha(@warning_color, 0.08); box-shadow: inset 0 0 0 1px alpha(@warning_color, 0.35); }
+.system-band.band-error { background-color: alpha(@error_color, 0.08); box-shadow: inset 0 0 0 1px alpha(@error_color, 0.35); }
+.band-title { font-size: 20px; font-weight: 800; }
+.check-chip {
+    padding: 10px 12px;
+    border-radius: 8px;
+    background-color: @card_stock;
+    box-shadow: inset 0 0 0 1px @borders;
+}
+.chip-tick { color: @success_color; }
+flowboxchild { padding: 0; }
 image.summary-dot {
     min-width: 14px;
     min-height: 14px;

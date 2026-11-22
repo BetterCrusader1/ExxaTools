@@ -37,6 +37,11 @@ fn needs_fix(appid: u64) -> Option<String> {
     let managed = crate::state::load()
         .map(|state| state.apps.contains_key(&appid.to_string()))
         .unwrap_or(false);
+    // Steam's own runtimes and redistributables update themselves; flagging
+    // them left a warning in System that only a Steam exit could clear.
+    if !managed {
+        return None;
+    }
     update_reason(&data, managed)
 }
 

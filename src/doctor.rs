@@ -232,6 +232,9 @@ pub fn run() -> Value {
             let Some(id) = depot.get("depot_id").and_then(Value::as_u64) else {
                 continue;
             };
+            if !depot_needs_key(&depot) {
+                continue;
+            }
             if !st.depot_keys.contains_key(&id.to_string()) {
                 unkeyed.push(format!("{appid}/{id}"));
             }
@@ -263,9 +266,9 @@ pub fn run() -> Value {
         if pending.is_empty() {
             "all installs look finished".into()
         } else {
-            format!("{} manifest(s) still marked unfinished", pending.len())
+            pending_summary(&pending, &st.apps)
         },
-        "The stop-loop fix runs once Steam is closed",
+        "Applied the next time Steam closes, so an update cannot replace the pinned build",
         if pending.is_empty() { "" } else { "watch" },
     ));
 
@@ -349,5 +352,58 @@ mod tests {
         assert!(wrapper_only.detail.contains("steamclient.so"));
         let nowhere = engine_check(false, false, true);
         assert_eq!(nowhere.status, "bad");
+    }
+}
+
+/// Names each pending game and why, instead of a bare count:
+/// "IT THINKS! - Build Your Own GPU: automatic updates enabled".
+fn pending_summary(pending: &[Value], apps: &std::collections::BTreeMap<String, Value>) -> String {
+    pending
+        .iter()
+        .map(|entry| {
+            let appid = entry.get("appid").and_then(Value::as_u64).unwrap_or(0);
+            let name = apps
+                .get(&appid.to_string())
+                .and_then(|record| record.get("name"))
+                .and_then(Value::as_str)
+                .map(str::to_string)
+                .unwrap_or_else(|| format!("App {appid}"));
+            let reason = entry.get("reason").and_then(Value::as_str).unwrap_or("needs a fix");
+            format!("{name}: {reason}")
+        })
+        .collect::<Vec<_>>()
+        .join("; ")
+}
+
+/// A depot the plan switched off (another OS, an optional pack) never
+/// downloads, so its missing key is not a problem worth a warning.
+fn depot_needs_key(depot: &Value) -> bool {
+    depot.get("enabled").and_then(Value::as_bool).unwrap_or(true)
+}
+
+#[cfg(test)]
+mod depot_key_tests {
+    use super::depot_needs_key;
+    use serde_json::json;
+
+    #[test]
+    fn pending_fixes_name_the_game_and_the_reason() {
+        let mut apps = std::collections::BTreeMap::new();
+        apps.insert("5196330".to_string(), json!({"name": "IT THINKS!"}));
+        let pending = vec![
+            json!({"appid": 5196330, "reason": "automatic updates enabled"}),
+            json!({"appid": 42, "reason": "StateFlags 6"}),
+        ];
+        assert_eq!(
+            super::pending_summary(&pending, &apps),
+            "IT THINKS!: automatic updates enabled; App 42: StateFlags 6"
+        );
+    }
+
+    #[test]
+    fn disabled_depots_do_not_need_keys() {
+        assert!(depot_needs_key(&json!({"depot_id": 1, "enabled": true})));
+        assert!(depot_needs_key(&json!({"depot_id": 1})));
+        assert!(!depot_needs_key(&json!({"depot_id": 1, "enabled": false})));
     }
 }
