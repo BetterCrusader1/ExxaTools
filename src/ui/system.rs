@@ -69,9 +69,13 @@ pub fn build(ctx: &Ctx) -> SystemPage {
     header.append(&headings);
     header.append(&copy.root);
 
-    let summary_icon = gtk::Image::from_icon_name("emblem-ok-symbolic");
-    summary_icon.set_pixel_size(28);
+    // A drawn state dot, matching the rows below: icon themes hard-code the
+    // colours of their warning and error glyphs, which broke the palette.
+    let summary_icon = gtk::Image::new();
+    summary_icon.set_pixel_size(14);
+    summary_icon.add_css_class("summary-dot");
     summary_icon.set_valign(gtk::Align::Center);
+    summary_icon.set_halign(gtk::Align::Center);
     let summary_spinner = gtk::Spinner::new();
     summary_spinner.set_size_request(28, 28);
     summary_spinner.set_visible(false);
@@ -142,8 +146,7 @@ impl SystemPage {
         self.summary_spinner.set_visible(false);
         self.summary_icon.set_visible(true);
         clear_summary_status(&self.summary_icon);
-        let (icon, title) = report.summary();
-        self.summary_icon.set_icon_name(Some(icon));
+        let (_, title) = report.summary();
         self.summary_icon
             .add_css_class(summary_status_class(report));
         self.summary_title.set_text(title);
@@ -226,7 +229,6 @@ fn show_summary_loading(
 ) {
     clear_summary_status(icon);
     icon.add_css_class("dim-label");
-    icon.set_icon_name(Some("content-loading-symbolic"));
     icon.set_visible(false);
     spinner.set_visible(true);
     spinner.start();

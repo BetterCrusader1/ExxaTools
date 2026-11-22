@@ -82,6 +82,9 @@ const DARK: &str = r#"
 @define-color pearl #7b5cf0;
 @define-color pearl_light #b7a4ff;
 @define-color pearl_deep #4a2fb8;
+@define-color success_color #8ee6b0;
+@define-color warning_color #e6b450;
+@define-color error_color #ff8a80;
 @define-color veil_top rgba(0, 0, 0, 0.35);
 @define-color veil_mid rgba(0, 0, 0, 0.74);
 @define-color veil_bottom rgba(0, 0, 0, 0.95);
@@ -120,7 +123,14 @@ pub const THEME: &str = r#"
 :root {
     --accent-bg-color: @pearl;
     --accent-fg-color: #ffffff;
+    --success-color: @success_color;
+    --warning-color: @warning_color;
+    --error-color: @error_color;
 }
+
+image.success, label.success { color: @success_color; }
+image.warning, label.warning { color: @warning_color; }
+image.error, label.error { color: @error_color; }
 
 .title-1 { font-size: 30px; font-weight: 800; letter-spacing: -0.3px; }
 .title-3 { font-weight: 800; }
@@ -169,8 +179,13 @@ button.suggested-action {
 button.suggested-action:hover { background-position: 0% 0; }
 button.suggested-action:active { box-shadow: inset 0 2px 3px rgba(0, 0, 0, 0.45); }
 button.suggested-action.play { font-size: 15px; padding: 8px 30px; }
-button.suggested-action:disabled { opacity: 0.5; }
-button.global-control { min-width: 30px; min-height: 30px; padding: 0; color: @muted_fg; }
+button.suggested-action:disabled {
+    background-image: none;
+    background-color: @surface_hover;
+    color: @muted_fg;
+    box-shadow: none;
+}
+button.global-control { min-width: 32px; min-height: 32px; padding: 0; color: alpha(@window_fg_color, 0.78); }
 button.global-control:hover { color: @window_fg_color; }
 
 /* Filters: Steam's library tabs. */

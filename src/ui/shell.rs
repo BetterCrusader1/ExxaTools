@@ -1007,6 +1007,15 @@ gridview.collection-grid > child:focus-visible .card-frame { box-shadow: 0 0 0 2
 .dot-planned { background-color: @warning_color; }
 .dot-warning { background-color: @error_color; }
 .dot-disabled { background-color: @insensitive_fg_color; }
+image.summary-dot {
+    min-width: 14px;
+    min-height: 14px;
+    border-radius: 50%;
+    background-color: @insensitive_fg_color;
+}
+image.summary-dot.success { background-color: @success_color; }
+image.summary-dot.warning { background-color: @warning_color; }
+image.summary-dot.error { background-color: @error_color; }
 
 .hero { border-radius: 4px; }
 .hero .art-letter { font-size: 64px; }
