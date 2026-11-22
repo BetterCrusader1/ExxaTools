@@ -214,4 +214,20 @@ if (!window.__vdAppWatcher) {
 }
 try { window.__vdAppPage(); } catch (error) { /* store page not ready yet */ }
 
+// One readable "ready" note per Steam session, in ExxaTools' own look; it
+// replaces Vapor Forge's startup toast, which flashed by too fast to read.
+if (!window.__exxaWelcomed && window.top === window) {
+  window.__exxaWelcomed = true;
+  setTimeout(() => {
+    const note = document.createElement("div");
+    note.id = "exxa-ready-note";
+    note.textContent = "ExxaTools is ready. Vapor Forge is running inside Steam.";
+    note.style.cssText = "position:fixed;right:24px;bottom:24px;z-index:2147483647;padding:14px 18px;border-radius:10px;background:#0e0d12;border:1px solid #4a2fb8;box-shadow:0 12px 32px -8px rgba(0,0,0,.7);color:#ecebf2;font:600 14px 'Motiva Sans',Arial,sans-serif;opacity:0;transform:translateY(8px);transition:opacity .25s ease-out,transform .25s ease-out;cursor:pointer";
+    note.addEventListener("click", () => note.remove());
+    document.body.appendChild(note);
+    requestAnimationFrame(() => { note.style.opacity = "1"; note.style.transform = "none"; });
+    setTimeout(() => { note.style.opacity = "0"; setTimeout(() => note.remove(), 300); }, 7000);
+  }, 1500);
+}
+
 window.__vdInject();

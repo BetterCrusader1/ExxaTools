@@ -34,15 +34,21 @@ fn update_reason(data: &appmanifest::Manifest, managed: bool) -> Option<String> 
 
 fn needs_fix(appid: u64) -> Option<String> {
     let data = appmanifest::read(appid).ok().flatten()?;
-    let managed = crate::state::load()
-        .map(|state| state.apps.contains_key(&appid.to_string()))
-        .unwrap_or(false);
+    let state = crate::state::load().ok();
+    let managed = state
+        .as_ref()
+        .is_some_and(|state| state.apps.contains_key(&appid.to_string()));
+    let follow = state
+        .as_ref()
+        .map(|state| state.settings.follow_steam_updates)
+        .unwrap_or(true);
     // Steam's own runtimes and redistributables update themselves; flagging
     // them left a warning in System that only a Steam exit could clear.
     if !managed {
         return None;
     }
-    update_reason(&data, managed)
+    // Following Steam's updates, automatic updates are wanted, not a fault.
+    update_reason(&data, !follow)
 }
 
 fn appid_from(path: &Path) -> Option<u64> {

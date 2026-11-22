@@ -56,6 +56,9 @@ pub enum Event {
         appid: u64,
         name: String,
         error: Option<String>,
+        /// Added, but without depot keys (the plan came from Steam's public
+        /// catalog because every key source failed): why, for the toast.
+        missing_keys: Option<String>,
     },
     Hero {
         appid: u64,
@@ -178,12 +181,17 @@ fn run(command: Command, events: Sender<Event>) {
             let _ = events.send(Event::Doctor(report));
         }
         Command::Add { appid, name } => match crate::plans::fetch_plan(appid, Some(&name)) {
-            Ok(_) => {
-                let _ = events.send(Event::Added { appid, name, error: None });
+            Ok(value) => {
+                let _ = events.send(Event::Added {
+                    appid,
+                    name,
+                    error: None,
+                    missing_keys: missing_keys_reason(&value),
+                });
                 let _ = events.send(Event::RefreshLibrary);
             }
             Err(error) => {
-                let _ = events.send(Event::Added { appid, name, error: Some(error) });
+                let _ = events.send(Event::Added { appid, name, error: Some(error), missing_keys: None });
             }
         },
         Command::Sync(appid) => match crate::plans::refresh_plan(appid) {
@@ -406,6 +414,25 @@ fn feature(games: &mut [Game]) {
             });
         }
     });
+}
+
+/// A catalog-only plan has manifests but no keys; name the source failure.
+fn missing_keys_reason(plan: &serde_json::Value) -> Option<String> {
+    let missing = plan
+        .pointer("/summary/missing_keys")
+        .and_then(serde_json::Value::as_array)
+        .is_some_and(|keys| !keys.is_empty());
+    if !missing {
+        return None;
+    }
+    let reason = plan
+        .get("failures")
+        .and_then(serde_json::Value::as_array)
+        .and_then(|failures| failures.first())
+        .and_then(|failure| failure.get("error"))
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or("no key source has keys for this game yet");
+    Some(reason.to_string())
 }
 
 fn toast(events: &Sender<Event>, text: String, error: bool) {

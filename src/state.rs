@@ -26,6 +26,9 @@ pub struct Settings {
     pub close_with_steam: bool,
     /// Rebuild from the checkout and update in place when sources change.
     pub live_rebuild: bool,
+    /// Let Steam update added games and keep their manifests current instead
+    /// of pinning a build and switching automatic updates off.
+    pub follow_steam_updates: bool,
 }
 
 impl Default for Settings {
@@ -54,6 +57,7 @@ impl Default for Settings {
             open_with_steam: true,
             close_with_steam: true,
             live_rebuild: true,
+            follow_steam_updates: true,
         }
     }
 }

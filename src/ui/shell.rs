@@ -168,9 +168,28 @@ pub fn run(url: &str) -> Result<(), String> {
 
 /// The end of the main job: success says where the game went and opens it;
 /// a missing key source says where to fix it instead of vanishing.
-fn added_toast(ctx: &Ctx, shelf: &collection::Collection, appid: u64, name: &str, error: Option<&str>) {
-    let toast = match error {
-        None => {
+fn added_toast(
+    ctx: &Ctx,
+    shelf: &collection::Collection,
+    appid: u64,
+    name: &str,
+    error: Option<&str>,
+    missing_keys: Option<&str>,
+) {
+    let toast = match (error, missing_keys) {
+        (None, Some(reason)) => {
+            // In the library, but Steam cannot download it yet: say so
+            // instead of promising a download.
+            let toast = adw::Toast::new(&format!(
+                "{name} is in your library without depot keys ({reason}). It downloads once a source has keys; ExxaTools retries on its own."
+            ));
+            toast.set_timeout(12);
+            toast.set_button_label(Some("Open Settings"));
+            let ctx = ctx.clone();
+            toast.connect_button_clicked(move |_| ctx.navigate(Page::Settings));
+            toast
+        }
+        (None, None) => {
             let toast = adw::Toast::new(&format!("{name} is in your library. Steam will download it."));
             toast.set_button_label(Some("Open in Library"));
             let ctx = ctx.clone();
@@ -181,7 +200,7 @@ fn added_toast(ctx: &Ctx, shelf: &collection::Collection, appid: u64, name: &str
             });
             toast
         }
-        Some(error) => {
+        (Some(error), _) => {
             let toast = adw::Toast::new(&format!("Could not add {name}: {error}"));
             toast.set_timeout(10);
             if needs_key_source(error) {
@@ -601,9 +620,9 @@ fn build(app: &adw::Application, initial: Page) -> Ctx {
                             ctx.toast_text(&text);
                         }
                     }
-                    Event::Added { appid, name, error } => {
+                    Event::Added { appid, name, error, missing_keys } => {
                         discover.finish_add(appid, error.is_none());
-                        added_toast(&ctx, &shelf, appid, &name, error.as_deref());
+                        added_toast(&ctx, &shelf, appid, &name, error.as_deref(), missing_keys.as_deref());
                     }
                     Event::Clipboard(text) => {
                         ctx.clipboard(&text);

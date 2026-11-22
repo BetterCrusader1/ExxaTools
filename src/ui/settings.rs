@@ -216,7 +216,14 @@ fn steam_group(ctx: &Ctx, settings: &crate::state::Settings) -> adw::Preferences
         .build();
     type Apply = fn(&mut crate::state::Settings, bool);
     // (title, subtitle, active, needs a source checkout, apply)
-    let rows: [(&str, &str, bool, bool, Apply); 3] = [
+    let rows: [(&str, &str, bool, bool, Apply); 4] = [
+        (
+            "Update games with Steam",
+            "Keep Steam's automatic updates on; manifests refresh when Steam starts and every 30 minutes",
+            settings.follow_steam_updates,
+            false,
+            |settings, value| settings.follow_steam_updates = value,
+        ),
         (
             "Open with Steam",
             "Show the dashboard as soon as Steam's window is up",

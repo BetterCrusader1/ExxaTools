@@ -138,6 +138,7 @@ pub fn start_server_reexec(port: u16) {
 /// UI is up. The first observation counts as a start unless this process is a
 /// re-exec, which would otherwise reopen a dashboard that is already there.
 pub fn start_steam_follower() {
+    quiet_vapor_forge_toast();
     std::thread::spawn(|| {
         let mut was_up = std::env::var_os(REEXEC_ENV).is_some() && steam_ui_up();
         loop {
@@ -150,6 +151,36 @@ pub fn start_steam_follower() {
             std::thread::sleep(POLL);
         }
     });
+}
+
+/// Vapor Forge's startup toast vanishes before it can be read; the Steam
+/// panel shows ExxaTools' own "ready" note instead, so switch VF's off.
+fn quiet_vapor_forge_toast() {
+    let path = crate::paths::config_home().join("vapor-forge/config.toml");
+    let Ok(text) = std::fs::read_to_string(&path) else { return };
+    if let Some(updated) = without_startup_toast(&text) {
+        let _ = std::fs::write(&path, updated);
+    }
+}
+
+/// Sets `init = false` inside the `[toast]` table; None when nothing changes.
+fn without_startup_toast(text: &str) -> Option<String> {
+    let mut in_toast = false;
+    let mut changed = false;
+    let lines = text
+        .lines()
+        .map(|line| {
+            let trimmed = line.trim_start();
+            if trimmed.starts_with('[') {
+                in_toast = trimmed.starts_with("[toast]");
+            } else if in_toast && trimmed.starts_with("init") && trimmed.contains("true") {
+                changed = true;
+                return line.replacen("true", "false", 1);
+            }
+            line.to_string()
+        })
+        .collect::<Vec<_>>();
+    changed.then(|| lines.join("\n") + "\n")
 }
 
 /// Steam counts as up once its UI answers on the debugging port, so the
@@ -403,6 +434,16 @@ mod tests {
             Some("error[E0425]: cannot find value `x` (src/live.rs:10:5)")
         );
         assert_eq!(first_error("Finished"), None);
+    }
+
+    #[test]
+    fn only_the_toast_tables_startup_flag_is_switched_off() {
+        let config = "[toast]\nenabled = true\ninit = true                 # startup\n\n[apps.shared]\ninit = true\n";
+        let updated = without_startup_toast(config).expect("changed");
+        assert!(updated.contains("enabled = true"));
+        assert!(updated.contains("init = false                 # startup"));
+        assert!(updated.ends_with("[apps.shared]\ninit = true\n"));
+        assert_eq!(without_startup_toast(&updated), None);
     }
 
     #[test]
