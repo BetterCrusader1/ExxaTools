@@ -187,9 +187,15 @@ fn card_factory() -> gtk::SignalListItemFactory {
         let name = gtk::Label::new(None);
         name.add_css_class("card-name");
         name.set_xalign(0.0);
+        // Two lines: the name is how a player finds a game whose logo the
+        // poster crops; the ellipsis only cuts the third line.
+        name.set_wrap(true);
+        name.set_wrap_mode(gtk::pango::WrapMode::WordChar);
+        name.set_lines(2);
         name.set_ellipsize(gtk::pango::EllipsizeMode::End);
         name.set_max_width_chars(16);
         name.set_width_request(CARD_WIDTH - 4);
+        name.set_valign(gtk::Align::Start);
 
         let caption = gtk::Label::new(None);
         caption.add_css_class("card-caption");

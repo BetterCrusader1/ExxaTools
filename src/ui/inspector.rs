@@ -149,9 +149,6 @@ impl Inspector {
             }
         }
 
-        let menu_spacer = GtkBox::new(Orientation::Horizontal, 0);
-        menu_spacer.set_hexpand(true);
-        actions.append(&menu_spacer);
 
         let more = gtk::MenuButton::new();
         more.set_icon_name("view-more-symbolic");
@@ -266,7 +263,7 @@ fn primary_button(ctx: &Ctx, game: &Game) -> gtk::Button {
         return add;
     }
     if game.installed && game.state != GameState::KeysMissing {
-        let launch = gtk::Button::with_label("Play");
+        let launch = gtk::Button::with_label("Launch");
         launch.add_css_class("suggested-action");
         launch.add_css_class("play");
         launch.set_cursor_from_name(Some("pointer"));

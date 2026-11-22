@@ -513,6 +513,9 @@ fn card_factory(ctx: &Ctx, state: &Rc<DiscoverState>) -> gtk::SignalListItemFact
         title.add_css_class("discover-title");
         title.set_halign(gtk::Align::Start);
         title.set_xalign(0.0);
+        title.set_wrap(true);
+        title.set_wrap_mode(gtk::pango::WrapMode::WordChar);
+        title.set_lines(2);
         title.set_ellipsize(gtk::pango::EllipsizeMode::End);
         title.set_max_width_chars(18);
         title.set_width_request(POSTER_WIDTH - 8);
@@ -910,11 +913,15 @@ button.discover-add.discover-adding:disabled {
 .discover-frame { padding: 2px; transition: box-shadow 400ms ease-out; }
 button.discover-add.discover-added,
 button.discover-add.discover-added:disabled {
-    background-color: rgba(0, 0, 0, 0.72);
+    background-image: none;
+    background-color: rgba(0, 0, 0, 0.78);
     color: #8ee6b0;
     opacity: 1;
-    box-shadow: inset 0 0 0 1px rgba(142, 230, 176, 0.5);
+    filter: none;
+    box-shadow: inset 0 0 0 1px rgba(142, 230, 176, 0.55);
 }
+button.discover-add.discover-added:disabled label,
+button.discover-add.discover-added:disabled image { color: #8ee6b0; opacity: 1; }
 "#;
 
 #[cfg(test)]

@@ -156,7 +156,7 @@ pub fn run() -> Value {
 
     items.push(item(
         "ld_audit",
-        "LD_AUDIT wired",
+        "Engine handed to Steam",
         if audit.is_empty() { "bad" } else { "ok" },
         if audit.is_empty() {
             "no library path resolved".into()
@@ -258,7 +258,7 @@ pub fn run() -> Value {
         .unwrap_or_default();
     items.push(item(
         "appmanifest",
-        "appmanifest flags",
+        "Steam update flags",
         if pending.is_empty() { "ok" } else { "warn" },
         if pending.is_empty() {
             "all installs look finished".into()

@@ -496,7 +496,7 @@ fn build(app: &adw::Application, initial: Page) -> Ctx {
                 if current_page.get() == Page::Discover {
                     worker.send(Command::LoadDiscover);
                 } else {
-                    shelf.set_title("Library", "Reloading…");
+                    shelf.set_title("Your games", "Reloading…");
                     worker.send(Command::LoadLibrary);
                 }
             }
@@ -548,7 +548,7 @@ fn build(app: &adw::Application, initial: Page) -> Ctx {
                         } else {
                             format!("{ready} ready to play, {needs} need setup")
                         };
-                        shelf.set_title("Library", &summary);
+                        shelf.set_title("Your games", &summary);
                         let still_there =
                             selected.filter(|id| games.iter().any(|game| game.appid == *id));
                         if let Some(id) = still_there {
