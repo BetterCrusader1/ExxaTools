@@ -220,8 +220,15 @@ fn catalog_depots(catalog: Option<&Value>, branch: &str) -> BTreeMap<u64, (Strin
 }
 
 fn fresh_depots(plans: &[SourcePlan], catalog: Option<&Value>, branch: &str) -> Vec<Value> {
-    let current = catalog_depots(catalog, branch);
     let mut candidates: BTreeMap<u64, Vec<(String, Option<u64>)>> = BTreeMap::new();
+    // Add catalog depots as candidates (same weight as any source)
+    if let Some(cat) = catalog {
+        let cat_depots = catalog_depots(Some(cat), branch);
+        for (depot_id, (gid, size)) in cat_depots {
+            candidates.entry(depot_id).or_default().push((gid, size));
+        }
+    }
+    // Add plan source depots as candidates
     for plan in plans {
         for depot in &plan.parsed.depots {
             let Some(depot_id) = depot.get("depot_id").and_then(Value::as_u64) else {
@@ -237,20 +244,8 @@ fn fresh_depots(plans: &[SourcePlan], catalog: Option<&Value>, branch: &str) -> 
                 .push((gid.to_string(), depot.get("size").and_then(Value::as_u64)));
         }
     }
-    let ids: BTreeSet<u64> = current.keys().chain(candidates.keys()).copied().collect();
     let mut out = Vec::new();
-    for depot_id in ids {
-        if let Some((gid, size)) = current.get(&depot_id) {
-            let source_size = candidates
-                .get(&depot_id)
-                .and_then(|list| list.iter().find(|(candidate, _)| candidate == gid))
-                .and_then(|(_, size)| *size);
-            out.push(json!({ "depot_id": depot_id, "gid": gid, "size": size.or(source_size) }));
-            continue;
-        }
-        let Some(list) = candidates.get(&depot_id) else {
-            continue;
-        };
+    for (depot_id, list) in candidates {
         let mut best = &list[0];
         for candidate in &list[1..] {
             let candidate_gid = candidate.0.parse::<u64>().unwrap_or(0);
