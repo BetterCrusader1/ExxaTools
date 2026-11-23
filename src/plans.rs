@@ -19,6 +19,7 @@ pub struct PlanSource {
 pub enum Kind {
     Hubcap(String),
     Ryuu(String),
+    Catalog,
     Custom {
         url: String,
         header: Option<(String, String)>,
@@ -29,6 +30,11 @@ pub enum Kind {
 /// skipped instead of failing the whole request.
 pub fn sources(settings: &Settings) -> Vec<PlanSource> {
     let mut out = Vec::new();
+    // Steam catalog is always available as a keyless fallback (no depot keys).
+    out.push(PlanSource {
+        name: "catalog".into(),
+        kind: Kind::Catalog,
+    });
     if !settings.hubcap_key.trim().is_empty() {
         out.push(PlanSource {
             name: "hubcap".into(),
@@ -71,6 +77,41 @@ pub fn sources(settings: &Settings) -> Vec<PlanSource> {
 impl PlanSource {
     fn fetch(&self, appid: u64) -> Result<String, String> {
         match &self.kind {
+            Kind::Catalog => {
+                let catalog = crate::steam::catalog(appid).map_err(|e| e.to_string())?;
+                let branch = "public";
+                let depots = catalog_depots(Some(&catalog), branch);
+                if depots.is_empty() {
+                    return Err(format!("no downloadable depots found for {appid}"));
+                }
+                let depots: Vec<Value> = depots
+                    .into_iter()
+                    .map(|(depot_id, (gid, size))| {
+                        json!({ "depot_id": depot_id, "gid": gid, "size": size, "enabled": true })
+                    })
+                    .collect();
+                let name = catalog
+                    .get("name")
+                    .and_then(Value::as_str)
+                    .unwrap_or("")
+                    .to_string();
+                let dlc: Vec<u64> = catalog
+                    .get("dlc")
+                    .and_then(Value::as_array)
+                    .map(|list| list.iter().filter_map(Value::as_u64).collect())
+                    .unwrap_or_default();
+                let text = crate::lua::render_plan(
+                    appid,
+                    &name,
+                    branch,
+                    &depots,
+                    &BTreeMap::new(),
+                    &dlc,
+                    &crate::vfsys::stamp(),
+                    "catalog",
+                );
+                Ok(text)
+            }
             Kind::Hubcap(key) => crate::hubcap::fetch(key, appid)
                 .map(|fetched| fetched.lua)
                 .map_err(|error| error.to_string()),
@@ -337,6 +378,7 @@ fn save_plan(draft: PlanDraft, plans: &[SourcePlan]) -> Result<Value, String> {
     })
 }
 
+#[allow(dead_code)]
 /// Builds and installs a plan from the public Steam catalog (no depot keys).
 fn catalog_plan(
     appid: u64,
@@ -377,7 +419,6 @@ fn catalog_plan(
     }))
 }
 
-/// Fetches every source, stores every key and writes the freshest merged plan.
 pub fn fetch_plan(appid: u64, name_hint: Option<&str>) -> Result<Value, String> {
     let settings = state::load()?;
     let branch = settings
@@ -396,42 +437,31 @@ pub fn fetch_plan(appid: u64, name_hint: Option<&str>) -> Result<Value, String> 
                 .map(str::to_string)
         })
     });
+    let label = resolved.clone().unwrap_or_else(|| format!("app {appid}"));
     if sources(&settings.settings).is_empty() {
-        // No Hubcap/Ryuu key: build the plan from the public Steam catalog instead of
-        // refusing. Manifests and sizes come from Steam; depot keys stay missing and the
-        // request-code mirrors fill in the codes at download time.
-        let Some(catalog_ref) = catalog.as_ref() else {
-            return Err(
-                "no plan source configured and the Steam catalog did not answer: \
-                        add a Hubcap or Ryuu key in Settings"
-                    .into(),
-            );
-        };
-        return catalog_plan(appid, &branch, catalog_ref, resolved, Vec::new());
+        // Without depot keys Steam downloads nothing usable, so a keyless plan
+        // is never written: the add fails and says what is missing.
+        return Err(format!(
+            "Not added: no key source is set up, so there are no depot keys for {label}. Add a Hubcap or Ryuu key in Settings."
+        ));
     }
     let (plans, failures) = fetch_all_sources(appid, &settings.settings);
     if plans.is_empty() {
-        // Sources exist but none answered (404, quota, expired key): fall back to the
-        // Steam catalog instead of leaving the game unaddable.
-        if let Some(catalog_ref) = catalog.as_ref() {
-            let reason = failures
-                .first()
-                .and_then(|failure| failure.get("error"))
-                .and_then(Value::as_str)
-                .map(str::to_string);
-            let plan = catalog_plan(appid, &branch, catalog_ref, resolved, failures);
-            if plan.is_ok() {
-                record_key_error(appid, reason.as_deref());
-            }
-            return plan;
-        }
+        let reasons = failures
+            .iter()
+            .filter_map(|entry| {
+                let provider = entry.get("provider").and_then(Value::as_str).unwrap_or("source");
+                let error = entry.get("error").and_then(Value::as_str)?;
+                Some(if error.to_ascii_lowercase().contains(&provider.to_ascii_lowercase()) {
+                    error.to_string()
+                } else {
+                    format!("{provider}: {error}")
+                })
+            })
+            .collect::<Vec<_>>()
+            .join("; ");
         return Err(format!(
-            "no plan source answered for {appid}: {}",
-            failures
-                .iter()
-                .filter_map(|entry| entry.get("error").and_then(Value::as_str))
-                .collect::<Vec<_>>()
-                .join("; ")
+            "Not added: no depot keys for {label} ({reasons}). Nothing was written; try again once the source answers."
         ));
     }
     let depots = fresh_depots(&plans, catalog.as_ref(), &branch);
@@ -935,17 +965,19 @@ mod tests {
     #[test]
     fn skips_sources_without_keys() {
         let list = sources(&settings_with("", ""));
-        assert!(list.is_empty());
-        let list = sources(&settings_with("", "abc"));
         assert_eq!(list.len(), 1);
-        assert_eq!(list[0].name, "ryuu");
+        assert_eq!(list[0].name, "catalog");
+        let list = sources(&settings_with("", "abc"));
+        assert_eq!(list.len(), 2);
+        assert_eq!(list[0].name, "catalog");
+        assert_eq!(list[1].name, "ryuu");
     }
 
     #[test]
     fn keeps_the_configured_order() {
         let list = sources(&settings_with("hub", "ryuu"));
         let names: Vec<&str> = list.iter().map(|source| source.name.as_str()).collect();
-        assert_eq!(names, vec!["hubcap", "ryuu"]);
+        assert_eq!(names, vec!["catalog", "hubcap", "ryuu"]);
     }
 
     #[test]
@@ -960,8 +992,9 @@ mod tests {
             json!({ "url": "http://127.0.0.1:1/lua/{appid}.lua" }),
         );
         let list = sources(&settings);
-        assert_eq!(list.len(), 1);
-        assert_eq!(list[0].name, "good");
+        assert_eq!(list.len(), 2);
+        assert_eq!(list[0].name, "catalog");
+        assert_eq!(list[1].name, "good");
     }
 
     #[test]
@@ -991,18 +1024,21 @@ mod tests {
             "live".into(),
             json!({ "url": format!("http://127.0.0.1:{port}/lua/{{appid}}.lua") }),
         );
+        // Use a non-existent appid so catalog source fails, then dead fails, then live succeeds
         let list = sources(&settings);
-        assert_eq!(list.len(), 2, "both custom sources should register");
+        assert_eq!(list.len(), 3, "catalog plus both custom sources should register");
+        assert_eq!(list[0].name, "catalog");
         let mut tried = Vec::new();
         let mut lua = None;
         for source in list {
             tried.push(source.name.clone());
-            if let Ok(text) = source.fetch(620) {
+            if let Ok(text) = source.fetch(99999999) {
                 lua = Some(text);
                 break;
             }
         }
-        assert_eq!(tried, vec!["dead", "live"]);
+        // catalog fails (no such app), dead fails (port 1), live succeeds
+        assert_eq!(tried, vec!["catalog", "dead", "live"]);
         assert!(lua.unwrap().contains("addappid(621"));
     }
 }
