@@ -1,7 +1,9 @@
 //! The GTK thread never waits on the network. Every command runs on a plain
 //! thread and reports back through one channel the shell drains on the main loop.
 
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::mpsc::{channel, Receiver, Sender};
+use std::sync::Arc;
 
 use crate::ui::covers;
 use crate::ui::model::{DoctorReport, Game};
@@ -35,6 +37,13 @@ pub enum Command {
     SetTheme(String),
 }
 
+impl Command {
+    /// Commands that take Steam down on purpose and bring it back themselves.
+    fn restarts_steam(&self) -> bool {
+        matches!(self, Self::Fix(_) | Self::RestartSteam)
+    }
+}
+
 #[derive(Debug)]
 pub enum Event {
     Library(Vec<Game>),
@@ -51,6 +60,7 @@ pub enum Event {
     Clipboard(String),
     RefreshLibrary,
     SettingsReload,
+    SteamRestarted,
     /// The answer to an Add: `error` is None on success.
     Added {
         appid: u64,
@@ -70,18 +80,29 @@ pub enum Event {
 
 #[derive(Clone)]
 pub struct Worker {
-    commands: Sender<Command>,
+    commands: Sender<(Command, Option<SteamRestart>)>,
+    steam_restarts: Arc<AtomicUsize>,
+}
+
+/// Counts one command that restarts Steam, from the click until it is done.
+struct SteamRestart(Arc<AtomicUsize>);
+
+impl Drop for SteamRestart {
+    fn drop(&mut self) {
+        self.0.fetch_sub(1, Ordering::SeqCst);
+    }
 }
 
 impl Worker {
     pub fn start() -> (Self, Receiver<Event>) {
-        let (command_tx, command_rx) = channel::<Command>();
+        let (command_tx, command_rx) = channel::<(Command, Option<SteamRestart>)>();
         let (event_tx, event_rx) = channel::<Event>();
         heap::limit_arenas();
         std::thread::spawn(move || {
-            while let Ok(command) = command_rx.recv() {
+            while let Ok((command, restart)) = command_rx.recv() {
                 let events = event_tx.clone();
                 std::thread::spawn(move || {
+                    let _restart = restart;
                     run(command, events);
                     heap::trim();
                 });
@@ -90,13 +111,24 @@ impl Worker {
         (
             Self {
                 commands: command_tx,
+                steam_restarts: Arc::new(AtomicUsize::new(0)),
             },
             event_rx,
         )
     }
 
     pub fn send(&self, command: Command) {
-        let _ = self.commands.send(command);
+        let restart = command.restarts_steam().then(|| {
+            self.steam_restarts.fetch_add(1, Ordering::SeqCst);
+            SteamRestart(self.steam_restarts.clone())
+        });
+        let _ = self.commands.send((command, restart));
+    }
+
+    /// True while a command sent from this window has Steam down on purpose.
+    /// The window must not treat that gap as the person closing Steam.
+    pub fn restarting_steam(&self) -> bool {
+        self.steam_restarts.load(Ordering::SeqCst) > 0
     }
 }
 
@@ -246,10 +278,13 @@ fn run(command: Command, events: Sender<Event>) {
                 Err(error) => toast(&events, error, true),
             }
         }
-        Command::RestartSteam => match crate::steamctl::restart(&[]) {
-            Ok(_) => toast(&events, "Steam is restarting".into(), false),
-            Err(error) => toast(&events, error, true),
-        },
+        Command::RestartSteam => {
+            match crate::steamctl::restart(&[]) {
+                Ok(_) => toast(&events, "Steam is restarting".into(), false),
+                Err(error) => toast(&events, error, true),
+            }
+            let _ = events.send(Event::SteamRestarted);
+        }
         Command::SaveSettings(draft) => {
             let result = crate::state::update(|state| {
                 state.settings.country = draft.country.trim().to_lowercase();
@@ -437,4 +472,24 @@ fn missing_keys_reason(plan: &serde_json::Value) -> Option<String> {
 
 fn toast(events: &Sender<Event>, text: String, error: bool) {
     let _ = events.send(Event::Toast { text, error });
+}
+
+#[cfg(test)]
+mod steam_restart_tests {
+    use super::{AtomicUsize, Arc, Command, Ordering, SteamRestart};
+
+    #[test]
+    fn only_commands_that_restart_steam_are_counted() {
+        assert!(Command::RestartSteam.restarts_steam());
+        assert!(Command::Fix(730).restarts_steam());
+        assert!(!Command::SyncAll.restarts_steam());
+        assert!(!Command::CopyDiagnostics.restarts_steam());
+    }
+
+    #[test]
+    fn a_finished_restart_is_no_longer_counted() {
+        let count = Arc::new(AtomicUsize::new(1));
+        drop(SteamRestart(count.clone()));
+        assert_eq!(count.load(Ordering::SeqCst), 0);
+    }
 }

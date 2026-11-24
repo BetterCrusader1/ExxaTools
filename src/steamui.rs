@@ -1056,6 +1056,12 @@ mod store_tests {
         assert!(MENU_SCRIPT.contains("#8b5cf6"));
         assert!(MENU_SCRIPT.contains("#a78bfa"));
     }
+
+    #[test]
+    fn ready_note_only_runs_in_main_shell_window() {
+        assert!(MENU_SCRIPT.contains("!window.__exxaWelcomed && !window.__vdNoIcon"));
+        assert!(MENU_SCRIPT.contains("white-space:nowrap"));
+    }
 }
 
 #[cfg(test)]

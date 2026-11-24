@@ -55,6 +55,13 @@ fn library_fills_shelf(searching: bool) -> bool {
     !searching
 }
 
+/// A restart asked for from this window takes Steam down on purpose. The
+/// dashboard must outlive that gap: quitting there kills the worker thread
+/// before it starts Steam again.
+fn closes_with_steam(seen: bool, running: bool, restarting: bool) -> bool {
+    seen && !running && !restarting
+}
+
 type NavigateHook = Box<dyn Fn(Page)>;
 type SelectHook = Box<dyn Fn(Option<u64>)>;
 
@@ -105,6 +112,7 @@ struct NavRail {
     /// Hidden in the icon-only rail of a narrow window.
     labels: Vec<gtk::Label>,
     rows: Vec<GtkBox>,
+    restart: gtk::Button,
 }
 
 thread_local! {
@@ -201,7 +209,12 @@ fn added_toast(
             toast
         }
         (Some(error), _) => {
-            let toast = adw::Toast::new(&format!("Could not add {name}: {error}"));
+            let text = if error.starts_with("Not added") {
+                error.to_string()
+            } else {
+                format!("Could not add {name}: {error}")
+            };
+            let toast = adw::Toast::new(&text);
             toast.set_timeout(10);
             if needs_key_source(error) {
                 toast.set_button_label(Some("Open Settings"));
@@ -256,13 +269,15 @@ fn follow_live(ctx: &Ctx, current_page: Rc<Cell<Page>>) {
             return gtk::glib::ControlFlow::Break;
         }
         let running = crate::steamctl::is_running();
-        if steam_seen && !running && crate::live::close_with_steam() {
+        let restarting = ctx.commands.restarting_steam();
+        if closes_with_steam(steam_seen, running, restarting) && crate::live::close_with_steam() {
             if let Some(app) = ctx.window.application() {
                 app.quit();
             }
             return gtk::glib::ControlFlow::Break;
         }
-        steam_seen |= running;
+        // After a restart the new client has to be seen before its exit counts.
+        steam_seen = !restarting && (steam_seen || running);
         gtk::glib::ControlFlow::Continue
     });
 }
@@ -387,6 +402,16 @@ fn build(app: &adw::Application, initial: Page) -> Ctx {
     let syncing = Rc::new(Cell::new(false));
     let search_seq = Rc::new(Cell::new(0u64));
     let current_page = Rc::new(Cell::new(Page::Library));
+
+    {
+        let ctx = ctx.clone();
+        let worker = worker.clone();
+        nav.restart.connect_clicked(move |button| {
+            button.set_sensitive(false);
+            ctx.toast_text("Restarting Steam…");
+            worker.send(Command::RestartSteam);
+        });
+    }
 
     {
         let ctx = ctx.clone();
@@ -544,6 +569,7 @@ fn build(app: &adw::Application, initial: Page) -> Ctx {
         let ctx = ctx.clone();
         let search_seq = search_seq.clone();
         let current_page = current_page.clone();
+        let restart = nav.restart.clone();
         gtk::glib::timeout_add_local(std::time::Duration::from_millis(80), move || {
             while let Ok(event) = events.try_recv() {
                 match event {
@@ -629,6 +655,7 @@ fn build(app: &adw::Application, initial: Page) -> Ctx {
                         ctx.toast_text("Diagnostics copied to the clipboard");
                     }
                     Event::SettingsReload => settings.reload(),
+                    Event::SteamRestarted => restart.set_sensitive(true),
                     Event::Hero { appid, path, logo } => {
                         if view.borrow().selected == Some(appid) {
                             if let Some(game) = view
@@ -938,18 +965,38 @@ fn build_nav() -> NavRail {
     let spacer = GtkBox::new(Orientation::Vertical, 0);
     spacer.set_vexpand(true);
 
+    let restart_icon = gtk::Image::from_icon_name("system-reboot-symbolic");
+    restart_icon.set_pixel_size(16);
+    restart_icon.add_css_class("nav-icon");
+    let restart_label = gtk::Label::new(Some("Restart Steam"));
+    restart_label.add_css_class("nav-label");
+    restart_label.set_halign(gtk::Align::Start);
+    let restart_content = GtkBox::new(Orientation::Horizontal, 10);
+    restart_content.append(&restart_icon);
+    restart_content.append(&restart_label);
+    let restart = gtk::Button::new();
+    restart.set_child(Some(&restart_content));
+    restart.add_css_class("flat");
+    restart.add_css_class("nav-action");
+    restart.set_tooltip_text(Some("Restart Steam"));
+    restart.set_cursor_from_name(Some("pointer"));
+    labels.push(restart_label);
+    rows.push(restart_content);
+
     let root = GtkBox::new(Orientation::Vertical, 0);
     root.add_css_class("nav-rail");
     root.set_width_request(200);
     root.append(&brand_row);
     root.append(&list);
     root.append(&spacer);
+    root.append(&restart);
 
     NavRail {
         root: root.upcast(),
         list,
         labels,
         rows,
+        restart,
     }
 }
 
@@ -973,6 +1020,13 @@ const STYLE: &str = r#"
 .nav-label { font-weight: 700; color: @muted_fg; }
 .nav-row:selected .nav-icon { color: @pearl_light; }
 .nav-row:selected .nav-label { color: @window_fg_color; }
+.nav-action {
+    border-radius: 3px;
+    margin: 10px;
+    padding: 7px 10px;
+}
+.nav-action:hover .nav-icon { color: @pearl_light; }
+.nav-action:hover .nav-label { color: @window_fg_color; }
 
 /* Collection: card stock at rest, one foil card when selected. */
 gridview.collection-grid {
@@ -1065,7 +1119,15 @@ image.summary-dot.error { background-color: @error_color; }
 
 #[cfg(test)]
 mod search_race_tests {
-    use super::{accept_search, library_fills_shelf};
+    use super::{accept_search, closes_with_steam, library_fills_shelf};
+
+    #[test]
+    fn a_requested_restart_does_not_close_the_dashboard() {
+        assert!(closes_with_steam(true, false, false));
+        assert!(!closes_with_steam(true, false, true));
+        assert!(!closes_with_steam(false, false, false));
+        assert!(!closes_with_steam(true, true, false));
+    }
 
     #[test]
     fn only_the_latest_active_search_fills_the_shelf() {
