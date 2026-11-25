@@ -397,7 +397,11 @@ fn pending_summary(pending: &[Value], apps: &std::collections::BTreeMap<String, 
 /// A depot the plan switched off (another OS, an optional pack) never
 /// downloads, so its missing key is not a problem worth a warning.
 fn depot_needs_key(depot: &Value) -> bool {
-    depot.get("enabled").and_then(Value::as_bool).unwrap_or(true)
+    if !depot.get("enabled").and_then(Value::as_bool).unwrap_or(true) {
+        return false;
+    }
+    // Shared redistributable depots mount without a key.
+    !depot.get("shared").and_then(Value::as_bool).unwrap_or(false)
 }
 
 #[cfg(test)]

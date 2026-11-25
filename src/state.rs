@@ -317,6 +317,13 @@ pub fn app_summary(state: &State, record: &serde_json::Value) -> serde_json::Val
                 .and_then(serde_json::Value::as_bool)
                 .unwrap_or(true)
         })
+        // Shared redistributable depots are not encrypted and need no key.
+        .filter(|depot| {
+            !depot
+                .get("shared")
+                .and_then(serde_json::Value::as_bool)
+                .unwrap_or(false)
+        })
         .filter_map(|depot| depot.get("depot_id").and_then(serde_json::Value::as_u64))
         .filter(|id| !state.depot_keys.contains_key(&id.to_string()))
         .collect();

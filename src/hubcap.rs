@@ -235,6 +235,17 @@ pub struct Parsed {
     pub depots: Vec<Value>,
 }
 
+/// The text between `name(` and the final `)`, matched case-insensitively.
+fn call_inner(line: &str, name: &str) -> Option<String> {
+    let lower = line.to_ascii_lowercase();
+    let prefix = format!("{name}(");
+    if lower.starts_with(&prefix) && line.ends_with(')') {
+        Some(line[prefix.len()..line.len() - 1].to_string())
+    } else {
+        None
+    }
+}
+
 fn call_args(line: &str) -> Vec<String> {
     let mut out = Vec::new();
     let mut current = String::new();
@@ -289,23 +300,16 @@ pub fn parse_lua(text: &str, appid: Option<u64>) -> Parsed {
         if stripped.is_empty() || stripped.starts_with("--") {
             continue;
         }
-        let lower = stripped.to_lowercase();
-        let args = if lower.starts_with("addappid(") {
-            call_args(
-                stripped
-                    .trim_start_matches("addappid(")
-                    .trim_end_matches(')'),
-            )
-        } else if lower.starts_with("setmanifestid(") {
-            call_args(
-                stripped
-                    .trim_start_matches("setmanifestid(")
-                    .trim_end_matches(')'),
-            )
+        // Registries write `setManifestid` with a capital M; SteamTools accepts
+        // any case, so the parser must too or those depots vanish from the plan.
+        let args = if let Some(inner) = call_inner(stripped, "addappid") {
+            call_args(&inner)
+        } else if let Some(inner) = call_inner(stripped, "setmanifestid") {
+            call_args(&inner)
         } else {
             continue;
         };
-        if lower.starts_with("addappid(") {
+        if call_inner(stripped, "addappid").is_some() {
             let Some(target) = args.first().and_then(|value| digits(value)) else {
                 continue;
             };

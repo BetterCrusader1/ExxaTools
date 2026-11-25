@@ -335,7 +335,15 @@ fn preserve_previous(previous: &[Value], fresh: Vec<Value>) -> Vec<Value> {
 /// mount and cancel the update with "content still encrypted". Keep the record
 /// (a later key restores it) but switch it off so the renderer, the summary
 /// and the doctor all agree on which depots are actually installable.
-fn sync_enabled(mut depots: Vec<Value>, keys: &BTreeMap<String, String>) -> Vec<Value> {
+///
+/// Depots the catalog does not list for this app are shared redistributables
+/// (228981/228988 and friends): they are not encrypted, so they mount without
+/// a key and must stay on.
+fn sync_enabled(
+    mut depots: Vec<Value>,
+    keys: &BTreeMap<String, String>,
+    own: Option<&BTreeSet<u64>>,
+) -> Vec<Value> {
     for depot in depots.iter_mut() {
         let Some(id) = depot.get("depot_id").and_then(Value::as_u64) else {
             continue;
@@ -344,11 +352,31 @@ fn sync_enabled(mut depots: Vec<Value>, keys: &BTreeMap<String, String>) -> Vec<
             .get(&id.to_string())
             .and_then(|key| state::valid_key(key))
             .is_some();
+        // Without a catalog every keyless depot is treated as encrypted, so a
+        // failed catalog fetch can never mount something undecryptable.
+        let shared = !keyed && own.is_some_and(|own| !own.contains(&id));
         if let Some(object) = depot.as_object_mut() {
-            object.insert("enabled".into(), Value::Bool(keyed));
+            object.insert("enabled".into(), Value::Bool(keyed || shared));
+            if shared {
+                object.insert("shared".into(), Value::Bool(true));
+            } else {
+                object.remove("shared");
+            }
         }
     }
     depots
+}
+
+fn catalog_depot_ids(catalog: Option<&Value>) -> Option<BTreeSet<u64>> {
+    catalog
+        .and_then(|value| value.get("depots"))
+        .and_then(Value::as_array)
+        .map(|list| {
+            list.iter()
+                .filter_map(|depot| depot.get("depot_id").and_then(Value::as_u64))
+                .collect::<BTreeSet<u64>>()
+        })
+        .filter(|set| !set.is_empty())
 }
 
 fn dlc_union(plans: &[SourcePlan]) -> Vec<u64> {
@@ -377,6 +405,9 @@ struct PlanDraft {
     providers: Vec<String>,
     resolved: Option<String>,
     source_depots: usize,
+    /// Depot ids the app's own catalog lists; anything else in the plan is a
+    /// shared redistributable depot. None when the catalog is unavailable.
+    own_depots: Option<BTreeSet<u64>>,
 }
 
 /// Persists a plan record from prepared depots and returns the summary payload.
@@ -389,6 +420,7 @@ fn save_plan(draft: PlanDraft, plans: &[SourcePlan]) -> Result<Value, String> {
         providers,
         resolved,
         source_depots,
+        own_depots,
     } = draft;
     state::update(|fresh| {
         let keys = import_keys(fresh, plans);
@@ -401,9 +433,10 @@ fn save_plan(draft: PlanDraft, plans: &[SourcePlan]) -> Result<Value, String> {
             .cloned()
             .unwrap_or_default();
         let depots = preserve_previous(&previous, depots);
-        let depots = sync_enabled(depots, &fresh.depot_keys);
+        let depots = sync_enabled(depots, &fresh.depot_keys, own_depots.as_ref());
         let missing: Vec<u64> = depots
             .iter()
+            .filter(|depot| !depot.get("shared").and_then(Value::as_bool).unwrap_or(false))
             .filter_map(|depot| depot.get("depot_id").and_then(Value::as_u64))
             .filter(|id| !fresh.depot_keys.contains_key(&id.to_string()))
             .collect();
@@ -462,6 +495,7 @@ fn catalog_plan(
         .map(|list| list.iter().filter_map(Value::as_u64).collect())
         .unwrap_or_default();
     let count = depots.len();
+    let own_depots = catalog_depot_ids(Some(catalog));
     let summary = save_plan(
         PlanDraft {
             appid,
@@ -471,6 +505,7 @@ fn catalog_plan(
             providers: Vec::new(),
             resolved,
             source_depots: count,
+            own_depots,
         },
         &[],
     )?;
@@ -539,6 +574,7 @@ pub fn fetch_plan(appid: u64, name_hint: Option<&str>) -> Result<Value, String> 
         .iter()
         .map(|plan| plan.parsed.depots.len())
         .sum::<usize>();
+    let own_depots = catalog_depot_ids(catalog.as_ref());
     let summary = save_plan(
         PlanDraft {
             appid,
@@ -548,6 +584,7 @@ pub fn fetch_plan(appid: u64, name_hint: Option<&str>) -> Result<Value, String> 
             providers: providers.clone(),
             resolved,
             source_depots: count,
+            own_depots,
         },
         &plans,
     )?;
@@ -687,6 +724,7 @@ fn merge_refresh_inputs(
             .cloned()
             .unwrap_or_default();
         let latest = fresh_depots(&sources, catalog.as_ref(), &branch);
+        let own = catalog_depot_ids(catalog.as_ref());
         let scoped = if previous.is_empty() {
             latest
         } else {
@@ -694,14 +732,20 @@ fn merge_refresh_inputs(
                 .into_iter()
                 .filter(|entry| {
                     let depot_id = entry.get("depot_id").and_then(Value::as_u64);
-                    previous
-                        .iter()
-                        .any(|old| old.get("depot_id").and_then(Value::as_u64) == depot_id)
+                    // Depots outside the app's own catalog are shared
+                    // redistributables the plan needs even on first refresh.
+                    let shared = own
+                        .as_ref()
+                        .is_some_and(|own| depot_id.is_some_and(|id| !own.contains(&id)));
+                    shared
+                        || previous
+                            .iter()
+                            .any(|old| old.get("depot_id").and_then(Value::as_u64) == depot_id)
                 })
                 .collect()
         };
         let planned = preserve_previous(&previous, scoped);
-        let planned = sync_enabled(planned, &keyed_now);
+        let planned = sync_enabled(planned, &keyed_now, own.as_ref());
         if planned.is_empty() {
             failures.push(json!({ "appid": appid, "error": "no downloadable depots in the catalog or sources" }));
             continue;
@@ -1012,6 +1056,42 @@ mod tests {
         );
         assert_eq!(depots[0]["depot_id"], 108603);
         assert_eq!(depots[0]["gid"], "300");
+    }
+
+    #[test]
+    fn pin_only_depots_enter_the_plan() {
+        let lua = "addappid(1158310)\nsetManifestid(228981,\"7613356809904826842\")\nsetmanifestid(1158311,\"7584914003502786044\",20381203637)\n";
+        let parsed = crate::hubcap::parse_lua(lua, Some(1158310));
+        let ids: Vec<u64> = parsed
+            .depots
+            .iter()
+            .filter_map(|d| d.get("depot_id").and_then(Value::as_u64))
+            .collect();
+        assert!(ids.contains(&228981), "pin-only depot missing: {ids:?}");
+        let plan = SourcePlan {
+            name: "manilua".into(),
+            parsed,
+        };
+        let fresh = fresh_depots(&[plan], None, "public");
+        let fresh_ids: Vec<u64> = fresh
+            .iter()
+            .filter_map(|d| d.get("depot_id").and_then(Value::as_u64))
+            .collect();
+        assert!(fresh_ids.contains(&228981), "fresh depots dropped it: {fresh_ids:?}");
+    }
+
+    #[test]
+    fn shared_depots_stay_on_without_keys() {
+        let keys = BTreeMap::new();
+        let own: BTreeSet<u64> = [621u64].into_iter().collect();
+        let depots = vec![
+            json!({ "depot_id": 621, "gid": "1" }),
+            json!({ "depot_id": 228981, "gid": "2" }),
+        ];
+        let out = sync_enabled(depots, &keys, Some(&own));
+        assert_eq!(out[0]["enabled"], false, "own keyless depot must switch off");
+        assert_eq!(out[1]["enabled"], true, "shared depot mounts without a key");
+        assert_eq!(out[1]["shared"], true);
     }
 
     #[test]

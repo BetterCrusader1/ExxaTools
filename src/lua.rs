@@ -67,7 +67,15 @@ pub fn render_plan(
                 .and_then(Value::as_bool)
                 .unwrap_or(true)
         })
-        .filter(|depot| key_for(depot).is_some())
+        // A shared redistributable depot is not encrypted, so it mounts with no
+        // key; everything else needs one.
+        .filter(|depot| {
+            key_for(depot).is_some()
+                || depot
+                    .get("shared")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false)
+        })
         .collect();
     let depot_ids: Vec<String> = active
         .iter()
@@ -130,6 +138,7 @@ pub fn render_plan(
     let keyless_depots: std::collections::BTreeSet<String> = depots
         .iter()
         .filter(|depot| key_for(depot).is_none())
+        .filter(|depot| !depot.get("shared").and_then(Value::as_bool).unwrap_or(false))
         .filter_map(|depot| depot.get("depot_id").and_then(value_to_id))
         .collect();
     let mounted_dlc: Vec<u64> = dlc
@@ -286,6 +295,23 @@ mod tests {
     }
 
     #[test]
+    fn shared_depot_pins_without_a_key() {
+        let depots = vec![json!({ "depot_id": 228981, "gid": "42", "shared": true })];
+        let text = render_plan(
+            620,
+            "Portal 2",
+            "public",
+            &depots,
+            &BTreeMap::new(),
+            &[],
+            "test",
+            "auto",
+        );
+        assert!(text.contains("setmanifestid(228981, \"42\")"));
+        assert!(!text.contains("addappid(228981, 1"));
+    }
+
+    #[test]
     fn renders_keys_pins_and_dlc() {
         let depots = vec![
             json!({ "depot_id": 621, "gid": "111", "size": 1200 }),
@@ -344,6 +370,18 @@ mod tests {
         assert!(text.contains("kind = \"json\""));
         assert!(text.contains("field = \"content\""));
         assert!(!text.contains("__SOURCES__"));
+    }
+
+    #[test]
+    fn provider_is_a_single_chunk_for_the_line_loader() {
+        // Vapor Forge loads a script line by line and executes every chunk that
+        // already parses; a bare `local` helper would be discarded before the
+        // callback runs and the callback would call nil globals. The wrapper
+        // must stay, or every manifest request errors with
+        // "attempt to call global 'decimal' (a nil value)".
+        let text = render_provider(&vec![json!("steamrun")]).unwrap();
+        assert_eq!(text.lines().next(), Some("do"));
+        assert_eq!(text.lines().last(), Some("end"));
     }
 
     #[test]

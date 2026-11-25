@@ -453,6 +453,28 @@ pub fn patch(appid: u64, mode: &Mode, steam_check: bool) -> Result<Value, String
     let original = std::fs::read_to_string(&path)
         .map_err(|error| format!("cannot read {}: {error}", path.display()))?;
     let before = read(appid)?;
+    // An install that never wrote a byte is not a broken finished install:
+    // marking it StateFlags=4 would hide the download forever. Drop the
+    // manifest (keeping a backup) so Steam offers a fresh install instead.
+    let empty_install = before.as_ref().is_some_and(|data| {
+        data.size_on_disk.unwrap_or(0) <= 0 && data.depots.is_empty()
+    });
+    if matches!(mode, Mode::Fix) && empty_install {
+        let backup = path.with_extension("acf.exxatools.bak");
+        if !backup.exists() {
+            std::fs::copy(&path, &backup)
+                .map_err(|error| format!("cannot back up {}: {error}", path.display()))?;
+        }
+        std::fs::remove_file(&path)
+            .map_err(|error| format!("cannot remove {}: {error}", path.display()))?;
+        return Ok(json!({
+            "path": path.display().to_string(),
+            "backup": backup.display().to_string(),
+            "mode": mode.as_str(),
+            "action": "removed-empty-manifest",
+            "detail": "nothing was installed yet; Steam now offers a fresh download",
+        }));
+    }
     let mut text = original.clone();
     let mut changes = Vec::new();
     for (key, value) in mode.settings() {

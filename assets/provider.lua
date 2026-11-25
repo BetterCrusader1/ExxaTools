@@ -1,7 +1,13 @@
+do
 -- ExxaTools manifest provider (generated __STAMP__)
 -- Vapor Forge calls fetch_manifest_code_ex(app_id, depot_id, gid) whenever Steam
 -- asks for a manifest request code the client cannot obtain itself, so plans
 -- keep resolving after a Steam update instead of holding stale codes.
+--
+-- The whole file sits inside one `do` block on purpose: Vapor Forge loads a
+-- script by feeding it line by line and executing every chunk that already
+-- parses, so a bare `local function ...` would run and be discarded before the
+-- callback is defined. One block keeps the helpers alive as upvalues.
 
 local SOURCES = __SOURCES__
 
@@ -81,4 +87,5 @@ function fetch_manifest_code_ex(app_id, depot_id, gid)
     index = index + 1
   end
   return nil
+end
 end
