@@ -229,7 +229,7 @@ fn added_toast(
 
 /// Failures fixed in Settings: no or expired key, no source, rate limits.
 fn needs_key_source(error: &str) -> bool {
-    ["plan source", "API key", "daily limit", "ryuu", "hubcap", "key"]
+    ["plan source", "API key", "daily limit", "ryuu", "hubcap", "manilua", "key"]
         .iter()
         .any(|needle| error.to_ascii_lowercase().contains(&needle.to_ascii_lowercase()))
 }

@@ -73,17 +73,31 @@ pub fn game_running() -> bool {
     false
 }
 
-pub fn is_running() -> bool {
-    if pid().is_some() {
-        return true;
+/// Pids of every process whose kernel name (`/proc/<pid>/comm`) is one of
+/// `names`. Reading /proc directly costs microseconds, where spawning `pgrep`
+/// cost milliseconds per poll.
+fn pids_named(names: &[&str]) -> Vec<i32> {
+    let Ok(entries) = std::fs::read_dir("/proc") else {
+        return Vec::new();
+    };
+    let mut pids = Vec::new();
+    for entry in entries.flatten() {
+        let file_name = entry.file_name();
+        let Some(pid) = file_name.to_str().and_then(|value| value.parse::<i32>().ok()) else {
+            continue;
+        };
+        let Ok(comm) = std::fs::read_to_string(format!("/proc/{pid}/comm")) else {
+            continue;
+        };
+        if names.contains(&comm.trim_end()) {
+            pids.push(pid);
+        }
     }
-    Command::new("pgrep")
-        .args(["-x", "steam"])
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status()
-        .map(|status| status.success())
-        .unwrap_or(false)
+    pids
+}
+
+pub fn is_running() -> bool {
+    pid().is_some() || !pids_named(&["steam"]).is_empty()
 }
 
 fn steam_pids() -> Vec<i32> {
@@ -91,16 +105,34 @@ fn steam_pids() -> Vec<i32> {
     if let Some(pid) = pid() {
         pids.push(pid);
     }
-    if let Ok(output) = Command::new("pgrep").arg("-x").arg("steam").output() {
-        for line in String::from_utf8_lossy(&output.stdout).lines() {
-            if let Ok(value) = line.trim().parse::<i32>() {
-                if !pids.contains(&value) {
-                    pids.push(value);
-                }
-            }
+    for value in pids_named(&["steam"]) {
+        if !pids.contains(&value) {
+            pids.push(value);
         }
     }
     pids
+}
+
+/// True while the client or any of its browser helpers is still alive. A new
+/// client started before the old helpers are gone can fail to take over the
+/// pipe, so a restart waits for this to clear instead of sleeping a fixed time.
+fn steam_tree_alive() -> bool {
+    is_running() || !pids_named(&["steamwebhelper"]).is_empty()
+}
+
+const POLL: std::time::Duration = std::time::Duration::from_millis(20);
+
+fn wait_until(timeout: std::time::Duration, mut done: impl FnMut() -> bool) -> bool {
+    let deadline = std::time::Instant::now() + timeout;
+    loop {
+        if done() {
+            return true;
+        }
+        if std::time::Instant::now() >= deadline {
+            return false;
+        }
+        std::thread::sleep(POLL);
+    }
 }
 
 fn audit_value(p: i32) -> Option<String> {
@@ -230,14 +262,7 @@ pub fn shutdown(timeout: std::time::Duration) -> Result<bool, String> {
         .stderr(Stdio::null())
         .status()
         .map_err(|error| format!("cannot run steam -shutdown: {error}"))?;
-    let deadline = std::time::Instant::now() + timeout;
-    while std::time::Instant::now() < deadline {
-        if !is_running() {
-            return Ok(true);
-        }
-        std::thread::sleep(std::time::Duration::from_millis(500));
-    }
-    Ok(!is_running())
+    Ok(wait_until(timeout, || !is_running()))
 }
 
 /// Steam is a GUI app: when we spawn it from a bare shell there is no DISPLAY.
@@ -539,13 +564,20 @@ pub fn ensure_server(port: u16) -> Result<bool, String> {
 }
 
 pub fn restart(extra_args: &[String]) -> Result<serde_json::Value, String> {
+    let began = std::time::Instant::now();
     let was_running = is_running();
     if was_running && !shutdown(std::time::Duration::from_secs(45))? {
         return Err("Steam did not shut down in time".into());
     }
-    std::thread::sleep(std::time::Duration::from_millis(1500));
+    if was_running {
+        wait_until(std::time::Duration::from_secs(5), || !steam_tree_alive());
+    }
     let started = start(extra_args)?;
-    Ok(serde_json::json!({ "stopped": was_running, "start": started }))
+    Ok(serde_json::json!({
+        "stopped": was_running,
+        "start": started,
+        "elapsed_ms": began.elapsed().as_millis() as u64,
+    }))
 }
 pub fn active_account() -> Option<(String, String)> {
     let root = root()?;

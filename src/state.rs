@@ -18,6 +18,9 @@ pub struct Settings {
     pub hubcap_key: String,
     pub ryuu_key: String,
     pub plan_sources: BTreeMap<String, serde_json::Value>,
+    /// Keyless registries are on unless the user switches them off.
+    pub manilua_disabled: bool,
+    pub steamtools_disabled: bool,
     pub theme: String,
     pub auto_update_plans: bool,
     /// Open the dashboard when Steam's UI comes up.
@@ -35,10 +38,12 @@ impl Default for Settings {
     fn default() -> Self {
         Self {
             manifest_providers: [
+                // Verified keyless code services, most reliable first. The Lua
+                // provider walks the list and stops at the first real code.
                 "steamrun",
-                "20770407",
                 "wudrm",
                 "manifestdex",
+                "20770407",
                 "opensteamtool",
             ]
             .iter()
@@ -52,6 +57,8 @@ impl Default for Settings {
             hubcap_key: String::new(),
             ryuu_key: String::new(),
             plan_sources: BTreeMap::new(),
+            manilua_disabled: false,
+            steamtools_disabled: false,
             theme: "dark".into(),
             auto_update_plans: true,
             open_with_steam: true,

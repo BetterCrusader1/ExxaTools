@@ -388,10 +388,15 @@ pub fn apply_to_state(
             .depots
             .iter()
             .map(|depot| {
+                let keyed = depot
+                    .get("key")
+                    .and_then(Value::as_str)
+                    .is_some_and(|key| key.len() == 64);
                 json!({
                     "depot_id": depot.get("depot_id").cloned().unwrap_or(Value::Null),
                     "gid": depot.get("gid").cloned().filter(|value| !value.is_null()).unwrap_or_else(|| json!("")),
                     "size": depot.get("size").cloned().unwrap_or(Value::Null),
+                    "enabled": keyed,
                 })
             })
             .collect();

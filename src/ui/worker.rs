@@ -280,7 +280,13 @@ fn run(command: Command, events: Sender<Event>) {
         }
         Command::RestartSteam => {
             match crate::steamctl::restart(&[]) {
-                Ok(_) => toast(&events, "Steam is restarting".into(), false),
+                Ok(result) => {
+                    let message = match result["elapsed_ms"].as_u64() {
+                        Some(ms) => format!("Steam relaunched in {:.1} s", ms as f64 / 1000.0),
+                        None => "Steam is restarting".into(),
+                    };
+                    toast(&events, message, false);
+                }
                 Err(error) => toast(&events, error, true),
             }
             let _ = events.send(Event::SteamRestarted);

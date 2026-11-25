@@ -35,7 +35,7 @@ const RULES: &[Rule] = &[
         title: "Downloaded content is still encrypted",
         detail: "A depot key is missing or wrong for this build; fetch keys again.",
         action: "keys",
-        needles: &["content still encrypted", "still encrypted", "depot key"],
+        needles: &["content still encrypted", "still encrypted", "missing decryption key", "depot key"],
     },
     Rule {
         id: "disk-write",
@@ -162,7 +162,10 @@ pub fn analyse(text: &str) -> Vec<Value> {
 pub fn from_files() -> Value {
     let mut sources: Vec<Value> = Vec::new();
     let mut incidents: Vec<Value> = Vec::new();
-    for path in [crate::paths::steam_log()] {
+    for path in [
+        crate::paths::steam_log(),
+        crate::paths::content_log(),
+    ] {
         let text = std::fs::read_to_string(&path).unwrap_or_default();
         let tail: String = {
             let lines: Vec<&str> = text.lines().rev().take(4000).collect();

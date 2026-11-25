@@ -1219,30 +1219,41 @@ fn post_route(
                 )),
             }
         }
-        "/api/settings" => update_route(|st| {
-            if let Some(object) = body.as_object() {
-                let current =
-                    serde_json::to_value(&st.settings).map_err(|error| (500, error.to_string()))?;
-                let mut merged: Map<String, Value> =
-                    current.as_object().cloned().unwrap_or_default();
-                for (key, value) in object {
-                    if key.starts_with("has_") {
-                        continue;
+        "/api/settings" => {
+            let result = update_route(|st| {
+                if let Some(object) = body.as_object() {
+                    let current =
+                        serde_json::to_value(&st.settings).map_err(|error| (500, error.to_string()))?;
+                    let mut merged: Map<String, Value> =
+                        current.as_object().cloned().unwrap_or_default();
+                    for (key, value) in object {
+                        if key.starts_with("has_") {
+                            continue;
+                        }
+                        if key == "sources" || key == "plan_sources" {
+                            merge_source_map(
+                                merged.entry(key.clone()).or_insert_with(|| json!({})),
+                                value,
+                            );
+                        } else {
+                            merged.insert(key.clone(), value.clone());
+                        }
                     }
-                    if key == "sources" || key == "plan_sources" {
-                        merge_source_map(
-                            merged.entry(key.clone()).or_insert_with(|| json!({})),
-                            value,
-                        );
-                    } else {
-                        merged.insert(key.clone(), value.clone());
-                    }
+                    st.settings = serde_json::from_value(Value::Object(merged))
+                        .map_err(|_| (400, "invalid settings".to_string()))?;
                 }
-                st.settings = serde_json::from_value(Value::Object(merged))
-                    .map_err(|_| (400, "invalid settings".to_string()))?;
+                Ok(public_settings(&st.settings))
+            })?;
+            // Keep the Vapor Forge provider chain in step with the saved order;
+            // otherwise a settings change never reaches the running client.
+            if let Ok(st) = state::load() {
+                let order = crate::lua::provider_order(&st);
+                if let Err(error) = crate::lua::republish_provider(&order) {
+                    eprintln!("exxa: manifest provider chain not written: {error}");
+                }
             }
-            Ok(public_settings(&st.settings))
-        }),
+            Ok(result)
+        }
         "/api/open" => {
             let target = body.get("target").and_then(Value::as_str).unwrap_or("");
             if target.is_empty() {
@@ -1529,6 +1540,18 @@ fn handle(mut stream: TcpStream) {
 pub fn serve(config: Config) -> Result<(), String> {
     let _ = PORT.set(config.port);
     let _ = TOKEN.set(crate::state::ensure_token()?);
+    // The provider chain is a generated file; refresh it at startup so an
+    // edited settings list (or an older file) never keeps a dead order alive.
+    if let Ok(st) = crate::state::load() {
+        let order = crate::lua::provider_order(&st);
+        match crate::lua::republish_provider(&order) {
+            Ok(path) => eprintln!(
+                "exxa: manifest provider chain: {}",
+                path.display()
+            ),
+            Err(error) => eprintln!("exxa: manifest provider chain not written: {error}"),
+        }
+    }
     if let Ok(value) =
         crate::http::get_json(&format!("http://127.0.0.1:{}/api/session", config.port))
     {

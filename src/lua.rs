@@ -48,6 +48,17 @@ pub fn render_plan(
     generated: &str,
     source: &str,
 ) -> String {
+    // A depot without a key cannot be decrypted, so pinning it only makes
+    // Steam retry a mount it will always fail ("content still encrypted",
+    // update canceled). Mount only what has a key; if a key arrives later the
+    // depot comes back on the next write.
+    let key_for = |depot: &Value| -> Option<String> {
+        depot
+            .get("depot_id")
+            .and_then(value_to_id)
+            .and_then(|id| keys.get(&id))
+            .and_then(|key| crate::state::valid_key(key))
+    };
     let active: Vec<&Value> = depots
         .iter()
         .filter(|depot| {
@@ -56,6 +67,7 @@ pub fn render_plan(
                 .and_then(Value::as_bool)
                 .unwrap_or(true)
         })
+        .filter(|depot| key_for(depot).is_some())
         .collect();
     let depot_ids: Vec<String> = active
         .iter()
@@ -75,26 +87,14 @@ pub fn render_plan(
     lines.push(String::new());
     lines.push(format!("addappid({appid})"));
 
-    let keyed: Vec<&Value> = active
-        .iter()
-        .copied()
-        .filter(|depot| {
-            depot
-                .get("depot_id")
-                .and_then(value_to_id)
-                .and_then(|id| keys.get(&id))
-                .and_then(|key| crate::state::valid_key(key))
-                .is_some()
-        })
-        .collect();
-    if !keyed.is_empty() {
+    if !active.is_empty() {
         lines.push(String::new());
         lines.push("-- depot decryption keys".into());
-        for depot in keyed {
-            if let Some(depot_id) = depot.get("depot_id").and_then(value_to_id) {
-                if let Some(key) = keys.get(&depot_id) {
-                    lines.push(format!("addappid({depot_id}, 1, {})", quote(key)));
-                }
+        for depot in &active {
+            if let (Some(depot_id), Some(key)) =
+                (depot.get("depot_id").and_then(value_to_id), key_for(depot))
+            {
+                lines.push(format!("addappid({depot_id}, 1, {})", quote(&key)));
             }
         }
     }
@@ -124,10 +124,23 @@ pub fn render_plan(
         }
     }
 
-    if !dlc.is_empty() {
+    // A DLC id that is also a keyless depot would ask Steam for content it
+    // cannot decrypt, so it is left out until a key shows up. Disabled depots
+    // count here too: their DLC app id must not be granted on its own.
+    let keyless_depots: std::collections::BTreeSet<String> = depots
+        .iter()
+        .filter(|depot| key_for(depot).is_none())
+        .filter_map(|depot| depot.get("depot_id").and_then(value_to_id))
+        .collect();
+    let mounted_dlc: Vec<u64> = dlc
+        .iter()
+        .copied()
+        .filter(|dlc_id| !keyless_depots.contains(&dlc_id.to_string()))
+        .collect();
+    if !mounted_dlc.is_empty() {
         lines.push(String::new());
         lines.push("-- DLC".into());
-        for dlc_id in dlc {
+        for dlc_id in mounted_dlc {
             lines.push(format!("addappid({dlc_id})"));
         }
     }
@@ -220,7 +233,16 @@ pub fn provider_order(state: &crate::state::State) -> Vec<Value> {
         .settings
         .manifest_providers
         .iter()
-        .map(|entry| serde_json::from_str::<Value>(entry).unwrap_or_else(|_| json!(entry)))
+        .map(|entry| {
+            // Only `{...}` entries are custom mirrors. A builtin id can be all
+            // digits ("20770407"), and parsing it as JSON would turn it into a
+            // number that resolve() silently drops.
+            if entry.trim_start().starts_with('{') {
+                serde_json::from_str::<Value>(entry).unwrap_or_else(|_| json!(entry))
+            } else {
+                json!(entry)
+            }
+        })
         .collect()
 }
 
@@ -259,6 +281,7 @@ mod tests {
     fn keys() -> BTreeMap<String, String> {
         let mut map = BTreeMap::new();
         map.insert("621".to_string(), "ab".repeat(32));
+        map.insert("624".to_string(), "cd".repeat(32));
         map
     }
 
@@ -268,6 +291,7 @@ mod tests {
             json!({ "depot_id": 621, "gid": "111", "size": 1200 }),
             json!({ "depot_id": 624, "gid": "222" }),
             json!({ "depot_id": 625 }),
+            json!({ "depot_id": 626, "gid": "333" }),
         ];
         let text = render_plan(
             620,
@@ -285,6 +309,9 @@ mod tests {
         assert!(text.contains("setmanifestid(624, \"222\")"));
         assert!(text.contains("addappid(650)"));
         assert!(!text.contains("setmanifestid(625"));
+        // 626 has a pin but no key: Steam could never decrypt it, so it must
+        // not reach the script at all.
+        assert!(!text.contains("setmanifestid(626"));
         assert_eq!(lint_hint(&text), 0);
     }
 
@@ -317,6 +344,22 @@ mod tests {
         assert!(text.contains("kind = \"json\""));
         assert!(text.contains("field = \"content\""));
         assert!(!text.contains("__SOURCES__"));
+    }
+
+    #[test]
+    fn numeric_builtin_ids_survive_provider_order() {
+        let mut state = crate::state::State::default();
+        state.settings.manifest_providers = vec![
+            "steamrun".into(),
+            "20770407".into(),
+            "{\"name\":\"mirror\",\"url\":\"https://m.example/{gid}\"}".into(),
+        ];
+        let order = provider_order(&state);
+        assert_eq!(order[1], json!("20770407"));
+        assert!(order[2].is_object());
+        let text = render_provider(&order).unwrap();
+        assert!(text.contains("name = \"20770407\""));
+        assert!(text.contains("name = \"mirror\""));
     }
 
     #[test]
@@ -557,7 +600,10 @@ mod record_tests {
             {"depot_id": 621, "gid": "1", "enabled": false},
             {"depot_id": 622, "gid": "2", "enabled": true}
         ]);
-        let text = render_record(&value, &BTreeMap::new());
+        let mut keys = BTreeMap::new();
+        keys.insert("621".to_string(), "ab".repeat(32));
+        keys.insert("622".to_string(), "cd".repeat(32));
+        let text = render_record(&value, &keys);
         assert!(
             !text.contains("setmanifestid(621"),
             "disabled depot was pinned: {text}"

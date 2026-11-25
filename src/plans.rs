@@ -20,6 +20,8 @@ pub enum Kind {
     Hubcap(String),
     Ryuu(String),
     Catalog,
+    Manilua,
+    Steamtools,
     Custom {
         url: String,
         header: Option<(String, String)>,
@@ -35,6 +37,18 @@ pub fn sources(settings: &Settings) -> Vec<PlanSource> {
         name: "catalog".into(),
         kind: Kind::Catalog,
     });
+    if !settings.manilua_disabled {
+        out.push(PlanSource {
+            name: "manilua".into(),
+            kind: Kind::Manilua,
+        });
+    }
+    if !settings.steamtools_disabled {
+        out.push(PlanSource {
+            name: "steamtools".into(),
+            kind: Kind::Steamtools,
+        });
+    }
     if !settings.hubcap_key.trim().is_empty() {
         out.push(PlanSource {
             name: "hubcap".into(),
@@ -128,6 +142,14 @@ impl PlanSource {
                 }
                 Ok(text)
             }
+            Kind::Manilua => keyless_lua(
+                &format!("https://maniluahub.com/api/files/{appid}/lua"),
+                "manilua",
+            ),
+            Kind::Steamtools => keyless_lua(
+                &format!("https://steamtools.games/api/files/{appid}/lua"),
+                "steamtools",
+            ),
             Kind::Custom { url, header } => {
                 let target = url.replace("{appid}", &appid.to_string());
                 let headers: Vec<(&str, &str)> = header
@@ -145,6 +167,33 @@ impl PlanSource {
 struct SourcePlan {
     name: String,
     parsed: crate::hubcap::Parsed,
+}
+
+/// A keyless registry answers with a plan lua. Require at least one real depot
+/// key: registries inflate placeholders (an all-zero key for an unknown app),
+/// and passing one on would turn into a keyless plan instead of letting the
+/// next source answer.
+fn keyless_lua(url: &str, label: &str) -> Result<String, String> {
+    let body = crate::http::get_with(url, None, None).map_err(|error| error.to_string())?;
+    let text = String::from_utf8_lossy(&body).into_owned();
+    if text.trim_start().starts_with('<') {
+        return Err(format!("{label} answered with an HTML page"));
+    }
+    let parsed = crate::hubcap::parse_lua(&text, None);
+    let has_real_key = parsed.depots.iter().any(|depot| {
+        depot
+            .get("key")
+            .and_then(Value::as_str)
+            .is_some_and(|key| {
+                key.len() == 64
+                    && key.chars().all(|ch| ch.is_ascii_hexdigit())
+                    && key.chars().any(|ch| ch != '0')
+            })
+    });
+    if !has_real_key {
+        return Err(format!("{label} has no depot keys for this app"));
+    }
+    Ok(text)
 }
 
 fn fetch_all_sources(appid: u64, settings: &Settings) -> (Vec<SourcePlan>, Vec<Value>) {
@@ -282,6 +331,26 @@ fn preserve_previous(previous: &[Value], fresh: Vec<Value>) -> Vec<Value> {
         .collect()
 }
 
+/// A depot with no key can never be mounted: Steam would retry an encrypted
+/// mount and cancel the update with "content still encrypted". Keep the record
+/// (a later key restores it) but switch it off so the renderer, the summary
+/// and the doctor all agree on which depots are actually installable.
+fn sync_enabled(mut depots: Vec<Value>, keys: &BTreeMap<String, String>) -> Vec<Value> {
+    for depot in depots.iter_mut() {
+        let Some(id) = depot.get("depot_id").and_then(Value::as_u64) else {
+            continue;
+        };
+        let keyed = keys
+            .get(&id.to_string())
+            .and_then(|key| state::valid_key(key))
+            .is_some();
+        if let Some(object) = depot.as_object_mut() {
+            object.insert("enabled".into(), Value::Bool(keyed));
+        }
+    }
+    depots
+}
+
 fn dlc_union(plans: &[SourcePlan]) -> Vec<u64> {
     plans
         .iter()
@@ -332,6 +401,7 @@ fn save_plan(draft: PlanDraft, plans: &[SourcePlan]) -> Result<Value, String> {
             .cloned()
             .unwrap_or_default();
         let depots = preserve_previous(&previous, depots);
+        let depots = sync_enabled(depots, &fresh.depot_keys);
         let missing: Vec<u64> = depots
             .iter()
             .filter_map(|depot| depot.get("depot_id").and_then(Value::as_u64))
@@ -587,6 +657,7 @@ fn merge_refresh_inputs(
         } = input;
         failures.extend(source_failures);
         let keys_changed = import_keys(st, &sources);
+        let keyed_now = st.depot_keys.clone();
         let provider_names: Vec<String> = sources.iter().map(|plan| plan.name.clone()).collect();
         let Some(record) = st.apps.get_mut(&appid.to_string()) else {
             continue;
@@ -630,6 +701,7 @@ fn merge_refresh_inputs(
                 .collect()
         };
         let planned = preserve_previous(&previous, scoped);
+        let planned = sync_enabled(planned, &keyed_now);
         if planned.is_empty() {
             failures.push(json!({ "appid": appid, "error": "no downloadable depots in the catalog or sources" }));
             continue;
@@ -873,7 +945,8 @@ mod tests {
         assert!(failures.is_empty());
         let depots = &fresh.apps["620"]["depots"];
         assert_eq!(depots[0]["gid"], "200");
-        assert_eq!(depots[0]["enabled"], false);
+        // A key landed during the fetch, so the depot is mountable again.
+        assert_eq!(depots[0]["enabled"], true);
         assert_eq!(depots[0]["size"], 777);
         let mut after = serde_json::to_value(&fresh).unwrap();
         after["apps"]["620"]["depots"] = before["apps"]["620"]["depots"].clone();
@@ -944,11 +1017,12 @@ mod tests {
     #[test]
     fn unchanged_plan_is_not_rewritten() {
         let mut fresh = state::State::default();
+        fresh.depot_keys.insert("621".into(), "a".repeat(64));
         fresh.apps.insert(
             "620".into(),
             json!({
                 "appid": 620, "branch": "public", "updated": "old",
-                "depots": [{"depot_id": 621, "gid": "100", "size": 1000}]
+                "depots": [{"depot_id": 621, "gid": "100", "size": 1000, "enabled": true}]
             }),
         );
         let catalog = json!({"depots": [{"depot_id": 621, "manifests": {"public": {"gid": "100", "size": 1000}}}]});
@@ -960,19 +1034,21 @@ mod tests {
     #[test]
     fn skips_sources_without_keys() {
         let list = sources(&settings_with("", ""));
-        assert_eq!(list.len(), 1);
-        assert_eq!(list[0].name, "catalog");
+        let names: Vec<&str> = list.iter().map(|source| source.name.as_str()).collect();
+        assert_eq!(names, vec!["catalog", "manilua", "steamtools"]);
         let list = sources(&settings_with("", "abc"));
-        assert_eq!(list.len(), 2);
-        assert_eq!(list[0].name, "catalog");
-        assert_eq!(list[1].name, "ryuu");
+        let names: Vec<&str> = list.iter().map(|source| source.name.as_str()).collect();
+        assert_eq!(names, vec!["catalog", "manilua", "steamtools", "ryuu"]);
     }
 
     #[test]
     fn keeps_the_configured_order() {
         let list = sources(&settings_with("hub", "ryuu"));
         let names: Vec<&str> = list.iter().map(|source| source.name.as_str()).collect();
-        assert_eq!(names, vec!["catalog", "hubcap", "ryuu"]);
+        assert_eq!(
+            names,
+            vec!["catalog", "manilua", "steamtools", "hubcap", "ryuu"]
+        );
     }
 
     #[test]
@@ -987,9 +1063,8 @@ mod tests {
             json!({ "url": "http://127.0.0.1:1/lua/{appid}.lua" }),
         );
         let list = sources(&settings);
-        assert_eq!(list.len(), 2);
-        assert_eq!(list[0].name, "catalog");
-        assert_eq!(list[1].name, "good");
+        let names: Vec<&str> = list.iter().map(|source| source.name.as_str()).collect();
+        assert_eq!(names, vec!["catalog", "manilua", "steamtools", "good"]);
     }
 
     #[test]
@@ -1021,7 +1096,11 @@ mod tests {
         );
         // Use a non-existent appid so catalog source fails, then dead fails, then live succeeds
         let list = sources(&settings);
-        assert_eq!(list.len(), 3, "catalog plus both custom sources should register");
+        assert_eq!(
+            list.len(),
+            5,
+            "catalog, manilua, steamtools, plus both custom sources should register"
+        );
         assert_eq!(list[0].name, "catalog");
         let mut tried = Vec::new();
         let mut lua = None;
@@ -1032,8 +1111,12 @@ mod tests {
                 break;
             }
         }
-        // catalog fails (no such app), dead fails (port 1), live succeeds
-        assert_eq!(tried, vec!["catalog", "dead", "live"]);
+        // Every real registry answers a placeholder for an unknown app; the
+        // all-zero key is rejected, so the chain reaches the live custom source.
+        assert_eq!(
+            tried,
+            vec!["catalog", "manilua", "steamtools", "dead", "live"]
+        );
         assert!(lua.unwrap().contains("addappid(621"));
     }
 }

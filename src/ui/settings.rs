@@ -13,10 +13,12 @@ use crate::ui::worker::{Command, SettingsDraft};
 type ProviderToggle = (String, adw::SwitchRow);
 
 const NOT_CONFIGURED: &str = "Not configured";
-const SOURCE_LABELS: [&str; 4] = [
+const SOURCE_LABELS: [&str; 6] = [
     "Automatic — first configured source",
     "Hubcap Manifest",
     "Ryuu",
+    "ManiLua (no key)",
+    "SteamTools.games (no key)",
     "Custom plan source",
 ];
 
@@ -367,6 +369,53 @@ pub fn build(ctx: &Ctx) -> SettingsPage {
     sources.add(&hubcap);
     sources.add(&ryuu);
     page.add(&sources);
+
+    // Every plan source in one place: the catalog and the two keyless
+    // registries are switches, the key-backed ones live above as key fields.
+    let free = adw::PreferencesGroup::builder()
+        .title("Free plan sources")
+        .description("No API key needed. The catalog carries manifests only; the registries also carry depot keys.")
+        .build();
+    let catalog_row = adw::ActionRow::builder()
+        .title("Steam catalog")
+        .subtitle("Always on — manifests and sizes, no depot keys")
+        .build();
+    free.add(&catalog_row);
+    type FlagApply = fn(&mut crate::state::Settings, bool);
+    let free_rows: [(&str, &str, bool, FlagApply); 2] = [
+        (
+            "ManiLuaHub",
+            "maniluahub.com — lua with depot keys",
+            !loaded.settings.manilua_disabled,
+            |settings, on| settings.manilua_disabled = !on,
+        ),
+        (
+            "SteamTools.games",
+            "steamtools.games — lua with depot keys",
+            !loaded.settings.steamtools_disabled,
+            |settings, on| settings.steamtools_disabled = !on,
+        ),
+    ];
+    for (title, subtitle, active, apply) in free_rows {
+        let row = adw::SwitchRow::builder()
+            .title(title)
+            .subtitle(subtitle)
+            .active(active)
+            .build();
+        row.set_cursor_from_name(Some("pointer"));
+        let ctx = ctx.clone();
+        row.connect_active_notify(move |row| {
+            let value = row.is_active();
+            if let Err(error) = crate::state::update(|state| {
+                apply(&mut state.settings, value);
+                Ok(())
+            }) {
+                ctx.toast_text(&format!("Could not save: {error}"));
+            }
+        });
+        free.add(&row);
+    }
+    page.add(&free);
 
     let current = loaded.settings.manifest_providers.clone();
     let toggles: Vec<ProviderToggle> = BUILTIN_PROVIDERS
@@ -735,7 +784,9 @@ fn source_index(name: &str) -> u32 {
     match name {
         "hubcap" => 1,
         "ryuu" => 2,
-        "custom" => 3,
+        "manilua" => 3,
+        "steamtools" => 4,
+        "custom" => 5,
         _ => 0,
     }
 }
@@ -744,7 +795,9 @@ fn source_name(selected: u32) -> &'static str {
     match selected {
         1 => "hubcap",
         2 => "ryuu",
-        3 => "custom",
+        3 => "manilua",
+        4 => "steamtools",
+        5 => "custom",
         _ => "auto",
     }
 }
@@ -1184,6 +1237,8 @@ mod tests {
         assert_eq!(source_name(source_index("auto")), "auto");
         assert_eq!(source_name(source_index("hubcap")), "hubcap");
         assert_eq!(source_name(source_index("ryuu")), "ryuu");
+        assert_eq!(source_name(source_index("manilua")), "manilua");
+        assert_eq!(source_name(source_index("steamtools")), "steamtools");
         assert_eq!(source_name(source_index("custom")), "custom");
         assert_eq!(country_code(country_index("ua"), ""), "ua");
         assert_eq!(country_code(country_index("nl"), "NL"), "nl");

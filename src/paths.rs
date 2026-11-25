@@ -126,6 +126,10 @@ pub fn steam_log() -> PathBuf {
     data_home().join("Steam/logs/console-linux.txt")
 }
 
+pub fn content_log() -> PathBuf {
+    data_home().join("Steam/logs/content_log.txt")
+}
+
 /// systemd drop-ins the Vapor Forge installer writes for the Steam unit.
 pub fn systemd_dropins() -> Vec<PathBuf> {
     let base = config_home().join("systemd/user");

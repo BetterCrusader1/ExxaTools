@@ -11,9 +11,9 @@ pub fn builtin() -> Vec<Value> {
             "Auto (all providers, in order)",
             vec![
                 "steamrun",
-                "20770407",
                 "wudrm",
                 "manifestdex",
+                "20770407",
                 "opensteamtool",
             ],
         ),
