@@ -345,14 +345,18 @@ fn fresh_depots(plans: &[SourcePlan], catalog: Option<&Value>, branch: &str, os:
         None => true,
     };
     let mut candidates: BTreeMap<u64, Vec<(String, Option<u64>)>> = BTreeMap::new();
-    // Add catalog depots as candidates (same weight as any source)
+    // The Steam catalog is authoritative for the branch. Manifest ids are random
+    // 64-bit numbers, not a counter, so a bigger id is not a newer build: picking
+    // the largest one across sources pinned the shared data depot to an old
+    // build next to a current executable.
+    let mut from_catalog: BTreeMap<u64, (String, Option<u64>)> = BTreeMap::new();
     if let Some(cat) = catalog {
         let cat_depots = catalog_depots(Some(cat), branch);
         for (depot_id, (gid, size)) in cat_depots {
             if !platform_ok(depot_id) {
                 continue;
             }
-            candidates.entry(depot_id).or_default().push((gid, size));
+            from_catalog.insert(depot_id, (gid, size));
         }
     }
     // Add plan source depots as candidates
@@ -375,7 +379,19 @@ fn fresh_depots(plans: &[SourcePlan], catalog: Option<&Value>, branch: &str, os:
         }
     }
     let mut out = Vec::new();
+    for (depot_id, (gid, size)) in &from_catalog {
+        let size = size.or_else(|| {
+            candidates
+                .get(depot_id)
+                .and_then(|list| list.iter().find(|(other, _)| other == gid))
+                .and_then(|(_, size)| *size)
+        });
+        out.push(json!({ "depot_id": depot_id, "gid": gid, "size": size }));
+    }
     for (depot_id, list) in candidates {
+        if from_catalog.contains_key(&depot_id) {
+            continue;
+        }
         let mut best = &list[0];
         for candidate in &list[1..] {
             let candidate_gid = candidate.0.parse::<u64>().unwrap_or(0);
@@ -1077,6 +1093,16 @@ mod tests {
             2,
             "both sources contribute keys"
         );
+    }
+
+    #[test]
+    fn catalog_gid_wins_even_when_a_source_gid_is_numerically_larger() {
+        let plans = vec![source("stale", 620, 621, "900", &"a".repeat(64))];
+        let catalog = json!({"depots": [{"depot_id": 621, "manifests": {"public": {"gid": "200", "size": 99}}}]});
+        let depots = fresh_depots(&plans, Some(&catalog), "public", "linux");
+        assert_eq!(depots.len(), 1);
+        assert_eq!(depots[0]["gid"], "200", "an old build with a bigger id must not win");
+        assert_eq!(depots[0]["size"], 99);
     }
 
     #[test]
