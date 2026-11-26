@@ -197,9 +197,23 @@ fn keyless_lua(url: &str, label: &str) -> Result<String, String> {
 }
 
 fn fetch_all_sources(appid: u64, settings: &Settings) -> (Vec<SourcePlan>, Vec<Value>) {
+    fetch_sources_filtered(appid, settings, false)
+}
+
+/// Quota-carrying sources (Hubcap daily limits, Ryuu free keys) burn their
+/// allowance on every round otherwise. When each planned depot already has a
+/// key they add nothing, so only the free keyless registries are asked.
+fn fetch_sources_filtered(
+    appid: u64,
+    settings: &Settings,
+    skip_quota: bool,
+) -> (Vec<SourcePlan>, Vec<Value>) {
     let mut plans = Vec::new();
     let mut failures = Vec::new();
     for source in sources(settings) {
+        if skip_quota && matches!(source.kind, Kind::Hubcap(_) | Kind::Ryuu(_)) {
+            continue;
+        }
         match source.fetch(appid) {
             Ok(lua) => {
                 let parsed = crate::hubcap::parse_lua(&lua, Some(appid));
@@ -717,14 +731,32 @@ fn refresh_filtered(only: Option<u64>) -> Result<Value, String> {
         return Ok(json!({ "updated": 0, "scripts": 0, "snapshots": 0, "failures": [] }));
     }
     let settings = st.settings.clone();
+    let coverage: std::collections::BTreeMap<u64, bool> = appids
+        .iter()
+        .map(|appid| {
+            let covered = st
+                .apps
+                .get(&appid.to_string())
+                .and_then(|record| record.get("depots"))
+                .and_then(Value::as_array)
+                .is_some_and(|depots| {
+                    !depots.is_empty()
+                        && depots
+                            .iter()
+                            .all(|depot| depot.get("enabled").and_then(Value::as_bool).unwrap_or(false))
+                });
+            (*appid, covered)
+        })
+        .collect();
     drop(st);
     // Network and source I/O happen outside the writer transaction. The merge
     // later reads the newest state, so edits made meanwhile are not overwritten.
     let inputs: Vec<RefreshInput> = appids
         .into_iter()
         .map(|appid| {
+            let covered = coverage.get(&appid).copied().unwrap_or(false);
             let catalog = crate::steam::catalog(appid);
-            let (sources, failures) = fetch_all_sources(appid, &settings);
+            let (sources, failures) = fetch_sources_filtered(appid, &settings, covered);
             RefreshInput {
                 appid,
                 catalog,
