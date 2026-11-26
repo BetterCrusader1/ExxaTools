@@ -645,7 +645,19 @@ pub fn fetch_plan(appid: u64, name_hint: Option<&str>) -> Result<Value, String> 
             "Not added: no depot keys for {label} ({reasons}). Nothing was written; try again once the source answers."
         ));
     }
-    let os = effective_os(catalog.as_ref(), &settings.settings.default_os);
+    let existing_os = state::load()
+        .ok()
+        .and_then(|st| {
+            st.apps
+                .get(&appid.to_string())
+                .and_then(|record| record.get("os").and_then(Value::as_str))
+                .filter(|value| !value.trim().is_empty())
+                .map(str::to_string)
+        });
+    let os = effective_os(
+        catalog.as_ref(),
+        existing_os.as_deref().unwrap_or(&settings.settings.default_os),
+    );
     let depots = fresh_depots(&plans, catalog.as_ref(), &branch, &os);
     if depots.is_empty() {
         return Err(format!("no downloadable depots found for {appid}"));
@@ -823,10 +835,22 @@ fn merge_refresh_inputs(
             .and_then(Value::as_array)
             .cloned()
             .unwrap_or_default();
-        let os = effective_os(catalog.as_ref(), &st.settings.default_os);
+        let preferred_os = record
+            .get("os")
+            .and_then(Value::as_str)
+            .filter(|value| !value.trim().is_empty())
+            .unwrap_or(&st.settings.default_os);
+        let os = effective_os(catalog.as_ref(), preferred_os);
         let latest = fresh_depots(&sources, catalog.as_ref(), &branch, &os);
         let own = catalog_depot_ids(catalog.as_ref());
-        let scoped = if previous.is_empty() {
+        // An explicit os override is a user decision to reshape the plan — a
+        // Proton switch needs the Windows depots even though they were never
+        // mounted before — so the previous-membership scope does not apply.
+        let os_override = record
+            .get("os")
+            .and_then(Value::as_str)
+            .is_some_and(|value| !value.trim().is_empty());
+        let scoped = if previous.is_empty() || os_override {
             latest
         } else {
             latest
