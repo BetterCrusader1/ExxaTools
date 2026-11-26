@@ -746,9 +746,8 @@ fn refresh_filtered(only: Option<u64>) -> Result<Value, String> {
     let coverage: std::collections::BTreeMap<u64, bool> = appids
         .iter()
         .map(|appid| {
-            let covered = st
-                .apps
-                .get(&appid.to_string())
+            let record = st.apps.get(&appid.to_string());
+            let fully_keyed = record
                 .and_then(|record| record.get("depots"))
                 .and_then(Value::as_array)
                 .is_some_and(|depots| {
@@ -757,7 +756,23 @@ fn refresh_filtered(only: Option<u64>) -> Result<Value, String> {
                             .iter()
                             .all(|depot| depot.get("enabled").and_then(Value::as_bool).unwrap_or(false))
                 });
-            (*appid, covered)
+            // Hubcap allows 25 manifests a day. A game still missing a key was
+            // asked on every refresh and every restart, which drained it. A
+            // background round now asks at most once a day per game; an
+            // explicit per-game refresh always asks.
+            let asked_today = only.is_none()
+                && record
+                    .and_then(|record| record.get("quota_checked"))
+                    .and_then(Value::as_str)
+                    .and_then(|value| value.parse::<u64>().ok())
+                    .is_some_and(|then| {
+                        crate::vfsys::stamp()
+                            .parse::<u64>()
+                            .unwrap_or(0)
+                            .saturating_sub(then)
+                            < 86_400
+                    });
+            (*appid, fully_keyed || asked_today)
         })
         .collect();
     drop(st);
@@ -777,8 +792,20 @@ fn refresh_filtered(only: Option<u64>) -> Result<Value, String> {
             }
         })
         .collect();
-    let (refreshed, snapshots, failures) =
-        state::update(|fresh| Ok(merge_refresh_inputs(fresh, inputs)))?;
+    let asked: Vec<u64> = inputs
+        .iter()
+        .filter(|input| !coverage.get(&input.appid).copied().unwrap_or(false))
+        .map(|input| input.appid)
+        .collect();
+    let (refreshed, snapshots, failures) = state::update(|fresh| {
+        let report = merge_refresh_inputs(fresh, inputs);
+        for appid in &asked {
+            if let Some(record) = fresh.apps.get_mut(&appid.to_string()) {
+                record["quota_checked"] = json!(crate::vfsys::stamp());
+            }
+        }
+        Ok(report)
+    })?;
     let mut rewritten = 0;
     for &appid in &refreshed {
         if crate::vfsys::script_path(appid).exists() && write_script(appid).unwrap_or(false) {
