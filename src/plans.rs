@@ -268,12 +268,76 @@ fn catalog_depots(catalog: Option<&Value>, branch: &str) -> BTreeMap<u64, (Strin
     out
 }
 
-fn fresh_depots(plans: &[SourcePlan], catalog: Option<&Value>, branch: &str) -> Vec<Value> {
+/// `oslist` of every depot the catalog knows, keyed by depot id. An empty list
+/// means the depot is platform-neutral. Depots missing from the catalog are not
+/// in the map at all: they are shared redistributables or source-only entries.
+fn catalog_oslists(catalog: Option<&Value>) -> BTreeMap<u64, Vec<String>> {
+    let mut out = BTreeMap::new();
+    let Some(list) = catalog
+        .and_then(|value| value.get("depots"))
+        .and_then(Value::as_array)
+    else {
+        return out;
+    };
+    for depot in list {
+        let Some(depot_id) = depot.get("depot_id").and_then(Value::as_u64) else {
+            continue;
+        };
+        let oslist: Vec<String> = depot
+            .get("oslist")
+            .and_then(Value::as_array)
+            .map(|list| {
+                list.iter()
+                    .filter_map(Value::as_str)
+                    .map(str::to_string)
+                    .collect()
+            })
+            .unwrap_or_default();
+        out.insert(depot_id, oslist);
+    }
+    out
+}
+
+fn os_allows(oslist: &[String], os: &str) -> bool {
+    oslist.is_empty() || oslist.iter().any(|value| value == os)
+}
+
+/// The platform this app is actually going to run on. A game with native depots
+/// for the preferred OS uses them; a game without them runs through Proton, so
+/// its Windows depots are the right ones and must stay.
+fn effective_os(catalog: Option<&Value>, preferred: &str) -> String {
+    let oslists = catalog_oslists(catalog);
+    let has = |os: &str| {
+        oslists
+            .values()
+            .any(|list| list.iter().any(|value| value == os))
+    };
+    if has(preferred) || !has("windows") {
+        preferred.to_string()
+    } else {
+        "windows".to_string()
+    }
+}
+
+fn fresh_depots(plans: &[SourcePlan], catalog: Option<&Value>, branch: &str, os: &str) -> Vec<Value> {
+    // A depot built for another OS must never enter the plan: platform depots
+    // share file paths with the native ones (a macOS `launcher/dowser` next to
+    // the Linux one), so mounting them overwrites the native files during the
+    // download and the game cannot start. Depots the catalog does not list are
+    // shared redistributables and are always kept.
+    let oslists = catalog_oslists(catalog);
+    let platform_ok = |depot_id: u64| match oslists.get(&depot_id) {
+        Some(oslist) => os_allows(oslist, os),
+        None => true,
+    };
     let mut candidates: BTreeMap<u64, Vec<(String, Option<u64>)>> = BTreeMap::new();
     // Add catalog depots as candidates (same weight as any source)
     if let Some(cat) = catalog {
         let cat_depots = catalog_depots(Some(cat), branch);
         for (depot_id, (gid, size)) in cat_depots {
+            if !platform_ok(depot_id) {
+                continue;
+            }
             candidates.entry(depot_id).or_default().push((gid, size));
         }
     }
@@ -283,6 +347,9 @@ fn fresh_depots(plans: &[SourcePlan], catalog: Option<&Value>, branch: &str) -> 
             let Some(depot_id) = depot.get("depot_id").and_then(Value::as_u64) else {
                 continue;
             };
+            if !platform_ok(depot_id) {
+                continue;
+            }
             let gid = depot.get("gid").and_then(Value::as_str).unwrap_or("");
             if gid.is_empty() || !gid.chars().all(|ch| ch.is_ascii_digit()) {
                 continue;
@@ -564,7 +631,8 @@ pub fn fetch_plan(appid: u64, name_hint: Option<&str>) -> Result<Value, String> 
             "Not added: no depot keys for {label} ({reasons}). Nothing was written; try again once the source answers."
         ));
     }
-    let depots = fresh_depots(&plans, catalog.as_ref(), &branch);
+    let os = effective_os(catalog.as_ref(), &settings.settings.default_os);
+    let depots = fresh_depots(&plans, catalog.as_ref(), &branch, &os);
     if depots.is_empty() {
         return Err(format!("no downloadable depots found for {appid}"));
     }
@@ -723,7 +791,8 @@ fn merge_refresh_inputs(
             .and_then(Value::as_array)
             .cloned()
             .unwrap_or_default();
-        let latest = fresh_depots(&sources, catalog.as_ref(), &branch);
+        let os = effective_os(catalog.as_ref(), &st.settings.default_os);
+        let latest = fresh_depots(&sources, catalog.as_ref(), &branch, &os);
         let own = catalog_depot_ids(catalog.as_ref());
         let scoped = if previous.is_empty() {
             latest
@@ -916,7 +985,7 @@ mod tests {
             source("new", 620, 621, "200", &"b".repeat(64)),
         ];
         let catalog = json!({"depots": [{"depot_id": 621, "manifests": {"public": {"gid": "200", "size": 99}}}]});
-        let depots = fresh_depots(&plans, Some(&catalog), "public");
+        let depots = fresh_depots(&plans, Some(&catalog), "public", "linux");
         assert_eq!(depots[0]["gid"], "200");
         assert_eq!(depots[0]["size"], 99);
         let mut st = state::State::default();
@@ -933,9 +1002,73 @@ mod tests {
             source("old", 620, 621, "100", ""),
             source("new", 620, 621, "200", ""),
         ];
-        let depots = fresh_depots(&plans, None, "public");
+        let depots = fresh_depots(&plans, None, "public", "linux");
         assert_eq!(depots[0]["gid"], "200");
         assert_eq!(depots[0]["size"], 42);
+    }
+
+    fn multi_source(appid: u64, depots: &[(u64, &str)]) -> SourcePlan {
+        SourcePlan {
+            name: "multi".into(),
+            parsed: crate::hubcap::Parsed {
+                appid: Some(appid),
+                dlc: Vec::new(),
+                depots: depots
+                    .iter()
+                    .map(|(depot_id, gid)| json!({ "depot_id": depot_id, "gid": gid, "size": 42 }))
+                    .collect(),
+            },
+        }
+    }
+
+    #[test]
+    fn wrong_platform_depots_never_enter_the_plan() {
+        // Mirrors the CK3 layout: platform depots share file paths, so mounting
+        // the Windows or macOS ones overwrites the Linux files on disk.
+        let catalog = json!({"depots": [
+            { "depot_id": 100, "oslist": [], "manifests": { "public": { "gid": "10", "size": 1 } } },
+            { "depot_id": 112, "oslist": ["windows"], "manifests": { "public": { "gid": "12", "size": 1 } } },
+            { "depot_id": 113, "oslist": ["macos"], "manifests": { "public": { "gid": "13", "size": 1 } } },
+            { "depot_id": 114, "oslist": ["linux"], "manifests": { "public": { "gid": "14", "size": 1 } } },
+        ]});
+        let plans = vec![multi_source(620, &[(100, "10"), (112, "12"), (113, "13"), (114, "14"), (228981, "15")])];
+        let os = effective_os(Some(&catalog), "linux");
+        assert_eq!(os, "linux");
+        let depots = fresh_depots(&plans, Some(&catalog), "public", &os);
+        let ids: Vec<u64> = depots
+            .iter()
+            .filter_map(|depot| depot.get("depot_id").and_then(Value::as_u64))
+            .collect();
+        assert!(ids.contains(&100), "platform-neutral depot dropped: {ids:?}");
+        assert!(ids.contains(&114), "linux depot dropped: {ids:?}");
+        assert!(ids.contains(&228981), "shared redistributable dropped: {ids:?}");
+        assert!(!ids.contains(&112), "windows depot survived: {ids:?}");
+        assert!(!ids.contains(&113), "macos depot survived: {ids:?}");
+    }
+
+    #[test]
+    fn windows_only_game_keeps_windows_depots_for_proton() {
+        let catalog = json!({"depots": [
+            { "depot_id": 112, "oslist": ["windows"], "manifests": { "public": { "gid": "12", "size": 1 } } },
+        ]});
+        let os = effective_os(Some(&catalog), "linux");
+        assert_eq!(os, "windows", "a game without linux depots runs through proton");
+        let plans = vec![multi_source(620, &[(112, "12")])];
+        let depots = fresh_depots(&plans, Some(&catalog), "public", &os);
+        let ids: Vec<u64> = depots
+            .iter()
+            .filter_map(|depot| depot.get("depot_id").and_then(Value::as_u64))
+            .collect();
+        assert_eq!(ids, vec![112]);
+    }
+
+    #[test]
+    fn offline_without_catalog_keeps_every_source_depot() {
+        // No catalog means no oslist knowledge: nothing may be filtered away,
+        // otherwise a Steam outage would silently gut every plan.
+        let plans = vec![multi_source(620, &[(112, "12"), (114, "14")])];
+        let depots = fresh_depots(&plans, None, "public", "linux");
+        assert_eq!(depots.len(), 2);
     }
 
     #[test]
@@ -1072,7 +1205,7 @@ mod tests {
             name: "manilua".into(),
             parsed,
         };
-        let fresh = fresh_depots(&[plan], None, "public");
+        let fresh = fresh_depots(&[plan], None, "public", "linux");
         let fresh_ids: Vec<u64> = fresh
             .iter()
             .filter_map(|d| d.get("depot_id").and_then(Value::as_u64))
