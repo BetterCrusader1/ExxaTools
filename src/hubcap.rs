@@ -290,13 +290,32 @@ fn digits(value: &str) -> Option<u64> {
     }
 }
 
+/// Hubcap annotates keyed lines with a trailing `-- Depot name` comment, and a
+/// naive `ends_with(')')` check then throws the key away. Cut `--` comments that
+/// start outside quotes before the call parsing runs.
+fn strip_comment(line: &str) -> &str {
+    let mut quote: Option<char> = None;
+    let mut previous = '\0';
+    for (index, ch) in line.char_indices() {
+        match quote {
+            Some(active) if ch == active => quote = None,
+            Some(_) => {}
+            None if ch == '"' || ch == '\'' => quote = Some(ch),
+            None if ch == '-' && previous == '-' => return line[..index - 1].trim_end(),
+            None => {}
+        }
+        previous = ch;
+    }
+    line
+}
+
 pub fn parse_lua(text: &str, appid: Option<u64>) -> Parsed {
     let mut apps: Vec<u64> = Vec::new();
     let mut depots: std::collections::BTreeMap<u64, Value> = std::collections::BTreeMap::new();
     let mut pins: std::collections::BTreeMap<u64, (String, Option<u64>)> =
         std::collections::BTreeMap::new();
     for line in text.lines() {
-        let stripped = line.trim();
+        let stripped = strip_comment(line.trim());
         if stripped.is_empty() || stripped.starts_with("--") {
             continue;
         }
